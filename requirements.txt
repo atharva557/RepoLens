@@ -1,0 +1,22 @@
+# GitPulse v0.1 (Foundation) dependencies.
+# The pure-logic core (classification, feature extraction, scoring) needs only
+# the Python stdlib. The packages below power the git/GitHub and storage layers.
+
+GitPython>=3.1        # read commit history from a local clone
+PyGithub>=2.3         # GitHub REST API (repo metadata; used more in later versions)
+radon>=6.0            # cyclomatic complexity for Python files
+pymongo>=4.7          # MongoDB driver (primary datastore)
+python-dotenv>=1.0    # optional: .env loading (a stdlib fallback is built in)
+
+# --- optional: XGBoost "second opinion" model (Tool 1 ML variant) ---
+# Only needed if you train/use the ML model; the weighted scorer works without these.
+xgboost>=2.0          # gradient-boosted defect-risk classifier
+scikit-learn>=1.3     # cross-repo / held-out-language evaluation, CV
+numpy>=1.24           # feature matrices
+
+# --- arrive in later milestones ---
+# fastapi, uvicorn        (v0.4 API layer)
+# motor                   (v0.4 async Mongo read path)
+# sentence-transformers   (v0.3 PR similarity)
+# chromadb                (v0.3 vector store)
+# ollama                  (v0.2 local LLM)

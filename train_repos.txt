@@ -1,0 +1,20 @@
+# Training repos for the XGBoost "second opinion" model.
+#
+# One repo per line:   <path-or-url>[,<language>]
+#   - <path-or-url>  a local git repo path OR a remote URL (cloned once into data/cache/clones)
+#   - <language>     OPTIONAL tag (python, javascript, go, ...). Used only for the
+#                    leave-one-language-out evaluation that proves cross-language transfer.
+# Lines starting with '#' are ignored.
+#
+# TIPS for a model that actually learns something:
+#   * Pool 5-15 repos, each with a few hundred commits (more history = more snapshots).
+#   * Mix at least 2-3 languages so you can hold one out and show it still works.
+#   * The features are language-agnostic (churn, authors, recency, prior fixes, LOC),
+#     so a model trained on Python repos transfers to JavaScript etc.
+#
+# Examples (uncomment / replace with your own):
+# https://github.com/pallets/flask,python
+# https://github.com/psf/requests,python
+# https://github.com/expressjs/express,javascript
+# https://github.com/gin-gonic/gin,go
+# C:/code/my-local-project,python
