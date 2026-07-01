@@ -80,3 +80,11 @@ class GitClient:
 
     def metrics_for(self, paths) -> dict[str, dict]:
         return {p: self.file_metrics(p) for p in paths}
+
+    def commit_diff(self, sha: str, max_chars: int = 4000) -> str:
+        """Return the unified diff for a commit (truncated). Empty on failure."""
+        try:
+            out = self.repo.git.show(sha, "--no-color", "--format=", "--unified=2")
+        except Exception:
+            return ""
+        return out[:max_chars]

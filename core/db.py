@@ -86,6 +86,18 @@ class JsonStore:
         with open(p, encoding="utf-8") as fh:
             return _decode(json.load(fh))
 
+    def save_report(self, kind: str, key: str, doc: dict) -> None:
+        payload = {"key": key, "generated_at": datetime.now(timezone.utc), **doc}
+        with open(self._path(kind, key), "w", encoding="utf-8") as fh:
+            json.dump(_encode(payload), fh, indent=2)
+
+    def load_report(self, kind: str, key: str) -> dict | None:
+        p = self._path(kind, key)
+        if not os.path.isfile(p):
+            return None
+        with open(p, encoding="utf-8") as fh:
+            return _decode(json.load(fh))
+
 
 class MongoStore:
     """MongoDB-backed store (primary)."""
@@ -136,6 +148,16 @@ class MongoStore:
     def load_hotspots(self, repo_key: str) -> dict | None:
         doc = self.db.hotspots.find_one({"repo": repo_key}, {"_id": 0})
         return doc
+
+    def save_report(self, kind: str, key: str, doc: dict) -> None:
+        self.db[kind].replace_one(
+            {"key": key},
+            {"key": key, "generated_at": datetime.now(timezone.utc), **doc},
+            upsert=True,
+        )
+
+    def load_report(self, kind: str, key: str) -> dict | None:
+        return self.db[kind].find_one({"key": key}, {"_id": 0})
 
 
 def open_store(settings) -> JsonStore | MongoStore:

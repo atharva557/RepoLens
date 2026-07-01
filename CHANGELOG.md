@@ -5,6 +5,79 @@ This project follows the milestone roadmap in `../GitPulse_Revised_Sections.md`.
 
 ---
 
+## [v0.2] — Intelligence Layer — 2026-06-30
+
+Adds the LLM and two more tools. Two design decisions shaped it: the LLM backend
+is **pluggable** (local LM Studio *or* bring-your-own Claude/OpenAI/Gemini key),
+and the Developer Skill Profiler works **per-GitHub-user across repos**.
+
+### Roadmap items completed (v0.2)
+
+- [x] LLM integration — pluggable multi-provider layer (LM Studio default)
+- [x] Commit Message Quality Analyzer (Tool 4)
+- [x] Developer Skill Profiler — basic classification (Tool 2)
+
+### Pluggable LLM provider layer
+
+`core/llm.py` — choose a backend with `LLM_PROVIDER`:
+
+| Provider | Backend | SDK |
+|----------|---------|-----|
+| `local` (default) | LM Studio / any OpenAI-compatible server | `openai` |
+| `openai` | OpenAI API | `openai` |
+| `gemini` | Google Gemini (OpenAI-compatible endpoint) | `openai` |
+| `claude` | Anthropic API (default model `claude-opus-4-8`) | `anthropic` |
+
+The LLM is always optional and degrades gracefully (`available()` / `LLMUnavailable`).
+SDKs are lazy-imported. CLI **`test-llm`** pings the configured provider.
+
+### Tool 4 — Commit Message Quality Analyzer
+
+| File | Purpose |
+|------|---------|
+| `tools/commit_quality/scorer.py` | Rule-based 0-10 score (length, vagueness, verb, context, reference) — pure stdlib |
+| `tools/commit_quality/suggester.py` | LLM rewrite from message + diff |
+| `tools/commit_quality/reporter.py` | Per-commit / per-contributor / trend / common-patterns aggregation |
+| `tools/commit_quality/runner.py` | Orchestration |
+
+CLI **`commit-quality`** prints the repo report; opt-in `--suggest`/prompt adds LLM
+rewrites for the worst messages. Added `git_client.commit_diff()` and generic
+`db.save_report()` / `load_report()`.
+
+### Tool 2 — Developer Skill Profiler (per-user)
+
+| File | Purpose |
+|------|---------|
+| `core/github_client.py::GitHubAPI` | PyGithub wrapper — repos, commits-by-author, authored PRs, reviews (rate-limit-capped) |
+| `pipeline/fetch_user_activity.py` | Pull + normalize a user's public activity |
+| `tools/dev_profiler/classifier.py` | Rule-based type distribution (Bug Fixer / Feature Builder / Refactorer / Reviewer / Documentation Writer / Architect) — pure stdlib |
+| `tools/dev_profiler/llm_analyzer.py` | Optional LLM read of PR descriptions |
+| `tools/dev_profiler/profile_builder.py` | Assembles the card (reuses Tool 4's scorer for commit-message quality) |
+| `tools/dev_profiler/runner.py` | Orchestration |
+
+CLI **`profile <username>`** prints the profile card. Needs `GITHUB_TOKEN`
+(degrades to a clear message / cached profile without one).
+
+### Config & tests
+
+- New `.env`: `LLM_PROVIDER`, `LLM_MODEL`, `LOCAL_LLM_BASE_URL`, `ANTHROPIC_API_KEY`,
+  `OPENAI_API_KEY`, `GEMINI_API_KEY`, `LLM_MAX_TOKENS`, `LLM_TEMPERATURE`,
+  `PROFILE_MAX_REPOS`, `PROFILE_MAX_COMMITS_PER_REPO`, `PROFILE_PR_SAMPLE`.
+  Removed the Ollama settings. Fixed the `.env` parser's inline-comment handling.
+- New tests: `test_llm.py`, `test_commit_quality.py`, `test_dev_profiler.py` (all
+  network-free via an in-process `FakeProvider` and synthetic data). All five suites pass.
+
+### Optional dependencies
+
+- `openai` (local/openai/gemini), `anthropic` (claude), `PyGithub` (profiler).
+  None are required for the rule-based features.
+
+### Next up (v0.3 — PR Review)
+
+- ChromaDB embedding pipeline, PR Review Assistant (Tool 3), webhook + PR comment posting.
+
+---
+
 ## [v0.1] — Foundation — 2026-06-30
 
 The first milestone: the shared data pipeline plus **Tool 1 — Bug Hotspot

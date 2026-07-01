@@ -22,10 +22,16 @@ def _parse_env_file(path: str) -> dict[str, str]:
                 continue
             key, _, val = line.partition("=")
             key = key.strip()
-            val = val.strip().strip('"').strip("'")
-            # allow inline comments after the value
-            if " #" in val:
-                val = val.split(" #", 1)[0].strip()
+            val = val.strip()
+            # strip inline / whole-value comments, but only when the value isn't quoted
+            if val[:1] not in ("'", '"'):
+                if val.startswith("#"):
+                    val = ""
+                elif " #" in val:
+                    val = val.split(" #", 1)[0].strip()
+            # strip a matching pair of surrounding quotes
+            if len(val) >= 2 and val[0] == val[-1] and val[0] in ("'", '"'):
+                val = val[1:-1]
             values[key] = val
     return values
 
@@ -36,9 +42,15 @@ class Settings:
     github_token: str = ""
     github_webhook_secret: str = ""
 
-    # LLM (unused until v0.2 — kept for forward compatibility)
-    ollama_model: str = "qwen2.5-coder:7b"
-    ollama_base_url: str = "http://localhost:11434"
+    # LLM provider layer (v0.2). Provider: local (LM Studio) | openai | claude | gemini
+    llm_provider: str = "local"
+    llm_model: str = ""  # empty -> per-provider default in core/llm.py
+    local_llm_base_url: str = "http://localhost:1234/v1"  # LM Studio default
+    anthropic_api_key: str = ""
+    openai_api_key: str = ""
+    gemini_api_key: str = ""
+    llm_max_tokens: int = 512
+    llm_temperature: float = 0.2
 
     # Storage
     mongodb_uri: str = "mongodb://localhost:27017"
@@ -60,6 +72,11 @@ class Settings:
     ml_snapshots: int = 4
     ml_min_positives: int = 20
 
+    # Developer Skill Profiler (Tool 2) — GitHub API caps
+    profile_max_repos: int = 15
+    profile_max_commits_per_repo: int = 100
+    profile_pr_sample: int = 8
+
     # Storage backend override: "auto" (try Mongo, fall back to json), "mongo", "json"
     store_backend: str = "auto"
 
@@ -73,8 +90,14 @@ class Settings:
         return cls(
             github_token=get("GITHUB_TOKEN", ""),
             github_webhook_secret=get("GITHUB_WEBHOOK_SECRET", ""),
-            ollama_model=get("OLLAMA_MODEL", "qwen2.5-coder:7b"),
-            ollama_base_url=get("OLLAMA_BASE_URL", "http://localhost:11434"),
+            llm_provider=get("LLM_PROVIDER", "local").lower(),
+            llm_model=get("LLM_MODEL", ""),
+            local_llm_base_url=get("LOCAL_LLM_BASE_URL", "http://localhost:1234/v1"),
+            anthropic_api_key=get("ANTHROPIC_API_KEY", ""),
+            openai_api_key=get("OPENAI_API_KEY", ""),
+            gemini_api_key=get("GEMINI_API_KEY", ""),
+            llm_max_tokens=int(get("LLM_MAX_TOKENS", 512)),
+            llm_temperature=float(get("LLM_TEMPERATURE", 0.2)),
             mongodb_uri=get("MONGODB_URI", "mongodb://localhost:27017"),
             mongodb_db=get("MONGODB_DB", "gitpulse"),
             chroma_path=get("CHROMA_PATH", "data/chroma"),
@@ -91,11 +114,15 @@ class Settings:
             ml_label_window_days=int(get("ML_LABEL_WINDOW_DAYS", 90)),
             ml_snapshots=int(get("ML_SNAPSHOTS", 4)),
             ml_min_positives=int(get("ML_MIN_POSITIVES", 20)),
+            profile_max_repos=int(get("PROFILE_MAX_REPOS", 15)),
+            profile_max_commits_per_repo=int(get("PROFILE_MAX_COMMITS_PER_REPO", 100)),
+            profile_pr_sample=int(get("PROFILE_PR_SAMPLE", 8)),
             store_backend=get("GITPULSE_STORE", "auto").lower(),
         )
 
     def summary(self) -> str:
         masked = {f.name: getattr(self, f.name) for f in fields(self)}
-        masked["github_token"] = "***" if self.github_token else "(unset)"
-        masked["github_webhook_secret"] = "***" if self.github_webhook_secret else "(unset)"
+        for secret in ("github_token", "github_webhook_secret",
+                       "anthropic_api_key", "openai_api_key", "gemini_api_key"):
+            masked[secret] = "***" if getattr(self, secret) else "(unset)"
         return "\n".join(f"  {k} = {v}" for k, v in masked.items())

@@ -114,6 +114,66 @@ def _print_disagreements(scores) -> None:
         print("\n".join(rows))
 
 
+def _print_commit_quality(report: dict, top: int) -> None:
+    print()
+    print(f"Commit Message Quality - {report.get('repo', '?')}  "
+          f"({report['commits']} commits, avg {report['avg_score']}/10; "
+          f"{report['good']} good, {report['weak']} weak)")
+    print("=" * 100)
+
+    if report.get("common_issues"):
+        print("Most common issues:")
+        for issue, count in report["common_issues"]:
+            print(f"  - {issue} ({count})")
+        print()
+
+    contribs = report.get("contributors", [])
+    if contribs:
+        print("Per-contributor health (lowest first):")
+        for c in contribs[:8]:
+            print(f"  {c['author'][:28]:<28} {c['commits']:>4} commits   avg {c['avg_score']}/10")
+        print()
+
+    print(f"Weakest messages (showing {min(top, len(report['worst']))}):")
+    print("-" * 100)
+    for i, row in enumerate(report["worst"][:top], 1):
+        print(f"{i:<3} [{row['score']}/10] {row['sha']}  {row['subject'][:70]}")
+        if row.get("issues"):
+            print(f"      issues: {', '.join(row['issues'])}")
+        if row.get("suggestion"):
+            indented = row["suggestion"].replace("\n", "\n      ")
+            print(f"      suggested:\n      {indented}")
+    print()
+
+
+def _print_profile(profile) -> None:
+    if not profile:
+        print("  (no profile produced)\n")
+        return
+    print()
+    print(f"Developer Profile: @{profile['username']}")
+    print("=" * 60)
+    print(f"  Primary type : {profile['label']}")
+    print(f"  Analyzed     : {profile['commits_analyzed']} commits across "
+          f"{profile['repos_analyzed']} repos")
+    print("  Activity split:")
+    for dev_type, pct in profile["activity_split"].items():
+        if pct <= 0:
+            continue
+        bar = "#" * (pct // 4)
+        print(f"    {dev_type:<22} {pct:>3}%  {bar}")
+    if profile.get("top_languages"):
+        print(f"  Top languages: {', '.join(profile['top_languages'])}")
+    print(f"  Commit msg quality : {profile['commit_message_quality']}/10")
+    print(f"  PRs authored       : {profile['authored_prs']}")
+    print(f"  Review participation: {profile['review_participation']}")
+    if profile.get("llm_summary"):
+        print("\n  AI summary:")
+        for line in profile["llm_summary"].splitlines():
+            print(f"    {line}")
+    print()
+
+
 def _print_train_report(report: dict) -> None:
     print("\n" + "=" * 60)
     print("XGBoost training report")
@@ -150,6 +210,31 @@ def run_config(env: str) -> None:
     print("\nResolved configuration:")
     print(settings.summary())
     print()
+
+
+def run_test_llm(env: str) -> None:
+    from core.llm import LLMUnavailable, get_llm
+
+    settings = Settings.load(env)
+    try:
+        llm = get_llm(settings)
+    except LLMUnavailable as exc:
+        print(f"  {exc}\n")
+        return
+    print(f"\n  Provider: {llm.describe()}")
+    if not llm.available():
+        print("  status  : UNAVAILABLE (start LM Studio, or set the provider's API key)\n")
+        return
+    print("  status  : available — sending a test prompt ...")
+    try:
+        reply = llm.generate(
+            "Reply with exactly: GitPulse LLM OK",
+            system="You are a terse assistant.",
+            max_tokens=20,
+        )
+        print(f"  reply   : {reply}\n")
+    except LLMUnavailable as exc:
+        print(f"  reply   : FAILED - {exc}\n")
 
 
 def run_setup_indexes(env: str) -> None:
@@ -226,15 +311,52 @@ def interactive_train(env: str) -> None:
     run_train(env, repo_list=repo_list, max_commits=max_commits)
 
 
+def run_commit_quality(repo: str, env: str = ".env", top: int = 15,
+                       suggest: bool = False, max_commits: int = 0) -> None:
+    from tools.commit_quality.runner import run_commit_quality_report
+
+    settings = Settings.load(env)
+    store = open_store(settings)
+    report = run_commit_quality_report(
+        repo, settings, store,
+        max_commits=max_commits or None, suggest=suggest, top=top,
+    )
+    _print_commit_quality(report, top)
+
+
+def interactive_commit_quality(env: str) -> None:
+    repo = prompt("Repo path or URL", required=True)
+    top = prompt_int("Worst messages to display", 15)
+    suggest = prompt_bool("Generate LLM rewrites for the worst ones?", False)
+    run_commit_quality(repo, env=env, top=top, suggest=suggest)
+
+
+def run_profile(username: str, env: str = ".env") -> None:
+    from tools.dev_profiler.runner import run_developer_profile
+
+    settings = Settings.load(env)
+    store = open_store(settings)
+    profile = run_developer_profile(username, settings, store)
+    _print_profile(profile)
+
+
+def interactive_profile(env: str) -> None:
+    username = prompt("GitHub username (@handle)", required=True).lstrip("@")
+    run_profile(username, env=env)
+
+
 MENU = """
-GitPulse v0.1 - Bug Hotspot foundation
-======================================
+GitPulse - GitHub Analytics & Intelligence
+==========================================
   1) analyze        rank bug-hotspot files (+ XGBoost second opinion if trained)
   2) pull           fetch & cache commit history
   3) train          train the XGBoost second-opinion model (from train_repos.txt)
-  4) setup-indexes  create MongoDB indexes
-  5) config         show resolved settings
-  6) quit
+  4) commit-quality score commit messages (+ LLM rewrites)
+  5) profile        build a developer skill profile for a GitHub user
+  6) test-llm       check the configured LLM provider
+  7) setup-indexes  create MongoDB indexes
+  8) config         show resolved settings
+  9) quit
 """
 
 
@@ -260,15 +382,21 @@ def main() -> int:
                 interactive_pull(env)
             elif choice in ("3", "train", "t"):
                 interactive_train(env)
-            elif choice in ("4", "setup-indexes", "setup", "s"):
+            elif choice in ("4", "commit-quality", "commit", "cq"):
+                interactive_commit_quality(env)
+            elif choice in ("5", "profile", "prof"):
+                interactive_profile(env)
+            elif choice in ("6", "test-llm", "llm"):
+                run_test_llm(env)
+            elif choice in ("7", "setup-indexes", "setup", "s"):
                 run_setup_indexes(env)
-            elif choice in ("5", "config", "c"):
+            elif choice in ("8", "config", "c"):
                 run_config(env)
-            elif choice in ("6", "quit", "q", "exit", ""):
+            elif choice in ("9", "quit", "q", "exit", ""):
                 print("bye.")
                 return 0
             else:
-                print("  unknown option; choose 1-6.")
+                print("  unknown option; choose 1-9.")
         except (EOFError, KeyboardInterrupt):
             print("\ncancelled.")
         except SystemExit as exc:

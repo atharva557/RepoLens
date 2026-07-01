@@ -1,8 +1,7 @@
-# GitPulse — v0.1 (Foundation)
+# GitPulse — v0.2 (Intelligence Layer)
 
-GitHub analytics & intelligence platform. This is the **v0.1 Foundation**
-milestone: the data pipeline plus **Tool 1 — Bug Hotspot Predictor**, exposed
-through a CLI.
+GitHub analytics & intelligence platform, exposed through an interactive CLI.
+See [CHANGELOG.md](CHANGELOG.md) for the per-version breakdown.
 
 It follows the *revised* architecture (see `../GitPulse_Revised_Sections.md`):
 
@@ -10,19 +9,32 @@ It follows the *revised* architecture (see `../GitPulse_Revised_Sections.md`):
   it runs before Mongo is installed).
 - A **recency-weighted risk score** instead of a trained XGBoost classifier —
   no training data, works on small repos, fully explainable.
+- A **pluggable LLM provider** — run a local model (LM Studio) *or* bring your own
+  Claude / OpenAI / Gemini API key. The LLM is always optional.
 
-## What's implemented in v0.1
+## What's implemented
 
-| Roadmap item (v0.1) | Where |
+**v0.1 — Foundation**
+
+| Roadmap item | Where |
 |---|---|
 | GitHub/git client with MongoDB caching | `core/git_client.py`, `core/github_client.py`, `core/db.py` |
 | Commit classification (bug-fix keyword detection) | `pipeline/classify_commits.py` |
-| Bug Hotspot Predictor — recency-weighted scorer | `tools/bug_hotspot/scorer.py`, `explainer.py` |
+| Bug Hotspot Predictor — recency-weighted scorer (Tool 1) | `tools/bug_hotspot/scorer.py`, `explainer.py` |
 | Feature engineering | `pipeline/extract_features.py` |
-| Basic CLI output | `cli.py` (+ thin `scripts/`) |
+| Interactive CLI | `cli.py` (+ thin `scripts/`) |
+| *Bonus:* XGBoost "second opinion" | `tools/bug_hotspot/{dataset,normalize,ml_scorer}.py` |
 
-Tools 2–4 (Dev Profiler, PR Review, Commit Quality), the FastAPI API, and the
-React dashboard arrive in later milestones (v0.2–v0.4).
+**v0.2 — Intelligence Layer**
+
+| Roadmap item | Where |
+|---|---|
+| Pluggable LLM provider (LM Studio / Claude / OpenAI / Gemini) | `core/llm.py` |
+| Commit Message Quality Analyzer (Tool 4) | `tools/commit_quality/` |
+| Developer Skill Profiler — per-user (Tool 2) | `tools/dev_profiler/`, `pipeline/fetch_user_activity.py` |
+
+The PR Review Assistant (Tool 3), FastAPI API, and React dashboard arrive in
+later milestones (v0.3–v0.4).
 
 ## How the hotspot score works
 
@@ -65,19 +77,17 @@ The tool is menu-driven — run `python cli.py` and pick an option; it asks for
 whatever it needs via `input()` prompts (press Enter to accept the `[default]`).
 
 ```
-GitPulse v0.1 - Bug Hotspot foundation
-======================================
-  1) analyze        rank bug-hotspot files in a repo
+GitPulse - GitHub Analytics & Intelligence
+==========================================
+  1) analyze        rank bug-hotspot files (+ XGBoost second opinion if trained)
   2) pull           fetch & cache commit history
-  3) setup-indexes  create MongoDB indexes
-  4) config         show resolved settings
-  5) quit
-
-Select an option (1-5): 1
-Repo path or URL: /path/to/some/repo
-Rows to display [15]:
-Re-pull history (ignore cache)? [y/N]:
-Max commits to scan (0 = all) [0]:
+  3) train          train the XGBoost second-opinion model (from train_repos.txt)
+  4) commit-quality score commit messages (+ LLM rewrites)
+  5) profile        build a developer skill profile for a GitHub user
+  6) test-llm       check the configured LLM provider
+  7) setup-indexes  create MongoDB indexes
+  8) config         show resolved settings
+  9) quit
 ```
 
 `Repo path or URL` is a local git repository path or a remote URL (cloned once).
@@ -156,6 +166,42 @@ It's built to be honest and to **generalize across languages**:
 > Needs `pip install xgboost scikit-learn numpy`. Without them, GitPulse runs
 > exactly as before (weighted score only) — the ML path is fully optional.
 
+## Intelligence Layer (v0.2)
+
+### Pluggable LLM provider
+
+Pick a backend in `.env` with `LLM_PROVIDER` — the LLM is always optional and
+every rule-based feature works without it.
+
+| `LLM_PROVIDER` | Backend | Needs |
+|---|---|---|
+| `local` (default) | LM Studio (or any OpenAI-compatible server) | LM Studio running; `pip install openai` |
+| `openai` | OpenAI API | `OPENAI_API_KEY`; `pip install openai` |
+| `gemini` | Google Gemini | `GEMINI_API_KEY`; `pip install openai` |
+| `claude` | Anthropic API (default model `claude-opus-4-8`) | `ANTHROPIC_API_KEY`; `pip install anthropic` |
+
+Check it from the menu (**option 6, `test-llm`**) — it reports the provider and
+sends a one-line test prompt.
+
+### Tool 4 — Commit Message Quality Analyzer
+
+Menu **option 4**. Scores every commit message 0–10 (length, vagueness,
+imperative verb, "why" context, issue reference), with per-contributor health,
+repo-wide trends, and the most common bad patterns. Answer **yes** to the
+rewrite prompt and a configured LLM proposes better messages for the worst ones
+(it reads the actual diff, not just the old message).
+
+### Tool 2 — Developer Skill Profiler
+
+Menu **option 5**. Enter a GitHub `@username` and it builds a skill profile from
+their public history across repos — a percentage split over **Bug Fixer /
+Feature Builder / Refactorer / Reviewer / Documentation Writer / Architect**,
+top languages, commit-message quality (reusing Tool 4), and review participation,
+plus an optional LLM summary of their PR descriptions.
+
+> Needs `GITHUB_TOKEN` in `.env` and `pip install PyGithub`. Without a token it
+> prints a clear message (or shows a cached profile).
+
 ## Run the tests
 
 The core logic is pure stdlib, so the tests run with no dependencies installed:
@@ -163,6 +209,9 @@ The core logic is pure stdlib, so the tests run with no dependencies installed:
 ```bash
 python tests/test_bug_hotspot.py     # weighted scorer, classifier, features
 python tests/test_ml_scorer.py       # normalization, no-leakage labeling, train/predict
+python tests/test_llm.py             # provider factory + FakeProvider
+python tests/test_commit_quality.py  # message scorer, reporter, suggester
+python tests/test_dev_profiler.py    # developer classifier, profile assembly
 # or:  pytest tests/
 ```
 
@@ -173,24 +222,24 @@ test_1/
 ├── cli.py                     # CLI entry point
 ├── config/settings.py         # .env-driven configuration
 ├── core/
-│   ├── git_client.py          # GitPython: commit history + file metrics
-│   ├── github_client.py       # clone remote URLs -> local path
-│   ├── db.py                  # MongoStore + JsonStore fallback
-│   └── analysis.py            # end-to-end orchestration
+│   ├── git_client.py          # GitPython: commit history + file metrics + diffs
+│   ├── github_client.py       # local clones + GitHubAPI (per-user activity)
+│   ├── db.py                  # MongoStore + JsonStore fallback (+ generic reports)
+│   ├── llm.py                 # pluggable LLM provider (local/openai/claude/gemini)
+│   └── analysis.py            # bug-hotspot orchestration
 ├── pipeline/
 │   ├── fetch_commits.py       # git -> classify -> cache
+│   ├── fetch_user_activity.py # GitHub user activity -> normalized dict (Tool 2)
 │   ├── classify_commits.py    # bug-fix keyword detection
 │   ├── extract_features.py    # per-file feature engineering
 │   └── build_training_data.py # pool repos -> labeled dataset -> train (XGBoost)
-├── tools/bug_hotspot/
-│   ├── scorer.py              # recency-weighted risk score (primary)
-│   ├── explainer.py           # plain-English reasons
-│   ├── dataset.py             # temporal-snapshot labeling (no leakage)
-│   ├── normalize.py           # per-repo percentile normalization
-│   └── ml_scorer.py           # XGBoost train / evaluate / predict (second opinion)
+├── tools/
+│   ├── bug_hotspot/           # Tool 1: scorer, explainer, dataset, normalize, ml_scorer
+│   ├── commit_quality/        # Tool 4: scorer, suggester, reporter, runner
+│   └── dev_profiler/          # Tool 2: classifier, llm_analyzer, profile_builder, runner
 ├── train_repos.txt            # list of repos to train the ML model on
 ├── scripts/                   # thin wrappers (setup_indexes, pull_repo, run_analysis)
 └── tests/
-    ├── test_bug_hotspot.py
-    └── test_ml_scorer.py
+    ├── test_bug_hotspot.py    test_ml_scorer.py    test_llm.py
+    └── test_commit_quality.py test_dev_profiler.py
 ```

@@ -54,3 +54,83 @@ def ensure_local_clone(target: str, cache_dir: str) -> tuple[str, str]:
         print(f"  cloning {target} -> {dest} ...")
         Repo.clone_from(target, dest)
     return os.path.abspath(dest), key
+
+
+class GitHubAPI:
+    """Thin PyGithub wrapper for per-user activity (Tool 2 / Developer Profiler).
+
+    PyGithub is imported lazily so the rest of GitPulse runs without it. All
+    methods are best-effort and bounded by caller-supplied caps to respect the
+    5,000 req/hour rate limit.
+    """
+
+    def __init__(self, token: str):
+        from github import Github  # lazy import
+
+        try:
+            from github import Auth
+
+            self.gh = Github(auth=Auth.Token(token), per_page=100)
+        except Exception:  # older PyGithub
+            self.gh = Github(token)
+
+    def list_user_repos(self, username: str, max_repos: int):
+        user = self.gh.get_user(username)
+        out = []
+        for r in user.get_repos(sort="pushed", direction="desc"):
+            if getattr(r, "fork", False):
+                continue
+            out.append(r)
+            if len(out) >= max_repos:
+                break
+        return out
+
+    def iter_repo_commits(self, repo, username: str, max_commits: int) -> list[dict]:
+        out: list[dict] = []
+        try:
+            commits = repo.get_commits(author=username)
+        except Exception:
+            return out
+        for i, c in enumerate(commits):
+            if i >= max_commits:
+                break
+            try:
+                files = [
+                    {"path": f.filename, "status": f.status,
+                     "additions": f.additions, "deletions": f.deletions}
+                    for f in c.files
+                ]
+                st = c.stats
+                author = c.commit.author
+                out.append({
+                    "sha": c.sha,
+                    "message": c.commit.message,
+                    "author": author.name if author else username,
+                    "date": author.date if author else None,
+                    "additions": st.additions,
+                    "deletions": st.deletions,
+                    "files": files,
+                    "repo": repo.full_name,
+                })
+            except Exception:
+                continue
+        return out
+
+    def authored_prs(self, username: str, sample: int) -> tuple[int, list[str]]:
+        try:
+            res = self.gh.search_issues(f"type:pr author:{username}")
+        except Exception:
+            return 0, []
+        samples: list[str] = []
+        for i, issue in enumerate(res):
+            if i >= sample:
+                break
+            if issue.body:
+                samples.append(issue.body)
+        return res.totalCount, samples
+
+    def reviews_count(self, username: str) -> int:
+        try:
+            return self.gh.search_issues(f"type:pr reviewed-by:{username}").totalCount
+        except Exception:
+            return 0
