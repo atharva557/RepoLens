@@ -20,6 +20,20 @@ from config.settings import Settings  # noqa: E402
 from core.db import open_store  # noqa: E402
 
 
+def open_store_announced(settings):
+    """Open the store and always say which backend is serving this run —
+    the primary (MongoDB), a configured choice, or the JSON fallback."""
+    store = open_store(settings)
+    if store.backend == "mongo":
+        print("  [backend] store: mongodb (primary)")
+    elif settings.store_backend == "json":
+        print("  [backend] store: json files (selected in config)")
+    else:
+        print(f"  [backend] store: json files at {settings.cache_dir} "
+              f"(FALLBACK — MongoDB unavailable)")
+    return store
+
+
 # --------------------------------------------------------------------------- #
 # input() helpers
 # --------------------------------------------------------------------------- #
@@ -156,16 +170,36 @@ def _print_profile(profile) -> None:
     print(f"  Primary type : {profile['label']}")
     print(f"  Analyzed     : {profile['commits_analyzed']} commits across "
           f"{profile['repos_analyzed']} repos")
+    user = profile.get("user") or {}
+    if user:
+        print(f"  GitHub       : {user.get('followers', 0)} followers · "
+              f"{user.get('following', 0)} following · "
+              f"{user.get('public_repos', 0)} public repos · "
+              f"{user.get('years_active', '?')} yrs active")
+        if user.get("bio"):
+            print(f"  Bio          : {user['bio'][:70]}")
     print("  Activity split:")
     for dev_type, pct in profile["activity_split"].items():
         if pct <= 0:
             continue
         bar = "#" * (pct // 4)
         print(f"    {dev_type:<22} {pct:>3}%  {bar}")
-    if profile.get("top_languages"):
+    if profile.get("languages"):
+        print("  Top languages: " + ", ".join(
+            f"{l['name']} {l['pct']}%" for l in profile["languages"][:5]))
+    elif profile.get("top_languages"):  # older cached profiles
         print(f"  Top languages: {', '.join(profile['top_languages'])}")
     print(f"  Commit msg quality : {profile['commit_message_quality']}/10")
-    print(f"  PRs authored       : {profile['authored_prs']}")
+    prs = f"  PRs authored       : {profile['authored_prs']}"
+    if "prs_merged" in profile:
+        prs += f" ({profile['prs_merged']} merged)"
+    print(prs)
+    if "issues_resolved" in profile:
+        print(f"  Issues resolved    : {profile['issues_resolved']}")
+    if profile.get("heatmap"):
+        days_active = len(profile["heatmap"])
+        total = sum(d["count"] for d in profile["heatmap"])
+        print(f"  Last 365 days      : {total} commits on {days_active} days")
     print(f"  Review participation: {profile['review_participation']}")
     if profile.get("llm_summary"):
         print("\n  AI summary:")
@@ -228,7 +262,7 @@ def run_test_llm(env: str) -> None:
     print("  status  : available — sending a test prompt ...")
     try:
         reply = llm.generate(
-            "Reply with exactly: GitPulse LLM OK",
+            "Reply with exactly: RepoLens LLM OK",
             system="You are a terse assistant.",
             max_tokens=20,
         )
@@ -239,7 +273,7 @@ def run_test_llm(env: str) -> None:
 
 def run_setup_indexes(env: str) -> None:
     settings = Settings.load(env)
-    store = open_store(settings)
+    store = open_store_announced(settings)
     store.ensure_indexes()
     print(f"  indexes ensured on backend: {store.backend}\n")
 
@@ -249,7 +283,7 @@ def run_pull(repo: str, env: str = ".env", max_commits: int = 0) -> None:
     from pipeline.fetch_commits import fetch_and_store_commits
 
     settings = Settings.load(env)
-    store = open_store(settings)
+    store = open_store_announced(settings)
     local_path, key = ensure_local_clone(repo, settings.cache_dir)
     print(f"  pulling {key} from {local_path} ...")
     commits = fetch_and_store_commits(
@@ -266,7 +300,7 @@ def run_analyze(repo: str, env: str = ".env", top: int = 15,
     from core.analysis import run_hotspot_analysis
 
     settings = Settings.load(env)
-    store = open_store(settings)
+    store = open_store_announced(settings)
     result = run_hotspot_analysis(
         repo, settings, store,
         refresh=refresh,
@@ -316,7 +350,7 @@ def run_commit_quality(repo: str, env: str = ".env", top: int = 15,
     from tools.commit_quality.runner import run_commit_quality_report
 
     settings = Settings.load(env)
-    store = open_store(settings)
+    store = open_store_announced(settings)
     report = run_commit_quality_report(
         repo, settings, store,
         max_commits=max_commits or None, suggest=suggest, top=top,
@@ -331,32 +365,71 @@ def interactive_commit_quality(env: str) -> None:
     run_commit_quality(repo, env=env, top=top, suggest=suggest)
 
 
-def run_profile(username: str, env: str = ".env") -> None:
+def run_profile(username: str, env: str = ".env", refresh: bool = False) -> None:
     from tools.dev_profiler.runner import run_developer_profile
 
     settings = Settings.load(env)
-    store = open_store(settings)
-    profile = run_developer_profile(username, settings, store)
+    store = open_store_announced(settings)
+    profile = run_developer_profile(username, settings, store, refresh=refresh)
     _print_profile(profile)
 
 
 def interactive_profile(env: str) -> None:
     username = prompt("GitHub username (@handle)", required=True).lstrip("@")
-    run_profile(username, env=env)
+    refresh = prompt_bool("Re-fetch even if a fresh cached profile exists?", False)
+    run_profile(username, env=env, refresh=refresh)
+
+
+def run_review_pr(spec: str, env: str = ".env", post: bool = False) -> None:
+    from tools.pr_reviewer.runner import run_pr_review
+
+    settings = Settings.load(env)
+    store = open_store_announced(settings)
+    report = run_pr_review(spec, settings, store, post=post)
+    print("\n" + "=" * 100)
+    print(report["markdown"])
+    print("=" * 100 + "\n")
+
+
+def interactive_review_pr(env: str) -> None:
+    spec = prompt("PR (owner/repo#number or URL)", required=True)
+    # produce the report first, then offer to post it
+    from tools.pr_reviewer.runner import run_pr_review
+
+    settings = Settings.load(env)
+    store = open_store_announced(settings)
+    report = run_pr_review(spec, settings, store, post=False)
+    print("\n" + "=" * 100)
+    print(report["markdown"])
+    print("=" * 100)
+    if prompt_bool("\nPost this as a comment on the PR?", False):
+        from tools.pr_reviewer.github_commenter import post_comment
+        from tools.pr_reviewer.runner import parse_pr_spec
+        from core.github_client import GitHubAPI
+
+        owner, repo, number = parse_pr_spec(spec)
+        api = GitHubAPI(settings.github_token)
+        try:
+            url = post_comment(api, {"owner": owner, "repo": repo, "number": number},
+                               report["markdown"])
+            print(f"  posted: {url}\n")
+        except Exception as exc:
+            print(f"  [warn] failed to post: {exc}\n")
 
 
 MENU = """
-GitPulse - GitHub Analytics & Intelligence
+RepoLens - GitHub Analytics & Intelligence
 ==========================================
   1) analyze        rank bug-hotspot files (+ XGBoost second opinion if trained)
   2) pull           fetch & cache commit history
   3) train          train the XGBoost second-opinion model (from train_repos.txt)
   4) commit-quality score commit messages (+ LLM rewrites)
   5) profile        build a developer skill profile for a GitHub user
-  6) test-llm       check the configured LLM provider
-  7) setup-indexes  create MongoDB indexes
-  8) config         show resolved settings
-  9) quit
+  6) review-pr      pre-review report for a pull request (Tool 3)
+  7) test-llm       check the configured LLM provider
+  8) setup-indexes  create MongoDB indexes
+  9) config         show resolved settings
+ 10) quit
 """
 
 
@@ -370,7 +443,7 @@ def main() -> int:
     while True:
         print(MENU)
         try:
-            choice = input("Select an option (1-5): ").strip().lower()
+            choice = input("Select an option (1-10): ").strip().lower()
         except (EOFError, KeyboardInterrupt):
             print()
             return 0
@@ -386,17 +459,19 @@ def main() -> int:
                 interactive_commit_quality(env)
             elif choice in ("5", "profile", "prof"):
                 interactive_profile(env)
-            elif choice in ("6", "test-llm", "llm"):
+            elif choice in ("6", "review-pr", "pr", "review"):
+                interactive_review_pr(env)
+            elif choice in ("7", "test-llm", "llm"):
                 run_test_llm(env)
-            elif choice in ("7", "setup-indexes", "setup", "s"):
+            elif choice in ("8", "setup-indexes", "setup", "s"):
                 run_setup_indexes(env)
-            elif choice in ("8", "config", "c"):
+            elif choice in ("9", "config", "c"):
                 run_config(env)
-            elif choice in ("9", "quit", "q", "exit", ""):
+            elif choice in ("10", "quit", "q", "exit", ""):
                 print("bye.")
                 return 0
             else:
-                print("  unknown option; choose 1-9.")
+                print("  unknown option; choose 1-10.")
         except (EOFError, KeyboardInterrupt):
             print("\ncancelled.")
         except SystemExit as exc:

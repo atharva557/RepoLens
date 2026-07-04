@@ -1,0 +1,71 @@
+@import "tailwindcss";
+
+/*
+ * RepoLens theme — tokens lifted from the ui_protoype/*.html tailwind configs
+ * (the amber "Repo Lens" dark theme used by github_url / loading / Dashboard).
+ * They become utilities automatically: bg-primary, text-on-surface,
+ * border-outline-variant, bg-surface-container-high, font-code, text-stat …
+ *
+ * The Bughotspot/Developer_profile prototypes use an indigo variant
+ * (#6366f1 primary, #a855f7 secondary) — swap these values if you go with
+ * that palette instead.
+ */
+@theme {
+  --color-background: #131313;
+  --color-surface: #131313;
+  --color-surface-dim: #131313;
+  --color-surface-bright: #393939;
+  --color-surface-container-lowest: #0e0e0e;
+  --color-surface-container-low: #1c1b1b;
+  --color-surface-container: #201f1f;
+  --color-surface-container-high: #2a2a2a;
+  --color-surface-container-highest: #353534;
+  --color-surface-variant: #353534;
+  --color-on-background: #e5e2e1;
+  --color-on-surface: #e5e2e1;
+  --color-on-surface-variant: #dbc2b0;
+  --color-primary: #ffb77d;
+  --color-on-primary: #4d2600;
+  --color-primary-container: #d97707;
+  --color-on-primary-container: #432100;
+  --color-secondary: #c7c6c6;
+  --color-on-secondary: #303031;
+  --color-secondary-container: #464747;
+  --color-on-secondary-container: #b5b5b5;
+  --color-tertiary: #96ccff;
+  --color-on-tertiary: #003353;
+  --color-tertiary-container: #0297e8;
+  --color-on-tertiary-container: #002c48;
+  --color-error: #ffb4ab;
+  --color-on-error: #690005;
+  --color-error-container: #93000a;
+  --color-on-error-container: #ffdad6;
+  --color-outline: #a38c7c;
+  --color-outline-variant: #554336;
+  --color-inverse-surface: #e5e2e1;
+  --color-inverse-on-surface: #313030;
+  --color-inverse-primary: #904d00;
+
+  --font-body: "Inter", sans-serif;
+  --font-code: "JetBrains Mono", monospace;
+  --font-stat: "JetBrains Mono", monospace;
+
+  --text-body: 0.875rem;
+  --text-label: 0.75rem;
+  --text-code: 0.8125rem;
+  --text-heading-md: 1rem;
+  --text-heading-lg: 1.25rem;
+  --text-stat: 2.5rem;
+
+  --spacing-gutter: 16px;
+  --spacing-card-padding-x: 24px;
+  --spacing-card-padding-y: 20px;
+  --spacing-section-gap: 24px;
+}
+
+body {
+  background-color: var(--color-background);
+  color: var(--color-on-surface);
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+}

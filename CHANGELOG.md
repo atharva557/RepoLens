@@ -1,7 +1,185 @@
 # Changelog
 
-All notable changes to GitPulse are documented here.
+All notable changes to RepoLens (formerly GitPulse) are documented here.
 This project follows the milestone roadmap in `../GitPulse_Revised_Sections.md`.
+
+---
+
+## [Unreleased]
+
+- **ChromaDB similarity backend is now live**: `chromadb` + `sentence-transformers`
+  installed and verified end-to-end; Tool 3 diff-similarity now uses real semantic
+  embeddings (persistent index at `data/chroma`) instead of the TF-IDF fallback.
+- **Backends are always announced**: every CLI action prints a `[backend]` line
+  stating whether the primary or an alternative was used (store: mongodb vs json
+  fallback; similarity: chroma vs lite fallback) — previously only fallbacks warned.
+- **Developer profiles are cached**: a profile younger than `PROFILE_CACHE_HOURS`
+  (default 24, new `.env` knob) is served from the store instead of re-hitting the
+  GitHub API; the CLI asks before re-fetching, and `POST /profiles/{user}` still
+  always rebuilds. Cache hits/saves are announced with `[cache]` lines.
+- **API: CORS enabled** (`GITPULSE_CORS_ORIGINS`, default `*`) so the React
+  dashboard dev server can call the API cross-origin.
+- **API: discovery layer** for the dashboard landing pages — `GET /repos`
+  (per-repo summary: commit count, hotspot/commit-quality report presence,
+  PR-review numbers), `GET /profiles`, and `GET /repos/{key}/pr-reviews`.
+  Backed by a new `list_reports()` on both stores (Mongo aggregation /
+  JSON-dir scan).
+- **API: `GET /test` self-test endpoint** — one call checks every subsystem:
+  store save/load round-trip, LLM provider availability, which similarity
+  backend would be selected, GitHub-token & webhook configuration.
+- `tests/test_api.py` grew to ten tests (discovery, CORS simple + preflight,
+  self-test). All eight suites pass.
+- **Dashboard read layer** (driven by the `ui_protoype/` screens):
+  - `GET /repos/{key}/activity` — contributor leaderboard, recent commits,
+    daily heatmap buckets and a transparent health score
+    (`0.6·commit_quality + 0.4·(1−recent_bugfix_ratio)·10`), all aggregated
+    from the cached commit history (`core/activity.py`).
+  - `GET /repos/{key}/meta` — GitHub header metadata (description, stars,
+    forks, open issues, language percentages), store-cached with the
+    `PROFILE_CACHE_HOURS` TTL (`GitHubAPI.repo_meta` + `get_repo_meta`).
+    Fixed: some PyGithub versions leak a `url` string into `get_languages()`.
+  - `POST` + `GET /repos/{key}/insights` — LLM-generated insight bullets from
+    a digest of stored reports (`core/insights.py`), cached as `repo_insights`.
+    Reasoning models get a ≥1536-token budget (512 truncated gemma to empty).
+  - Commit-quality reports now carry `avg_subject_len`, `pct_imperative`,
+    `pct_referenced` for the dashboard's quality card.
+  - `tests/test_api.py`: 13 tests. Shared `report_age_hours()` moved to
+    `core/db.py` (profiler + repo-meta reuse it).
+- **Developer profile grew the dashboard fields** (Developer_profile.html):
+  `user` social header (avatar, bio, followers/following, public repos,
+  years active — `GitHubAPI.user_meta`), `languages` with percentages,
+  `prs_merged` + `issues_resolved` (GitHub search counts; "resolved" =
+  closed issues the user was assigned), and a per-day `heatmap` of the last
+  365 days. CLI profile card prints them; old cached profiles still render
+  (fields are optional). Rebuild profiles (re-fetch) to populate.
+- **Renamed GitPulse → RepoLens** (user-facing strings only): CLI banner,
+  API title/root, PR-report header, doc titles. Internals unchanged on
+  purpose — `GITPULSE_*` env vars, the `gitpulse` Mongo database, and module
+  paths keep working.
+- **React scaffold** in `frontend/` (Vite + React, Tailwind v4 via
+  `@tailwindcss/vite`, Recharts, react-router-dom). No UI implemented yet —
+  `src/pages/*.jsx` are comment-only specs mapping each prototype screen to
+  its API endpoints (Home, Loading, Dashboard, BugHotspots, DeveloperProfile;
+  conventions in `src/lib/api.js`). The prototype color/font theme is wired
+  into `src/index.css` `@theme`; `npm run dev` proxies `/api/*` to
+  `127.0.0.1:8000`. Build verified.
+
+---
+
+## [v0.4] — API Layer — 2026-07-02
+
+Adds the **FastAPI backend**: a thin web layer over the existing engine, plus the
+**PR-review webhook** deferred from v0.3. The React dashboard is the remaining
+v0.4 item. Also fixes several bugs found in an audit of v0.1–v0.3.
+
+### FastAPI backend (`api/`)
+
+| File | Purpose |
+|------|---------|
+| `api/main.py` | App factory + routes. Reads come from the store; analyses run via `BackgroundTasks` (`202` + job id). Sync handlers on purpose — the engine is synchronous and runs in FastAPI's threadpool. |
+| `api/webhook.py` | `POST /webhook/github` — HMAC-verified (`GITHUB_WEBHOOK_SECRET`); auto-runs Tool 3 on PR `opened/reopened/synchronize/ready_for_review`. Posting the report as a PR comment is opt-in (`GITPULSE_WEBHOOK_POST`). |
+| `api/jobs.py` | Bounded in-memory job registry (pending/running/done/failed); catches `SystemExit` so engine errors can't kill the server. |
+
+Read endpoints: `/repos/{key}/hotspots`, `/repos/{key}/commit-quality`,
+`/repos/{key}/pr-reviews/{n}`, `/profiles/{user}` (the `{key}` param accepts
+both `owner/repo` and bare local-clone names). Triggers: `POST /analyze`,
+`POST /commit-quality`, `POST /profiles/{user}`, `POST /repos/{o}/{r}/pr-reviews/{n}`.
+Meta: `/health`, `/config` (secrets masked), `/jobs/{id}`, `/docs`.
+
+Run: `python -m uvicorn api.main:app --reload` (or `python api/main.py`).
+
+### Bug fixes
+
+- **Tool 4 LLM rewrites crashed** (`TypeError: 'bool' object is not callable`):
+  the `suggest` bool parameter in `run_commit_quality_report` shadowed the
+  imported `suggest()` function. Import aliased; rewrite path verified end-to-end.
+- **MongoDB-backed analysis crashed on date math**: pymongo returns *naive*
+  datetimes by default, so cached commit dates couldn't be subtracted from
+  tz-aware "now" in the feature extractor. `MongoClient` now uses `tz_aware=True`.
+- **Settings crashed on blank numeric `.env` values** (`int("")`): numeric
+  settings now fall back to their defaults with a warning instead.
+- CLI menu prompt said "1-5" for a 10-option menu; README pointed `test-llm` at
+  menu option 6 (it is 7).
+
+### Config & tests
+
+- New `.env`: `GITPULSE_WEBHOOK_POST` (default false). `GITHUB_WEBHOOK_SECRET`
+  is now actually consumed (by the webhook).
+- New test suite: `tests/test_api.py` — FakeStore + stubbed engine entry points,
+  network-free; covers the read layer, job lifecycle, token gates, and webhook
+  security (secret gate, HMAC, ignore rules, dispatch). Skips cleanly when
+  fastapi isn't installed. All **eight** suites pass.
+- New deps (API only): `fastapi`, `uvicorn` (+ `httpx` for the test client).
+
+### Next up (v0.4 completion / v0.5)
+
+- React dashboard (Tailwind + shadcn/ui + Recharts) on top of this API.
+- v0.5 evaluation pass (temporal hold-out for Tool 1, human-rated LLM sample).
+
+---
+
+## [v0.3] — PR Review — 2026-07-01
+
+Adds **Tool 3 — PR Review Assistant**: an automated pre-review report for a pull
+request, combining v0.1 hotspot risk and the v0.2 LLM, plus a new diff-similarity
+engine. Delivered as an on-demand CLI action (webhook deferred to v0.4).
+
+### Roadmap items completed (v0.3)
+
+- [x] Similarity / embedding pipeline (past bug-fix diffs)
+- [x] PR Review Assistant (Tool 3)
+- [x] On-demand analysis + optional GitHub PR-comment posting *(no GitHub Action)*
+- [x] *Folded in:* Tool 1 classifier cleanup (docs/config false positives)
+
+### Diff-similarity engine (pluggable, graceful)
+
+`core/embeddings.py` — a `SimilarityIndex` with two backends, auto-selected:
+
+| Backend | How | Deps |
+|---------|-----|------|
+| `ChromaIndex` | sentence-transformers (`all-MiniLM-L6-v2`) + ChromaDB (cosine) | heavy, optional |
+| `LiteIndex` | stdlib TF-IDF cosine | none |
+
+`open_similarity_index()` prefers Chroma and falls back to Lite with a warning, so
+v0.3 runs everywhere and upgrades when the heavy deps are installed. The corpus is
+the repo's own past **bug-fix** diffs (`pipeline/build_bug_index.py`).
+
+### Tool 3 — PR Review Assistant
+
+| File | Purpose |
+|------|---------|
+| `tools/pr_reviewer/risk_scorer.py` | File risk (hotspot membership), missing tests, unfocused/large change — pure stdlib |
+| `tools/pr_reviewer/similarity.py` | Embed the PR diff, query the bug corpus, flag high similarity |
+| `tools/pr_reviewer/llm_summarizer.py` | LLM plain-English summary of the diff (optional) |
+| `tools/pr_reviewer/report_builder.py` | Markdown report (Risk level / ⚠️ Warnings / 📋 Summary / ✅ OK) |
+| `tools/pr_reviewer/github_commenter.py` | Post the report as a PR comment (opt-in) |
+| `tools/pr_reviewer/runner.py` | Orchestration + `owner/repo#N` / URL parsing |
+
+`GitHubAPI` gained `get_pull()` and `post_pr_comment()`. CLI **`review-pr`** prints
+the report and asks before posting. Needs `GITHUB_TOKEN`.
+
+### Tool 1 classifier cleanup
+
+New `core/paths.py` (shared file classification). `extract_features.py` now credits
+**bug history only to source files** — a "fix ..." commit that also touches a
+`README.md` / `.toml` no longer marks those as hotspots. Churn/authors unchanged.
+Regression test added.
+
+### Config & tests
+
+- New `.env`: `SIMILARITY_BACKEND`, `EMBEDDING_MODEL`, `PR_SIMILARITY_TOP_K`,
+  `PR_SIMILARITY_WARN`, `HOTSPOT_TOP_N`.
+- New tests: `test_embeddings.py`, `test_pr_reviewer.py`, + a Tool-1 regression test.
+  All **seven** suites pass (network-free via LiteIndex + FakeProvider + synthetic data).
+
+### Optional dependencies
+
+- `sentence-transformers`, `chromadb` (upgrade the similarity engine). Not required —
+  `LiteIndex` is the default fallback.
+
+### Next up (v0.4 — API + Dashboard)
+
+- FastAPI backend (+ the deferred PR webhook), React dashboard.
 
 ---
 

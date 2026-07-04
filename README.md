@@ -1,4 +1,4 @@
-# GitPulse — v0.2 (Intelligence Layer)
+# RepoLens — v0.4 (API Layer)
 
 GitHub analytics & intelligence platform, exposed through an interactive CLI.
 See [CHANGELOG.md](CHANGELOG.md) for the per-version breakdown.
@@ -33,8 +33,48 @@ It follows the *revised* architecture (see `../GitPulse_Revised_Sections.md`):
 | Commit Message Quality Analyzer (Tool 4) | `tools/commit_quality/` |
 | Developer Skill Profiler — per-user (Tool 2) | `tools/dev_profiler/`, `pipeline/fetch_user_activity.py` |
 
-The PR Review Assistant (Tool 3), FastAPI API, and React dashboard arrive in
-later milestones (v0.3–v0.4).
+**v0.3 — PR Review**
+
+| Roadmap item | Where |
+|---|---|
+| Diff-similarity engine (ChromaDB / stdlib fallback) | `core/embeddings.py`, `pipeline/build_bug_index.py` |
+| PR Review Assistant (Tool 3) | `tools/pr_reviewer/` |
+| Tool 1 cleanup (docs/config false positives) | `core/paths.py`, `pipeline/extract_features.py` |
+
+**v0.4 — API Layer**
+
+| Roadmap item | Where |
+|---|---|
+| FastAPI backend (read layer + BackgroundTasks triggers) | `api/main.py`, `api/jobs.py` |
+| PR-review webhook (deferred from v0.3) | `api/webhook.py` |
+
+The React dashboard completes v0.4.
+
+## Web API (v0.4)
+
+```bash
+pip install fastapi "uvicorn[standard]"
+python -m uvicorn api.main:app --reload   # from this directory
+```
+
+Interactive docs at `http://127.0.0.1:8000/docs`. The API is a thin layer over
+the same engine the CLI uses — reads come from the store, analyses run as
+background jobs:
+
+| Endpoint | What |
+|---|---|
+| `GET /health`, `GET /config` | liveness + masked settings |
+| `POST /analyze` `{"repo": ...}` | run Tool 1 in the background → `202` + job id |
+| `POST /commit-quality` `{"repo": ...}` | run Tool 4 in the background |
+| `POST /profiles/{user}` / `POST /repos/{o}/{r}/pr-reviews/{n}` | run Tools 2 / 3 (need `GITHUB_TOKEN`) |
+| `GET /jobs/{id}` | job status + result summary |
+| `GET /repos/{key}/hotspots` · `/commit-quality` · `/pr-reviews/{n}` | read stored reports |
+| `GET /profiles/{username}` | read a stored profile |
+| `POST /webhook/github` | GitHub PR webhook → auto-runs Tool 3 |
+
+The webhook needs `GITHUB_WEBHOOK_SECRET` (HMAC-verified; disabled otherwise) and
+reviews PRs on `opened / reopened / synchronize / ready_for_review`. Set
+`GITPULSE_WEBHOOK_POST=true` to also post the report back as a PR comment.
 
 ## How the hotspot score works
 
@@ -77,17 +117,18 @@ The tool is menu-driven — run `python cli.py` and pick an option; it asks for
 whatever it needs via `input()` prompts (press Enter to accept the `[default]`).
 
 ```
-GitPulse - GitHub Analytics & Intelligence
+RepoLens - GitHub Analytics & Intelligence
 ==========================================
   1) analyze        rank bug-hotspot files (+ XGBoost second opinion if trained)
   2) pull           fetch & cache commit history
   3) train          train the XGBoost second-opinion model (from train_repos.txt)
   4) commit-quality score commit messages (+ LLM rewrites)
   5) profile        build a developer skill profile for a GitHub user
-  6) test-llm       check the configured LLM provider
-  7) setup-indexes  create MongoDB indexes
-  8) config         show resolved settings
-  9) quit
+  6) review-pr      pre-review report for a pull request (Tool 3)
+  7) test-llm       check the configured LLM provider
+  8) setup-indexes  create MongoDB indexes
+  9) config         show resolved settings
+ 10) quit
 ```
 
 `Repo path or URL` is a local git repository path or a remote URL (cloned once).
@@ -163,7 +204,7 @@ It's built to be honest and to **generalize across languages**:
      - api/payments.py: formula HIGH but ML LOW
    ```
 
-> Needs `pip install xgboost scikit-learn numpy`. Without them, GitPulse runs
+> Needs `pip install xgboost scikit-learn numpy`. Without them, RepoLens runs
 > exactly as before (weighted score only) — the ML path is fully optional.
 
 ## Intelligence Layer (v0.2)
@@ -180,7 +221,7 @@ every rule-based feature works without it.
 | `gemini` | Google Gemini | `GEMINI_API_KEY`; `pip install openai` |
 | `claude` | Anthropic API (default model `claude-opus-4-8`) | `ANTHROPIC_API_KEY`; `pip install anthropic` |
 
-Check it from the menu (**option 6, `test-llm`**) — it reports the provider and
+Check it from the menu (**option 7, `test-llm`**) — it reports the provider and
 sends a one-line test prompt.
 
 ### Tool 4 — Commit Message Quality Analyzer
@@ -202,6 +243,22 @@ plus an optional LLM summary of their PR descriptions.
 > Needs `GITHUB_TOKEN` in `.env` and `pip install PyGithub`. Without a token it
 > prints a clear message (or shows a cached profile).
 
+### Tool 3 — PR Review Assistant
+
+Menu **option 6**. Enter a PR as `owner/repo#number` (or a PR URL) and it produces
+a **pre-review report** before any human looks at it:
+
+- **file risk** — does the PR touch files in the repo's top hotspots (Tool 1)?
+- **missing tests** — source changed but no test files touched?
+- **change focus** — is it unfocused (many files across many areas) or large?
+- **similarity to past bugs** — the PR diff is embedded and compared against the
+  repo's past **bug-fix** diffs; high cosine similarity is a warning.
+- **AI summary** — an LLM describes what the PR actually does (from the diff).
+
+The report is printed as markdown; you're then asked whether to **post it as a PR
+comment**. Needs `GITHUB_TOKEN`. The similarity engine uses sentence-transformers +
+ChromaDB when installed, otherwise a built-in lightweight index — no setup required.
+
 ## Run the tests
 
 The core logic is pure stdlib, so the tests run with no dependencies installed:
@@ -212,6 +269,9 @@ python tests/test_ml_scorer.py       # normalization, no-leakage labeling, train
 python tests/test_llm.py             # provider factory + FakeProvider
 python tests/test_commit_quality.py  # message scorer, reporter, suggester
 python tests/test_dev_profiler.py    # developer classifier, profile assembly
+python tests/test_embeddings.py      # LiteIndex similarity + factory fallback
+python tests/test_pr_reviewer.py     # PR risk checks, similarity, report builder
+python tests/test_api.py             # FastAPI layer (skips if fastapi not installed)
 # or:  pytest tests/
 ```
 
@@ -220,26 +280,32 @@ python tests/test_dev_profiler.py    # developer classifier, profile assembly
 ```
 test_1/
 ├── cli.py                     # CLI entry point
+├── api/
+│   ├── main.py                # FastAPI app: read endpoints + background triggers (v0.4)
+│   ├── webhook.py             # GitHub PR webhook -> auto Tool 3
+│   └── jobs.py                # in-memory background-job registry
 ├── config/settings.py         # .env-driven configuration
 ├── core/
 │   ├── git_client.py          # GitPython: commit history + file metrics + diffs
 │   ├── github_client.py       # local clones + GitHubAPI (per-user activity)
 │   ├── db.py                  # MongoStore + JsonStore fallback (+ generic reports)
 │   ├── llm.py                 # pluggable LLM provider (local/openai/claude/gemini)
+│   ├── embeddings.py          # SimilarityIndex: ChromaIndex + LiteIndex fallback (Tool 3)
+│   ├── paths.py               # shared file classification (code/doc/config/test)
 │   └── analysis.py            # bug-hotspot orchestration
 ├── pipeline/
 │   ├── fetch_commits.py       # git -> classify -> cache
 │   ├── fetch_user_activity.py # GitHub user activity -> normalized dict (Tool 2)
+│   ├── build_bug_index.py     # repo bug-fix diffs -> similarity index (Tool 3)
 │   ├── classify_commits.py    # bug-fix keyword detection
 │   ├── extract_features.py    # per-file feature engineering
 │   └── build_training_data.py # pool repos -> labeled dataset -> train (XGBoost)
 ├── tools/
 │   ├── bug_hotspot/           # Tool 1: scorer, explainer, dataset, normalize, ml_scorer
 │   ├── commit_quality/        # Tool 4: scorer, suggester, reporter, runner
-│   └── dev_profiler/          # Tool 2: classifier, llm_analyzer, profile_builder, runner
+│   ├── dev_profiler/          # Tool 2: classifier, llm_analyzer, profile_builder, runner
+│   └── pr_reviewer/           # Tool 3: risk_scorer, similarity, llm_summarizer, report_builder, runner
 ├── train_repos.txt            # list of repos to train the ML model on
 ├── scripts/                   # thin wrappers (setup_indexes, pull_repo, run_analysis)
-└── tests/
-    ├── test_bug_hotspot.py    test_ml_scorer.py    test_llm.py
-    └── test_commit_quality.py test_dev_profiler.py
+└── tests/                     # 8 suites, all network-free (stdlib + FakeProvider + FakeStore)
 ```
