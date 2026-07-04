@@ -19,6 +19,8 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+from core.paths import is_code_file
+
 _EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
 
 
@@ -77,12 +79,16 @@ def build_file_features(
             a["authors"].add(who)
             if age <= churn_window_days:
                 a["churn_window"] += 1
-            if is_bug:
+            # Only credit bug history to actual source files. A "fix ..." commit
+            # often also touches a README or config file; attributing bug risk to
+            # those produced false-positive hotspots (e.g. README.md, *.toml).
+            bug_here = is_bug and is_code_file(path)
+            if bug_here:
                 a["bugfix_count"] += 1
                 a["bug_score"] += decay
             if when > a["last_date"]:
                 a["last_date"] = when
-                a["last_was_bugfix"] = is_bug
+                a["last_was_bugfix"] = bug_here
 
     rows: list[dict] = []
     for path, a in acc.items():

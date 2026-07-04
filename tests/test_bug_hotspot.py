@@ -111,6 +111,25 @@ def test_empty_input_is_safe():
     print("  ok: empty input is safe")
 
 
+def test_bug_credit_only_for_code_files():
+    # a bug-fix commit that touches a code file AND a README/config
+    commits = [
+        _commit("a1", 2, "fix crash in parser", ["core/parser.py", "README.md"]),
+        _commit("a2", 5, "fix config bug", ["core/parser.py", ".streamlit/config.toml"]),
+    ]
+    classify_commits(commits)
+    feats = build_file_features(commits, as_of=NOW)
+    by = {f["path"]: f for f in feats}
+    # code file accrues bug history...
+    assert by["core/parser.py"]["bugfix_count"] == 2
+    assert by["core/parser.py"]["bug_score"] > 0
+    # ...docs/config do not (the old false positive)
+    assert by["README.md"]["bugfix_count"] == 0
+    assert by["README.md"]["bug_score"] == 0
+    assert by[".streamlit/config.toml"]["bug_score"] == 0
+    print("  ok: bug credit only for code files")
+
+
 def _run_all():
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     print(f"running {len(fns)} test(s)...")

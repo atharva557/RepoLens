@@ -12,6 +12,10 @@ env/
 # Secrets / local config
 .env
 
+# AI-assistant local config (never publish)
+.claude/
+CLAUDE.md
+
 # Runtime data (caches, clones, trained models)
 data/
 
