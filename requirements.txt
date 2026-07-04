@@ -20,8 +20,18 @@ numpy>=1.24           # feature matrices
 openai>=1.0           # LLM_PROVIDER = local (LM Studio) | openai | gemini
 anthropic>=0.40       # LLM_PROVIDER = claude
 
+# --- optional: PR Review similarity engine (v0.3) ---
+# Without these, Tool 3 uses a built-in lightweight (TF-IDF) similarity index.
+# Installing them upgrades to real semantic embeddings + a vector DB.
+sentence-transformers>=2.2   # diff embeddings (pulls in PyTorch — large download)
+chromadb>=0.5                # local vector store
+
+# --- FastAPI backend (v0.4) ---
+# Only needed to run the web API (`python -m uvicorn api.main:app`); the CLI
+# and all four tools work without them. httpx is only for tests/test_api.py.
+fastapi>=0.110         # web API + PR webhook
+uvicorn[standard]>=0.29  # ASGI server
+httpx>=0.27            # FastAPI TestClient dependency (tests only)
+
 # --- arrive in later milestones ---
-# fastapi, uvicorn        (v0.4 API layer)
-# motor                   (v0.4 async Mongo read path)
-# sentence-transformers   (v0.3 PR similarity)
-# chromadb                (v0.3 vector store)
+# motor                   (async Mongo read path, if the sync driver is outgrown)

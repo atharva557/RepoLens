@@ -8,7 +8,7 @@ from __future__ import annotations
 from core.github_client import ensure_local_clone, repo_key as _repo_key
 from pipeline.fetch_commits import fetch_and_store_commits
 from tools.commit_quality.reporter import build_report
-from tools.commit_quality.suggester import suggest
+from tools.commit_quality.suggester import suggest as suggest_message
 
 
 def run_commit_quality_report(target: str, settings, store, *,
@@ -55,7 +55,7 @@ def run_commit_quality_report(target: str, settings, store, *,
                 diff = gc.commit_diff(row["sha"])
                 full = next((c.get("message", "") for c in commits
                              if c.get("sha", "").startswith(row["sha"])), row["subject"])
-                row["suggestion"] = suggest(llm, full, diff)
+                row["suggestion"] = suggest_message(llm, full, diff)
             report["suggested"] = True
 
     store.save_report("commit_quality", key, _slim(report, top))

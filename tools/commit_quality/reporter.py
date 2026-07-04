@@ -56,6 +56,14 @@ def build_report(commits: list[dict]) -> dict:
         "avg_score": round(avg, 2),
         "good": sum(1 for s in scored if s["score"] >= 7),
         "weak": sum(1 for s in scored if s["score"] < 4),
+        # dashboard quality-card aggregates (issue labels come from the scorer)
+        "avg_subject_len": round(sum(len(s["subject"]) for s in scored) / n, 1),
+        "pct_imperative": round(100 * sum(
+            1 for s in scored
+            if "does not start with an imperative verb" not in s["issues"]) / n),
+        "pct_referenced": round(100 * sum(
+            1 for s in scored
+            if "no issue/ticket reference" not in s["issues"]) / n),
         "contributors": contributors,
         "trend": trend,
         "common_issues": issue_counts.most_common(6),

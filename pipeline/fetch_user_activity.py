@@ -29,6 +29,11 @@ def fetch_user_activity(api, username: str, settings) -> dict:
     authored, pr_samples = api.authored_prs(username, settings.profile_pr_sample)
     reviews = api.reviews_count(username)
 
+    try:  # social header is decoration — never let it sink the profile
+        user = api.user_meta(username)
+    except Exception:
+        user = {}
+
     return {
         "username": username,
         "commits": commits,
@@ -37,4 +42,7 @@ def fetch_user_activity(api, username: str, settings) -> dict:
         "authored_prs": authored,
         "pr_samples": pr_samples,
         "reviews_count": reviews,
+        "user": user,
+        "merged_prs": api.merged_prs_count(username),
+        "issues_resolved": api.issues_resolved_count(username),
     }

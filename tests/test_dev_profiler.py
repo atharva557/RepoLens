@@ -8,6 +8,7 @@ LLM SDK.
 """
 import os
 import sys
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -15,6 +16,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from core.llm import FakeProvider
 from tools.dev_profiler.classifier import DEV_TYPES, classify
 from tools.dev_profiler.profile_builder import build_profile
+from tools.dev_profiler.runner import run_developer_profile
 
 
 def _commit(msg, files, additions=10, deletions=2, bug=False):
@@ -70,15 +72,20 @@ def test_distribution_sums_and_empty():
 
 
 def test_profile_assembly_with_fake_llm():
+    now = datetime.now(timezone.utc)
     commits = [
         _commit("Fix null pointer in session validation\n\nbecause it crashed. Closes #1",
                 [{"path": "auth.py", "status": "modified"}], bug=True),
         _commit("Add payments route", [{"path": "pay.py", "status": "added"}]),
     ]
+    commits[0]["date"] = now - timedelta(days=2)
+    commits[1]["date"] = now - timedelta(days=2)
     activity = {
         "username": "alice", "commits": commits,
         "languages": {"Python": 3, "Go": 1}, "repos": ["a/b", "a/c"],
         "authored_prs": 12, "pr_samples": ["Implements payments"], "reviews_count": 5,
+        "merged_prs": 9, "issues_resolved": 4,
+        "user": {"followers": 10, "bio": "hi", "years_active": 3.5},
     }
     profile = build_profile(activity, _settings(), llm=FakeProvider("Strong, detail-oriented."))
     assert profile["username"] == "alice"
@@ -87,9 +94,72 @@ def test_profile_assembly_with_fake_llm():
     assert 0 <= profile["commit_message_quality"] <= 10
     assert profile["authored_prs"] == 12
     assert profile["llm_summary"] == "Strong, detail-oriented."
-    # without an LLM, summary is simply None
-    assert build_profile(activity, _settings(), llm=None)["llm_summary"] is None
-    print("  ok: profile assembly (+ fake LLM, + no LLM)")
+    # dashboard fields: language shares, social header, counts, daily heatmap
+    assert profile["languages"][0] == {"name": "Python", "pct": 75.0}
+    assert profile["prs_merged"] == 9 and profile["issues_resolved"] == 4
+    assert profile["user"]["followers"] == 10
+    assert sum(d["count"] for d in profile["heatmap"]) == 2
+    # without an LLM, summary is simply None; missing socials stay safe defaults
+    bare = build_profile({"username": "bob", "commits": []}, _settings(), llm=None)
+    assert bare["llm_summary"] is None
+    assert bare["user"] == {} and bare["heatmap"] == [] and bare["prs_merged"] == 0
+    print("  ok: profile assembly (+ fake LLM, + no LLM, dashboard fields)")
+
+
+class _FakeStore:
+    """Just enough of the store interface for the runner's cache path."""
+
+    backend = "fake"
+
+    def __init__(self, cached=None):
+        self.cached = cached
+        self.saved = None
+
+    def load_report(self, kind, key):
+        return self.cached
+
+    def save_report(self, kind, key, doc):
+        self.saved = (kind, key, doc)
+
+
+def test_runner_reuses_fresh_cached_profile():
+    # stub out the network path: any attempt to fetch raises Sentinel
+    import core.github_client as ghc
+    import pipeline.fetch_user_activity as fua
+
+    class Sentinel(Exception):
+        pass
+
+    def _no_fetch(*a, **k):
+        raise Sentinel("network fetch attempted")
+
+    orig_api, orig_fetch = ghc.GitHubAPI, fua.fetch_user_activity
+    ghc.GitHubAPI, fua.fetch_user_activity = (lambda token: None), _no_fetch
+    try:
+        cached = {"username": "alice", "primary_type": "Bug Fixer",
+                  "generated_at": datetime.now(timezone.utc) - timedelta(hours=1)}
+        settings = _settings(github_token="tok", profile_cache_hours=24)
+        # fresh cache -> served without touching the network
+        assert run_developer_profile("alice", settings, _FakeStore(cached)) is cached
+        # stale cache -> rebuild is attempted (our stub raises)
+        stale = dict(cached, generated_at=datetime.now(timezone.utc) - timedelta(hours=48))
+        try:
+            run_developer_profile("alice", settings, _FakeStore(stale))
+            assert False, "stale cache should trigger a rebuild attempt"
+        except Sentinel:
+            pass
+        # refresh=True -> rebuild even when the cache is fresh
+        try:
+            run_developer_profile("alice", settings, _FakeStore(cached), refresh=True)
+            assert False, "refresh=True should bypass the cache"
+        except Sentinel:
+            pass
+        # without a token, the cached copy is returned regardless of age
+        no_token = _settings(github_token="", profile_cache_hours=24)
+        assert run_developer_profile("alice", no_token, _FakeStore(stale)) is stale
+    finally:
+        ghc.GitHubAPI, fua.fetch_user_activity = orig_api, orig_fetch
+    print("  ok: runner cache (fresh hit, stale rebuild, refresh bypass, token-less)")
 
 
 def _run_all():

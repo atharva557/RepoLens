@@ -76,6 +76,18 @@ class Settings:
     profile_max_repos: int = 15
     profile_max_commits_per_repo: int = 100
     profile_pr_sample: int = 8
+    profile_cache_hours: int = 24  # reuse a cached profile younger than this
+
+    # PR Review Assistant (Tool 3) — similarity + risk
+    embedding_model: str = "all-MiniLM-L6-v2"
+    similarity_backend: str = "auto"       # auto | chroma | lite
+    pr_similarity_top_k: int = 5
+    pr_similarity_warn: float = 0.6
+    hotspot_top_n: int = 10                 # a file in the top-N hotspots is "high risk"
+
+    # FastAPI layer (v0.4) — PR webhook behaviour + dashboard CORS
+    webhook_post_comment: bool = False  # post Tool 3 reports back to the PR automatically
+    cors_origins: list[str] = field(default_factory=lambda: ["*"])  # dashboard origins
 
     # Storage backend override: "auto" (try Mongo, fall back to json), "mongo", "json"
     store_backend: str = "auto"
@@ -87,6 +99,18 @@ class Settings:
         def get(name: str, default):
             return env.get(name, default)
 
+        def get_num(name: str, default, cast):
+            # blank or malformed numeric values fall back to the default
+            # instead of crashing every entry point at load time
+            raw = str(env.get(name, "")).strip()
+            if not raw:
+                return default
+            try:
+                return cast(raw)
+            except ValueError:
+                print(f"  [warn] invalid {name}={raw!r} in environment; using {default}")
+                return default
+
         return cls(
             github_token=get("GITHUB_TOKEN", ""),
             github_webhook_secret=get("GITHUB_WEBHOOK_SECRET", ""),
@@ -96,8 +120,8 @@ class Settings:
             anthropic_api_key=get("ANTHROPIC_API_KEY", ""),
             openai_api_key=get("OPENAI_API_KEY", ""),
             gemini_api_key=get("GEMINI_API_KEY", ""),
-            llm_max_tokens=int(get("LLM_MAX_TOKENS", 512)),
-            llm_temperature=float(get("LLM_TEMPERATURE", 0.2)),
+            llm_max_tokens=get_num("LLM_MAX_TOKENS", 512, int),
+            llm_temperature=get_num("LLM_TEMPERATURE", 0.2, float),
             mongodb_uri=get("MONGODB_URI", "mongodb://localhost:27017"),
             mongodb_db=get("MONGODB_DB", "gitpulse"),
             chroma_path=get("CHROMA_PATH", "data/chroma"),
@@ -107,16 +131,26 @@ class Settings:
                 for k in get("BUG_KEYWORDS", "fix,bug,resolve,patch,hotfix,closes").split(",")
                 if k.strip()
             ],
-            hotspot_lookback_days=int(get("HOTSPOT_LOOKBACK_DAYS", 90)),
-            churn_window_days=int(get("CHURN_WINDOW_DAYS", 30)),
-            hotspot_recency_halflife_days=int(get("HOTSPOT_RECENCY_HALFLIFE_DAYS", 30)),
+            hotspot_lookback_days=get_num("HOTSPOT_LOOKBACK_DAYS", 90, int),
+            churn_window_days=get_num("CHURN_WINDOW_DAYS", 30, int),
+            hotspot_recency_halflife_days=get_num("HOTSPOT_RECENCY_HALFLIFE_DAYS", 30, int),
             ml_model_path=get("ML_MODEL_PATH", "data/models/hotspot_xgb.json"),
-            ml_label_window_days=int(get("ML_LABEL_WINDOW_DAYS", 90)),
-            ml_snapshots=int(get("ML_SNAPSHOTS", 4)),
-            ml_min_positives=int(get("ML_MIN_POSITIVES", 20)),
-            profile_max_repos=int(get("PROFILE_MAX_REPOS", 15)),
-            profile_max_commits_per_repo=int(get("PROFILE_MAX_COMMITS_PER_REPO", 100)),
-            profile_pr_sample=int(get("PROFILE_PR_SAMPLE", 8)),
+            ml_label_window_days=get_num("ML_LABEL_WINDOW_DAYS", 90, int),
+            ml_snapshots=get_num("ML_SNAPSHOTS", 4, int),
+            ml_min_positives=get_num("ML_MIN_POSITIVES", 20, int),
+            profile_max_repos=get_num("PROFILE_MAX_REPOS", 15, int),
+            profile_max_commits_per_repo=get_num("PROFILE_MAX_COMMITS_PER_REPO", 100, int),
+            profile_pr_sample=get_num("PROFILE_PR_SAMPLE", 8, int),
+            profile_cache_hours=get_num("PROFILE_CACHE_HOURS", 24, int),
+            embedding_model=get("EMBEDDING_MODEL", "all-MiniLM-L6-v2"),
+            similarity_backend=get("SIMILARITY_BACKEND", "auto").lower(),
+            pr_similarity_top_k=get_num("PR_SIMILARITY_TOP_K", 5, int),
+            pr_similarity_warn=get_num("PR_SIMILARITY_WARN", 0.6, float),
+            hotspot_top_n=get_num("HOTSPOT_TOP_N", 10, int),
+            webhook_post_comment=str(get("GITPULSE_WEBHOOK_POST", "")).strip().lower()
+            in ("1", "true", "yes", "on"),
+            cors_origins=[o.strip() for o in get("GITPULSE_CORS_ORIGINS", "*").split(",")
+                          if o.strip()] or ["*"],
             store_backend=get("GITPULSE_STORE", "auto").lower(),
         )
 

@@ -21,6 +21,16 @@ from typing import Iterable
 # --------------------------------------------------------------------------- #
 # serialization helpers (datetimes <-> ISO strings for the JSON backend)
 # --------------------------------------------------------------------------- #
+def report_age_hours(doc: dict | None) -> float | None:
+    """Age of a stored report in hours (via its generated_at), or None."""
+    gen = (doc or {}).get("generated_at")
+    if not isinstance(gen, datetime):
+        return None
+    if gen.tzinfo is None:  # defensive: treat naive timestamps as UTC
+        gen = gen.replace(tzinfo=timezone.utc)
+    return (datetime.now(timezone.utc) - gen).total_seconds() / 3600.0
+
+
 def _encode(obj):
     if isinstance(obj, datetime):
         return {"__dt__": obj.astimezone(timezone.utc).isoformat()}
@@ -98,6 +108,38 @@ class JsonStore:
         with open(p, encoding="utf-8") as fh:
             return _decode(json.load(fh))
 
+    def list_reports(self, kind: str, fields: tuple = ()) -> list[dict]:
+        """Small discovery summaries: one row per stored document.
+
+        "commits" rows carry a count; "hotspots" rows carry the file count;
+        report rows carry key + generated_at (+ any requested `fields`).
+        """
+        d = os.path.join(self.root, kind)
+        if not os.path.isdir(d):
+            return []
+        out = []
+        for name in sorted(os.listdir(d)):
+            if not name.endswith(".json"):
+                continue
+            try:
+                with open(os.path.join(d, name), encoding="utf-8") as fh:
+                    doc = _decode(json.load(fh))
+            except (OSError, ValueError):
+                continue  # unreadable/corrupt cache file — skip, don't fail discovery
+            fallback_key = name[:-5].replace("__", "/")
+            if kind == "commits":  # commits files are bare lists
+                out.append({"key": fallback_key, "commits": len(doc)})
+                continue
+            row = {"key": doc.get("key") or doc.get("repo") or fallback_key,
+                   "generated_at": doc.get("generated_at")}
+            if kind == "hotspots":
+                row["files"] = len(doc.get("rows") or [])
+            for f in fields:
+                if f in doc:
+                    row[f] = doc[f]
+            out.append(row)
+        return out
+
 
 class MongoStore:
     """MongoDB-backed store (primary)."""
@@ -107,7 +149,9 @@ class MongoStore:
     def __init__(self, uri: str, dbname: str, timeout_ms: int = 800):
         from pymongo import MongoClient  # lazy import
 
-        self.client = MongoClient(uri, serverSelectionTimeoutMS=timeout_ms)
+        # tz_aware: commit dates must round-trip as aware UTC datetimes — the
+        # feature extractor subtracts them from datetime.now(timezone.utc).
+        self.client = MongoClient(uri, serverSelectionTimeoutMS=timeout_ms, tz_aware=True)
         self.client.admin.command("ping")  # raises if unreachable
         self.db = self.client[dbname]
 
@@ -158,6 +202,24 @@ class MongoStore:
 
     def load_report(self, kind: str, key: str) -> dict | None:
         return self.db[kind].find_one({"key": key}, {"_id": 0})
+
+    def list_reports(self, kind: str, fields: tuple = ()) -> list[dict]:
+        """Same discovery shape as JsonStore.list_reports (see there)."""
+        if kind == "commits":
+            rows = self.db.commits.aggregate([
+                {"$group": {"_id": "$repo", "commits": {"$sum": 1}}},
+                {"$sort": {"_id": 1}},
+            ])
+            return [{"key": r["_id"], "commits": r["commits"]} for r in rows]
+        if kind == "hotspots":
+            rows = self.db.hotspots.aggregate([
+                {"$project": {"_id": 0, "key": "$repo", "generated_at": 1,
+                              "files": {"$size": {"$ifNull": ["$rows", []]}}}},
+                {"$sort": {"key": 1}},
+            ])
+            return list(rows)
+        proj = {"_id": 0, "key": 1, "generated_at": 1, **{f: 1 for f in fields}}
+        return sorted(self.db[kind].find({}, proj), key=lambda r: r.get("key") or "")
 
 
 def open_store(settings) -> JsonStore | MongoStore:
