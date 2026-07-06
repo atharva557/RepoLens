@@ -7,6 +7,7 @@ be compared against them. Backend (Chroma vs Lite) is chosen by the index itself
 from __future__ import annotations
 
 from core.embeddings import open_similarity_index
+from core.paths import is_code_file
 
 
 def build_bug_diff_index(commits: list[dict], git_client, settings, *, max_diffs: int = 400):
@@ -14,11 +15,17 @@ def build_bug_diff_index(commits: list[dict], git_client, settings, *, max_diffs
 
     `commits` are v0.1 commit dicts (need `is_bugfix`); `git_client` is a
     GitClient for the same repo (to fetch diffs). Empty index if no bug fixes.
+
+    Only bug fixes that touched at least one source file are indexed: a
+    changelog-typo "fix" is not bug signal, and matching a PR's own changelog
+    edit against it produced false similarity warnings.
     """
     docs = []
     for c in commits:
         if not c.get("is_bugfix"):
             continue
+        if not any(is_code_file(f.get("path", "")) for f in c.get("files", [])):
+            continue  # docs/config-only "fix" — nothing bug-like to compare against
         sha = c.get("sha", "")
         diff = git_client.commit_diff(sha) if sha else ""
         text = f"{c.get('message', '')}\n{diff}".strip()

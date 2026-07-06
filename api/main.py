@@ -69,10 +69,11 @@ class CommitQualityRequest(BaseModel):
 # --------------------------------------------------------------------------- #
 # background-job payloads (small summaries; full reports live in the store)
 # --------------------------------------------------------------------------- #
-def _analyze_job(req: AnalyzeRequest, settings, store) -> dict:
+def _analyze_job(req: AnalyzeRequest, settings, store, progress=None) -> dict:
     result = run_hotspot_analysis(
         req.repo, settings, store,
         refresh=req.refresh, max_commits=req.max_commits, top=req.top,
+        progress=progress,
     )
     return {
         "repo": result["repo"],
@@ -84,9 +85,10 @@ def _analyze_job(req: AnalyzeRequest, settings, store) -> dict:
     }
 
 
-def _commit_quality_job(req: CommitQualityRequest, settings, store) -> dict:
+def _commit_quality_job(req: CommitQualityRequest, settings, store, progress=None) -> dict:
     report = run_commit_quality_report(
         req.repo, settings, store, max_commits=req.max_commits, top=req.top,
+        progress=progress,
     )
     return {
         "repo": report.get("repo"),
@@ -97,9 +99,10 @@ def _commit_quality_job(req: CommitQualityRequest, settings, store) -> dict:
     }
 
 
-def _profile_job(username: str, settings, store) -> dict:
+def _profile_job(username: str, settings, store, progress=None) -> dict:
     # POST /profiles/{user} is an explicit rebuild request — skip the cache
-    profile = run_developer_profile(username, settings, store, refresh=True) or {}
+    profile = run_developer_profile(username, settings, store,
+                                    refresh=True, progress=progress) or {}
     return {
         "username": username,
         "primary_type": profile.get("primary_type"),
@@ -107,13 +110,13 @@ def _profile_job(username: str, settings, store) -> dict:
     }
 
 
-def _pr_review_job(spec: str, settings, store) -> dict:
-    report = run_pr_review(spec, settings, store, post=False)
+def _pr_review_job(spec: str, settings, store, progress=None) -> dict:
+    report = run_pr_review(spec, settings, store, post=False, progress=progress)
     return {"pr": spec, "level": report.get("level"), "warnings": report.get("warnings")}
 
 
-def _insights_job(repo_key: str, settings, store) -> dict:
-    report = run_repo_insights(repo_key, settings, store)
+def _insights_job(repo_key: str, settings, store, progress=None) -> dict:
+    report = run_repo_insights(repo_key, settings, store, progress=progress)
     return {"repo": repo_key, "bullets": len(report.get("bullets") or [])}
 
 
@@ -157,7 +160,9 @@ def create_app(settings: Settings | None = None, store=None, identity=None) -> F
     def _accepted(jobs: JobRegistry, kind: str, params: dict, tasks: BackgroundTasks,
                   fn, *args) -> dict:
         job_id = jobs.create(kind, params)
-        tasks.add_task(jobs.run, job_id, fn, *args)
+        # every job fn accepts progress= and threads it into the engine, so
+        # GET /jobs/{id} can report which phase (GitHub / git / ML / LLM) is running
+        tasks.add_task(jobs.run, job_id, fn, *args, progress=jobs.reporter(job_id))
         return {"job_id": job_id, "status": "pending", "status_url": f"/jobs/{job_id}"}
 
     def _require_token(settings) -> None:

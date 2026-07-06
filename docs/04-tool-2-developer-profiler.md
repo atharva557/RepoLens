@@ -34,10 +34,11 @@ per repo, review participation (`reviews_count`, `review_comments`), and PR
 descriptions. Commit messages run through the same bug-fix keyword classifier
 as Tool 1.
 
-**Caching:** a stored profile younger than `PROFILE_CACHE_HOURS` (default 24)
-is served from the store instead of re-hitting GitHub. The CLI asks before
-re-fetching; `POST /profiles/{user}` is an explicit rebuild and always
-refreshes.
+**Caching — database-first:** any stored profile is served without touching
+GitHub, however old; a profile older than `PROFILE_CACHE_HOURS` (default 24)
+is labeled stale in the output. GitHub is hit only on the first build or an
+explicit refresh: the CLI asks, and `POST /profiles/{user}` (the dashboard's
+re-fetch button) always rebuilds.
 
 ## Classification — six developer types, deterministic signals
 

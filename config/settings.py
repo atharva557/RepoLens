@@ -85,6 +85,8 @@ class Settings:
     pr_similarity_top_k: int = 5
     pr_similarity_warn: float = 0.6
     hotspot_top_n: int = 10                 # a file in the top-N hotspots is "high risk"
+    pr_risk_high: float = 0.5               # weighted PR risk score >= this -> HIGH
+    pr_risk_medium: float = 0.2             # >= this -> MEDIUM (below -> LOW)
 
     # FastAPI layer (v0.4) — PR webhook behaviour + dashboard CORS
     webhook_post_comment: bool = False  # post Tool 3 reports back to the PR automatically
@@ -160,6 +162,8 @@ class Settings:
             pr_similarity_top_k=get_num("PR_SIMILARITY_TOP_K", 5, int),
             pr_similarity_warn=get_num("PR_SIMILARITY_WARN", 0.6, float),
             hotspot_top_n=get_num("HOTSPOT_TOP_N", 10, int),
+            pr_risk_high=get_num("PR_RISK_HIGH", 0.5, float),
+            pr_risk_medium=get_num("PR_RISK_MEDIUM", 0.2, float),
             webhook_post_comment=str(get("GITPULSE_WEBHOOK_POST", "")).strip().lower()
             in ("1", "true", "yes", "on"),
             cors_origins=[o.strip() for o in get("GITPULSE_CORS_ORIGINS", "*").split(",")

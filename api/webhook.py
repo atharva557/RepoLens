@@ -36,12 +36,13 @@ def pr_spec_from_payload(payload: dict) -> str | None:
     return f"{repo}#{number}"
 
 
-def review_pr_from_payload(payload: dict, settings, store) -> dict:
+def review_pr_from_payload(payload: dict, settings, store, progress=None) -> dict:
     """Run Tool 3 for the PR in the payload (background-task entry point)."""
     spec = pr_spec_from_payload(payload)
     if spec is None:
         raise ValueError("payload has no repository/pull_request number")
-    report = run_pr_review(spec, settings, store, post=settings.webhook_post_comment)
+    report = run_pr_review(spec, settings, store,
+                           post=settings.webhook_post_comment, progress=progress)
     # keep the job result small — the full report is in the store
     return {
         "pr": spec,

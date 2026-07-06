@@ -49,7 +49,7 @@ are small summaries; full reports live in the store.
 | `GET /repos/{key}/pr-reviews/{n}` | read | Tool 3 report |
 | `GET /profiles/{username}` | read | Tool 2 profile |
 | `GET /repos/{key}/activity` | read | contributors, recent commits, daily heatmap, health score — aggregated live from cached commits (`core/activity.py`) |
-| `GET /repos/{key}/meta` | read | GitHub header metadata (stars, forks, languages) — store-cached with TTL, needs `GITHUB_TOKEN` on first fetch |
+| `GET /repos/{key}/meta` | read | GitHub header metadata (stars, forks, languages) — database-first: cached copy served whatever its age; GitHub only on first fetch or `?refresh=true` |
 | `GET /repos/{key}/insights` | read | cached LLM insight bullets |
 | `POST /webhook/github` | webhook | GitHub PR events → auto Tool 3 |
 | `GET /api/v1/auth/github/login` · `/callback`, `POST /api/v1/auth/logout`, `GET /api/v1/me`, `PUT/DELETE /api/v1/me/llm`, `DELETE /api/v1/me/github-token` | auth (v2) | multi-user identity — `503` while `MULTIUSER=false`; see [12-identity-postgres.md](12-identity-postgres.md) |
@@ -60,8 +60,19 @@ Repo keys contain slashes (`owner/repo`), so repo routes use `:path` params —
 ## Background jobs (`api/jobs.py`)
 
 `JobRegistry` is a thread-safe, **bounded (200), in-memory** map of
-`job_id → {id, kind, params, status, created_at, finished_at, result, error}`.
-Statuses: `pending → running → done | failed`.
+`job_id → {id, kind, params, status, created_at, finished_at, progress,
+result, error}`. Statuses: `pending → running → done | failed`.
+
+`progress` is the job's latest phase report —
+`{"phase", "pct", "detail", "updated_at"}` (`null` until the first phase;
+`pct` is `null` when the stage has no measurable total). The engine's long
+operations accept a `progress` callback (`core/progress.py`) and report
+phases worded to answer "*what* is slow": `cloning repository (GitHub)` with
+live percent, `reading commit history (git)`, `fetching commits (GitHub)`
+(percent = repos completed), `embedding bug-fix diffs (ML)`,
+`scoring files (weighted formula | ML second opinion)`, `... (LLM)`,
+`saving report (database)`. The CLI prints the same phases via the default
+`print_progress` sink; the dashboard renders them as a progress bar.
 
 - In-memory on purpose: the stores persist the *results*; the registry only
   tracks transient state, so losing it on restart is fine for the

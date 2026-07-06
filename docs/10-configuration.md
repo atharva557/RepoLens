@@ -63,7 +63,7 @@ Sensible defaults mean the project runs with **no configuration at all**
 | `PROFILE_MAX_REPOS` | `15` | public repos scanned per user |
 | `PROFILE_MAX_COMMITS_PER_REPO` | `100` | commits fetched per repo |
 | `PROFILE_PR_SAMPLE` | `8` | PR descriptions sampled for the LLM summary |
-| `PROFILE_CACHE_HOURS` | `24` | serve a stored profile younger than this instead of re-fetching (also the repo-metadata TTL) |
+| `PROFILE_CACHE_HOURS` | `24` | age after which a served cached profile is labeled stale (reads are always database-first; GitHub only on explicit refresh) |
 
 ## Tool 3 — PR reviewer / similarity
 
@@ -74,6 +74,8 @@ Sensible defaults mean the project runs with **no configuration at all**
 | `PR_SIMILARITY_TOP_K` | `5` | matches shown in the report |
 | `PR_SIMILARITY_WARN` | `0.6` | cosine similarity that triggers a warning |
 | `HOTSPOT_TOP_N` | `10` | a PR file inside the top-N hotspots counts as "high risk" |
+| `PR_RISK_HIGH` | `0.5` | weighted PR risk score at or above this → HIGH |
+| `PR_RISK_MEDIUM` | `0.2` | at or above this → MEDIUM (below → LOW) |
 
 ## API / webhook / dashboard
 

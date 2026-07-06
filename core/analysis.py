@@ -32,6 +32,7 @@ def run_hotspot_analysis(
     refresh: bool = False,
     max_commits: int | None = None,
     top: int = 15,
+    progress=None,
 ) -> dict:
     """Run the full pipeline for `target` and return a result dict.
 
@@ -42,9 +43,16 @@ def run_hotspot_analysis(
             "scores": [FileScore, ...]  # ranked, with reasons attached
         }
     """
+    from core.progress import reporter_or_print
+
+    report = reporter_or_print(progress)
+
     local_path = None
     try:
-        local_path, key = ensure_local_clone(target, settings.cache_dir)
+        # an explicit refresh also pulls the cached clone, so "refresh" truly
+        # means "go back to GitHub", not "re-read the same stale history"
+        local_path, key = ensure_local_clone(target, settings.cache_dir,
+                                             update=refresh, progress=progress)
     except Exception as exc:
         # No local clone available — fall back to whatever is cached under the
         # derived key. Complexity metrics will be unavailable in this mode.
@@ -60,15 +68,16 @@ def run_hotspot_analysis(
             raise SystemExit(
                 f"No cached commits for '{key}' and no local repo to pull from."
             )
-        print(f"  pulling commit history from {local_path} ...")
         commits = fetch_and_store_commits(
             local_path, key, store,
             keywords=settings.bug_keywords, max_commits=max_commits,
+            progress=progress,
         )
     else:
         # ensure classification flag is present (older caches / safety)
         classify_commits(commits, settings.bug_keywords)
-        print(f"  loaded {len(commits)} commits from cache ({store.backend})")
+        report("loading cached commits (database)",
+               detail=f"{len(commits)} commits from {store.backend}")
 
     bugfix_commits = sum(1 for c in commits if c.get("is_bugfix"))
 
@@ -79,9 +88,12 @@ def run_hotspot_analysis(
         gc = GitClient(local_path)
         existing_files = set(gc.head_files())
         touched = {f["path"] for c in commits for f in c.get("files", [])}
+        report("computing file metrics (processing)",
+               detail=f"{len(existing_files & touched)} files")
         metrics_by_file = gc.metrics_for(existing_files & touched)
 
     # 3. features
+    report("scoring files (weighted formula)")
     features = build_file_features(
         commits,
         as_of=datetime.now(timezone.utc),
@@ -100,6 +112,7 @@ def run_hotspot_analysis(
     model = load_model(settings.ml_model_path)
     if model is not None:
         try:
+            report("scoring files (ML second opinion)")
             from tools.bug_hotspot.ml_scorer import predict_scores
 
             probs = predict_scores(model, features)
@@ -110,6 +123,7 @@ def run_hotspot_analysis(
             print(f"  [warn] ML second opinion skipped: {type(exc).__name__}: {exc}")
 
     # persist the report
+    report("saving report (database)", pct=100)
     store.save_hotspots(key, [s.to_dict() for s in scores[: max(top, 50)]])
 
     return {

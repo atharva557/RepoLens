@@ -47,8 +47,12 @@ def _digest(repo_key: str, activity: dict, quality: dict | None,
     return "\n".join(lines)
 
 
-def run_repo_insights(repo_key: str, settings, store) -> dict:
+def run_repo_insights(repo_key: str, settings, store, progress=None) -> dict:
     """Generate + cache insight bullets. Raises LLMUnavailable without an LLM."""
+    from core.progress import reporter_or_print
+
+    report_progress = reporter_or_print(progress)
+    report_progress("building analytics digest (database)")
     commits = store.load_commits(repo_key)
     if not commits:
         raise SystemExit(f"no cached commits for '{repo_key}' — run an analysis first")
@@ -62,6 +66,7 @@ def run_repo_insights(repo_key: str, settings, store) -> dict:
         raise LLMUnavailable(
             f"LLM provider '{llm.describe()}' is not available — insights need one")
 
+    report_progress("generating insights (LLM)", detail=llm.describe())
     # reasoning models (e.g. local gemma) spend tokens thinking before any
     # visible output — a 512-token budget can truncate to empty content
     text = llm.generate(_PROMPT.format(digest=_digest(repo_key, activity, quality,

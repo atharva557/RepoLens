@@ -80,9 +80,12 @@ store.list_reports(kind, fields=())     # small discovery summaries
 | `repo_meta` | repo key | `core/github_client.get_repo_meta` | `GET /repos/{key}/meta` |
 | `api_selftest` | `"ping"` | `GET /test` round-trip check | — |
 
-`report_age_hours(doc)` computes a report's age from its `generated_at`;
-Tool 2 and repo metadata use it as a TTL (`PROFILE_CACHE_HOURS`, default 24 h)
-to serve cached documents instead of re-hitting the GitHub API.
+`report_age_hours(doc)` computes a report's age from its `generated_at`.
+GitHub-backed documents (profiles, repo metadata) are **database-first**:
+whatever is cached is served regardless of age, and GitHub is called only on
+the first fetch or an explicit refresh (`refresh=True` — the dashboard's
+"Sync from GitHub" button). `PROFILE_CACHE_HOURS` (default 24 h) only decides
+when a served profile is *labeled* stale.
 
 ## MongoStore (primary)
 

@@ -119,8 +119,11 @@ def test_read_endpoints_404_then_hit():
 def test_analyze_trigger_and_job_lifecycle():
     calls = []
 
-    def fake_analysis(target, settings, store, *, refresh=False, max_commits=None, top=15):
+    def fake_analysis(target, settings, store, *, refresh=False, max_commits=None,
+                      top=15, progress=None):
         calls.append(target)
+        if progress:  # jobs thread a phase reporter into the engine
+            progress("scoring files (weighted formula)", pct=50, detail="fake")
 
         class S:  # minimal FileScore stand-in
             def to_dict(self):
@@ -139,6 +142,9 @@ def test_analyze_trigger_and_job_lifecycle():
             job = c.get(r.json()["status_url"]).json()
             assert job["status"] == "done", job
             assert job["result"]["top"] == [{"path": "a.py", "score": 1.0}]
+            # the engine's phase reports surface on the job for the UI's bar
+            assert job["progress"]["phase"] == "scoring files (weighted formula)"
+            assert job["progress"]["pct"] == 50
             assert calls == ["some/repo"]
             assert c.get("/jobs/nope").status_code == 404
     finally:
@@ -190,7 +196,7 @@ def test_webhook_security_and_dispatch():
     settings = Settings(github_webhook_secret="whsec", github_token="tok")
     seen = []
 
-    def fake_review(pl, st, store):
+    def fake_review(pl, st, store, progress=None):
         seen.append(pl["pull_request"]["number"])
         return {"pr": "owner/repo#42", "level": "LOW"}
 
@@ -337,7 +343,7 @@ def test_meta_endpoint():
 def test_insights_trigger_and_read():
     store = FakeStore()
 
-    def fake_insights(key, settings, st):
+    def fake_insights(key, settings, st, progress=None):
         st.save_report("repo_insights", key, {"repo": key, "bullets": ["a", "b"]})
         return {"repo": key, "bullets": ["a", "b"]}
 
