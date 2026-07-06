@@ -35,3 +35,9 @@ httpx>=0.27            # FastAPI TestClient dependency (tests only)
 
 # --- arrive in later milestones ---
 # motor                   (async Mongo read path, if the sync driver is outgrown)
+
+# --- optional: multi-user identity plane (v2, MULTIUSER=true) ---
+# Single-user mode needs neither. Postgres holds accounts/sessions/ownership;
+# cryptography provides Fernet encryption for stored GitHub/LLM tokens.
+psycopg[binary]>=3.1   # PostgreSQL driver (identity plane)
+cryptography>=42       # Fernet token encryption (spec 2.5)

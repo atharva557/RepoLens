@@ -7,6 +7,32 @@ This project follows the milestone roadmap in `../GitPulse_Revised_Sections.md`.
 
 ## [Unreleased]
 
+- **Multi-user identity plane (Postgres) — first v2 slice** (`MULTIUSER=true`,
+  default off = exactly the single-user app): the spec §6.4 schema (`users`,
+  `sessions`, `user_repos`, `llm_configs`, `audit_log`) bootstrapped
+  idempotently in PostgreSQL (`core/identity.py`, psycopg lazy import);
+  "Sign in with GitHub" OAuth (`api/auth.py`: login redirect with state nonce,
+  code exchange, user upsert, session cookie httpOnly/SameSite=Lax with only
+  its SHA-256 hash stored, sliding 30-day expiry); GitHub tokens and BYO LLM
+  keys **Fernet-encrypted** at rest with `FERNET_KEY` (spec §2.5: hash what
+  you check, encrypt what you use); CSRF via required `X-GitPulse-Client`
+  header; account routes `/api/v1/me` (+ llm / github-token management,
+  write-only secrets); every audit-worthy action logged. In multiuser mode,
+  analysis triggers require a session and jobs record `created_by`; CORS pins
+  to `DASHBOARD_ORIGIN` with credentials. Auth routes answer 503 while off
+  (webhook precedent). New deps (optional): `psycopg[binary]`, `cryptography`.
+  New 9th suite `tests/test_identity.py` (8 tests, DB- and network-free via a
+  `MemoryIdentity` twin + stubbed OAuth exchange). Deferred to the next slice:
+  per-repo access rules (§7.12), quotas, per-request LLM resolution (§8.3),
+  scope escalation.
+- **LM Studio model autoload** (`LOCAL_LLM_AUTOLOAD=true`, default off): when
+  the local provider finds the server running but no model loaded, it resolves
+  a model (`LLM_MODEL` if downloaded, else an already-loaded one, else the
+  first downloaded chat model — via the new `pick_local_model()`), triggers
+  LM Studio's just-in-time load with a 1-token request, and falls back to the
+  `lms load` CLI if JIT loading is disabled. Announced with `[llm] autoload:`
+  lines; `test-llm` shows the toggle; off = exactly the previous behavior.
+  Two new tests in `tests/test_llm.py` (7 total in the suite).
 - **ChromaDB similarity backend is now live**: `chromadb` + `sentence-transformers`
   installed and verified end-to-end; Tool 3 diff-similarity now uses real semantic
   embeddings (persistent index at `data/chroma`) instead of the TF-IDF fallback.

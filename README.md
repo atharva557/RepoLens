@@ -1,7 +1,9 @@
 # RepoLens — v0.4 (API Layer)
 
 GitHub analytics & intelligence platform, exposed through an interactive CLI.
-See [CHANGELOG.md](CHANGELOG.md) for the per-version breakdown.
+See [CHANGELOG.md](CHANGELOG.md) for the per-version breakdown, and
+[docs/](docs/README.md) for the technical documentation (architecture, data
+model, per-tool internals, API, configuration, testing).
 
 It follows the *revised* architecture (see `../GitPulse_Revised_Sections.md`):
 
@@ -223,6 +225,12 @@ every rule-based feature works without it.
 
 Check it from the menu (**option 7, `test-llm`**) — it reports the provider and
 sends a one-line test prompt.
+
+For LM Studio, `LOCAL_LLM_AUTOLOAD=true` makes RepoLens load a model
+automatically when the server is running but nothing is loaded: it uses
+`LLM_MODEL` if that model is downloaded (otherwise the first available one)
+and triggers LM Studio's just-in-time load, falling back to the `lms` CLI.
+Default is off.
 
 ### Tool 4 — Commit Message Quality Analyzer
 

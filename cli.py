@@ -256,8 +256,13 @@ def run_test_llm(env: str) -> None:
         print(f"  {exc}\n")
         return
     print(f"\n  Provider: {llm.describe()}")
+    if getattr(llm, "autoload", False):
+        print("  autoload: on (LOCAL_LLM_AUTOLOAD)")
     if not llm.available():
-        print("  status  : UNAVAILABLE (start LM Studio, or set the provider's API key)\n")
+        hint = "start LM Studio, or set the provider's API key"
+        if getattr(llm, "autoload", None) is False:  # local provider, toggle off
+            hint += "; LOCAL_LLM_AUTOLOAD=true auto-loads a model"
+        print(f"  status  : UNAVAILABLE ({hint})\n")
         return
     print("  status  : available — sending a test prompt ...")
     try:
@@ -351,7 +356,7 @@ def run_commit_quality(repo: str, env: str = ".env", top: int = 15,
 
     settings = Settings.load(env)
     store = open_store_announced(settings)
-    report = run_commit_quality_report(
+    report = run_commit_qual5ity_report(
         repo, settings, store,
         max_commits=max_commits or None, suggest=suggest, top=top,
     )

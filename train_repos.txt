@@ -18,3 +18,23 @@
 # https://github.com/expressjs/express,javascript
 # https://github.com/gin-gonic/gin,go
 # C:/code/my-local-project,python
+
+# --- Curated training set: 3 languages x 3 repos ---------------------------
+# All active, non-archived, with clean fix-keyword commit hygiene and enough
+# history for multiple temporal snapshots. Language tags drive the
+# leave-one-language-out cross-language evaluation.
+
+# Python
+https://github.com/psf/requests,python
+https://github.com/pallets/flask,python
+https://github.com/pallets/click,python
+
+# JavaScript
+https://github.com/expressjs/express,javascript
+https://github.com/axios/axios,javascript
+https://github.com/lodash/lodash,javascript
+
+# Go
+https://github.com/gin-gonic/gin,go
+https://github.com/spf13/cobra,go
+https://github.com/sirupsen/logrus,go

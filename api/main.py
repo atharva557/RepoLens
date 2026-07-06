@@ -28,12 +28,14 @@ from fastapi import BackgroundTasks, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
+from api.auth import add_auth_routes, require_user
 from api.jobs import JobRegistry
 from api.webhook import REVIEW_ACTIONS, review_pr_from_payload, verify_signature
 from config.settings import Settings
 from core.activity import build_activity
 from core.analysis import run_hotspot_analysis
 from core.db import open_store
+from core.identity import open_identity
 from core.github_client import get_repo_meta
 from core.insights import run_repo_insights
 from tools.commit_quality.runner import run_commit_quality_report
@@ -118,8 +120,8 @@ def _insights_job(repo_key: str, settings, store) -> dict:
 # --------------------------------------------------------------------------- #
 # app factory
 # --------------------------------------------------------------------------- #
-def create_app(settings: Settings | None = None, store=None) -> FastAPI:
-    """Build the app. `settings`/`store` overrides exist for tests."""
+def create_app(settings: Settings | None = None, store=None, identity=None) -> FastAPI:
+    """Build the app. `settings`/`store`/`identity` overrides exist for tests."""
     # resolved eagerly (not in lifespan): the CORS middleware needs the origin
     # list at build time
     settings = settings or Settings.load(_env_path())
@@ -128,6 +130,8 @@ def create_app(settings: Settings | None = None, store=None) -> FastAPI:
     async def lifespan(app: FastAPI):
         app.state.settings = settings
         app.state.store = store if store is not None else open_store(settings)
+        # None when MULTIUSER=false; a hard requirement (Postgres) when true
+        app.state.identity = identity if identity is not None else open_identity(settings)
         app.state.jobs = JobRegistry()
         yield
 
@@ -138,10 +142,14 @@ def create_app(settings: Settings | None = None, store=None) -> FastAPI:
         lifespan=lifespan,
     )
 
-    # let the dashboard (a different origin in dev, e.g. localhost:5173) call us
+    # let the dashboard (a different origin in dev, e.g. localhost:5173) call us.
+    # multiuser mode pins CORS to the dashboard origin and allows credentials —
+    # the session cookie must never ride on a wildcard origin (spec §8.1).
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=settings.cors_origins,
+        allow_origins=[settings.dashboard_origin] if settings.multiuser
+        else settings.cors_origins,
+        allow_credentials=settings.multiuser,
         allow_methods=["*"],
         allow_headers=["*"],
     )
@@ -155,6 +163,14 @@ def create_app(settings: Settings | None = None, store=None) -> FastAPI:
     def _require_token(settings) -> None:
         if not settings.github_token:
             raise HTTPException(400, "GITHUB_TOKEN is not configured")
+
+    def _trigger_params(request: Request, params: dict) -> dict:
+        """Multiuser: analysis triggers require a session and are attributed
+        to the user (jobs.created_by, spec §6.4). Single-user: unchanged."""
+        if settings.multiuser:
+            user = require_user(request)
+            params["created_by"] = user["github_login"]
+        return params
 
     # ------------------------------------------------------------------ meta
     @app.get("/")
@@ -232,6 +248,8 @@ def create_app(settings: Settings | None = None, store=None) -> FastAPI:
         checks["github_token"] = bool(s.github_token)
         checks["webhook"] = {"enabled": bool(s.github_webhook_secret),
                              "auto_post": s.webhook_post_comment}
+        checks["multiuser"] = {"enabled": s.multiuser,
+                               "identity": getattr(st.identity, "backend", None)}
         checks["ok"] = bool(checks["store"].get("ok"))
         return checks
 
@@ -247,29 +265,31 @@ def create_app(settings: Settings | None = None, store=None) -> FastAPI:
     @app.post("/analyze", status_code=202)
     def analyze(req: AnalyzeRequest, request: Request, tasks: BackgroundTasks):
         st = request.app.state
-        return _accepted(st.jobs, "analyze", {"repo": req.repo}, tasks,
-                         _analyze_job, req, st.settings, st.store)
+        return _accepted(st.jobs, "analyze", _trigger_params(request, {"repo": req.repo}),
+                         tasks, _analyze_job, req, st.settings, st.store)
 
     @app.post("/commit-quality", status_code=202)
     def commit_quality(req: CommitQualityRequest, request: Request, tasks: BackgroundTasks):
         st = request.app.state
-        return _accepted(st.jobs, "commit_quality", {"repo": req.repo}, tasks,
-                         _commit_quality_job, req, st.settings, st.store)
+        return _accepted(st.jobs, "commit_quality",
+                         _trigger_params(request, {"repo": req.repo}),
+                         tasks, _commit_quality_job, req, st.settings, st.store)
 
     @app.post("/profiles/{username}", status_code=202)
     def build_profile(username: str, request: Request, tasks: BackgroundTasks):
         st = request.app.state
         _require_token(st.settings)
-        return _accepted(st.jobs, "profile", {"username": username}, tasks,
-                         _profile_job, username, st.settings, st.store)
+        return _accepted(st.jobs, "profile",
+                         _trigger_params(request, {"username": username}),
+                         tasks, _profile_job, username, st.settings, st.store)
 
     @app.post("/repos/{repo_key:path}/pr-reviews/{number}", status_code=202)
     def review_pr(repo_key: str, number: int, request: Request, tasks: BackgroundTasks):
         st = request.app.state
         _require_token(st.settings)
         spec = f"{repo_key}#{number}"
-        return _accepted(st.jobs, "pr_review", {"pr": spec}, tasks,
-                         _pr_review_job, spec, st.settings, st.store)
+        return _accepted(st.jobs, "pr_review", _trigger_params(request, {"pr": spec}),
+                         tasks, _pr_review_job, spec, st.settings, st.store)
 
     # ------------------------------------------------------- discovery layer
     # what's in the store — the dashboard's landing-page data
@@ -357,8 +377,8 @@ def create_app(settings: Settings | None = None, store=None) -> FastAPI:
     @app.post("/repos/{repo_key:path}/insights", status_code=202)
     def generate_insights(repo_key: str, request: Request, tasks: BackgroundTasks):
         st = request.app.state
-        return _accepted(st.jobs, "insights", {"repo": repo_key}, tasks,
-                         _insights_job, repo_key, st.settings, st.store)
+        return _accepted(st.jobs, "insights", _trigger_params(request, {"repo": repo_key}),
+                         tasks, _insights_job, repo_key, st.settings, st.store)
 
     # ------------------------------------------------------------ read layer
     # `:path` keys accept both "owner/repo" and bare local-clone names.
@@ -391,6 +411,10 @@ def create_app(settings: Settings | None = None, store=None) -> FastAPI:
         if doc is None:
             raise HTTPException(404, f"no profile for '{username}' — POST /profiles/{username} first")
         return doc
+
+    # ------------------------------------------------- auth & account (v2)
+    # §7.4 endpoints; every one answers 503 while MULTIUSER=false
+    add_auth_routes(app)
 
     # --------------------------------------------------------------- webhook
     @app.post("/webhook/github", status_code=202)
