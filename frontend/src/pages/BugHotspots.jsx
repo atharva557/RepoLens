@@ -1,8 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
 import { getJSON, postJSON } from "../lib/api";
 
-const DEFAULT_REPO = "pallets/flask";
 
 function timeAgo(dateString) {
   if (!dateString) return "";
@@ -21,7 +20,7 @@ function timeAgo(dateString) {
 
 export default function BugHotspots() {
   const navigate = useNavigate();
-  const repo = new URLSearchParams(window.location.search).get("repo") || DEFAULT_REPO;
+  const repo = new URLSearchParams(window.location.search).get("repo");
 
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
@@ -54,8 +53,12 @@ export default function BugHotspots() {
   }, [repo]);
 
   useEffect(() => {
-    loadHotspots();
-  }, [loadHotspots]);
+    if (repo) {
+      loadHotspots();
+    } else {
+      setLoading(false);
+    }
+  }, [loadHotspots, repo]);
 
   const handleAnalyzeTrigger = async () => {
     setTriggeringAnalyze(true);
@@ -68,12 +71,42 @@ export default function BugHotspots() {
     }
   };
 
+  if (!repo) {
+    return (
+      <div className="min-h-[calc(100vh-52px)] flex items-center justify-center bg-background text-on-surface p-6 relative overflow-hidden">
+        {/* Ambient background glow */}
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-primary/5 rounded-full blur-[100px] pointer-events-none"></div>
+
+        <div className="relative w-full max-w-[460px] h-auto p-10 rounded-3xl bg-surface-container-lowest/60 backdrop-blur-xl border border-outline-variant/40 shadow-2xl shadow-primary/10 transition-all duration-300 hover:scale-[1.02] hover:shadow-[0_0_60px_color-mix(in_srgb,var(--color-primary)_20%,transparent)] text-center flex flex-col items-center gap-6">
+          <div className="w-20 h-20 rounded-full bg-primary/10 flex items-center justify-center border border-primary/20 shadow-inner">
+            <span className="material-symbols-outlined text-primary text-[40px]">link_off</span>
+          </div>
+
+          <div className="space-y-3">
+            <h2 className="font-display-lg text-3xl text-on-surface font-bold tracking-tight">Missing Link</h2>
+            <p className="text-sm text-on-surface-variant leading-relaxed px-2 font-body">
+              We need a valid GitHub repository link to analyze the data. Please return to the home page to enter one.
+            </p>
+          </div>
+
+          <Link
+            to="/"
+            className="w-full bg-primary hover:bg-primary-container text-on-primary font-code font-bold py-3.5 rounded-xl transition-all duration-300 active:scale-95 text-center flex items-center justify-center gap-2 mt-2 shadow-lg shadow-primary/20 hover:shadow-primary/40"
+          >
+            <span className="material-symbols-outlined text-[20px]">arrow_back</span>
+            <span>Return Home</span>
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
   if (loading) {
     return (
       <div className="min-h-[calc(100vh-52px)] flex items-center justify-center bg-[#000000] text-on-surface">
         <div className="text-center space-y-4">
-          <div className="w-12 h-12 border-4 border-indigo-primary border-t-transparent rounded-full animate-spin mx-auto"></div>
-          <p className="font-code text-label text-indigo-on-surface-variant uppercase tracking-widest animate-pulse">
+          <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto"></div>
+          <p className="font-code text-label text-on-surface-variant uppercase tracking-widest animate-pulse">
             Analyzing repository hotspot files...
           </p>
         </div>
@@ -85,18 +118,18 @@ export default function BugHotspots() {
   if (error && (error.includes("404") || error.includes("not found") || error.includes("not analyzed"))) {
     return (
       <div className="min-h-[calc(100vh-52px)] flex items-center justify-center bg-[#000000] text-on-surface p-6">
-        <div className="max-w-md w-full bg-[#111111] border border-indigo-outline-variant/30 p-8 text-center space-y-6 rounded-lg">
-          <span className="material-symbols-outlined text-indigo-primary text-[64px]">explore_off</span>
+        <div className="max-w-md w-full bg-[#111111] border border-outline-variant/30 p-8 text-center space-y-6 rounded-lg">
+          <span className="material-symbols-outlined text-primary text-[64px]">explore_off</span>
           <div className="space-y-2">
-            <h2 className="font-code text-heading-lg text-indigo-primary font-bold">No Hotspot Data</h2>
-            <p className="text-xs text-indigo-on-surface-variant leading-relaxed">
+            <h2 className="font-code text-heading-lg text-primary font-bold">No Hotspot Data</h2>
+            <p className="text-xs text-on-surface-variant leading-relaxed">
               This repository has not been analyzed yet. Run a code hot-spot analysis to inspect bug risks.
             </p>
           </div>
           <button
             onClick={handleAnalyzeTrigger}
             disabled={triggeringAnalyze}
-            className="w-full bg-indigo-primary hover:opacity-90 text-on-primary font-code font-bold py-3 rounded-md transition-all active:scale-95 disabled:opacity-50"
+            className="w-full bg-primary hover:opacity-90 text-on-primary font-code font-bold py-3 rounded-md transition-all active:scale-95 disabled:opacity-50"
           >
             {triggeringAnalyze ? "TRIGGERING..." : "RUN INITIAL HOTSPOT ANALYSIS"}
           </button>
@@ -112,10 +145,10 @@ export default function BugHotspots() {
         <div className="max-w-md w-full bg-[#111111] border border-error/30 p-8 text-center space-y-4 rounded-lg">
           <span className="material-symbols-outlined text-error text-[54px]">warning</span>
           <h2 className="font-code text-heading-lg text-error font-bold">Error loading hotspots</h2>
-          <p className="text-xs text-indigo-on-surface-variant leading-relaxed break-words">{error}</p>
+          <p className="text-xs text-on-surface-variant leading-relaxed break-words">{error}</p>
           <button
             onClick={loadHotspots}
-            className="w-full bg-indigo-primary hover:opacity-90 text-on-primary font-code font-bold py-2 rounded-md"
+            className="w-full bg-primary hover:opacity-90 text-on-primary font-code font-bold py-2 rounded-md"
           >
             RETRY
           </button>
@@ -129,21 +162,21 @@ export default function BugHotspots() {
   // Determine Risk Category client-side
   const getRiskCategory = (score) => {
     if (score >= 0.7) return { label: "Critical", color: "text-error border-error/20 bg-error/10", barColor: "bg-error" };
-    if (score >= 0.4) return { label: "High", color: "text-indigo-tertiary border-indigo-tertiary/20 bg-indigo-tertiary/10", barColor: "bg-indigo-tertiary" };
-    return { label: "Medium", color: "text-indigo-primary border-indigo-primary/20 bg-indigo-primary/10", barColor: "bg-indigo-primary" };
+    if (score >= 0.4) return { label: "High", color: "text-tertiary border-tertiary/20 bg-tertiary/10", barColor: "bg-tertiary" };
+    return { label: "Medium", color: "text-primary border-primary/20 bg-primary/10", barColor: "bg-primary" };
   };
 
   // Client-side statistics
   const totalHighRisk = rows.filter((r) => r.score >= 0.7).length;
   const avgRiskScore = rows.length > 0 ? (rows.reduce((acc, r) => acc + r.score, 0) / rows.length) * 100 : 0;
-  
+
   // Check if any row has ML opinion
   const hasMLColumn = rows.some((r) => r.ml_prob !== undefined && r.ml_prob !== null);
 
   // Search and Filter Rows
   const filteredRows = rows.filter((r) => {
     const matchesSearch = r.path.toLowerCase().includes(search.toLowerCase());
-    
+
     if (filterLevel === "ALL") return matchesSearch;
     const cat = getRiskCategory(r.score).label.toUpperCase();
     return matchesSearch && cat === filterLevel;
@@ -157,15 +190,15 @@ export default function BugHotspots() {
   };
 
   return (
-    <div className="min-h-screen bg-[#000000] text-on-surface pb-12 font-body selection:bg-indigo-primary selection:text-on-primary">
+    <div className="min-h-screen bg-[#000000] text-on-surface pb-12 font-body selection:bg-primary selection:text-on-primary">
       <main className="pt-8 px-margin-mobile md:px-margin-desktop grid grid-cols-12 gap-gutter max-w-[1920px] mx-auto space-y-6">
-        
+
         {/* Header Section */}
         <div className="col-span-12 space-y-2">
-          <h1 className="font-headline-lg text-3xl font-bold bg-gradient-to-r from-indigo-primary to-indigo-secondary bg-clip-text text-transparent inline-block">
+          <h1 className="font-headline-lg text-3xl font-bold bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent inline-block">
             Bug Hotspots
           </h1>
-          <p className="font-body-lg text-sm text-indigo-on-surface-variant max-w-3xl leading-relaxed">
+          <p className="font-body-lg text-sm text-on-surface-variant max-w-3xl leading-relaxed">
             Advanced static profiling ranking files based on bug history density, cycle complexities, developer authors count, and churn.
           </p>
         </div>
@@ -173,7 +206,7 @@ export default function BugHotspots() {
         {/* Key Risk Metrics */}
         <div className="col-span-12 grid grid-cols-1 sm:grid-cols-3 gap-gutter">
           <div className="bg-[#111111] border border-[#222222] p-4 rounded-xl hover:border-[#333333] transition-all">
-            <p className="font-label-caps text-[10px] text-indigo-on-surface-variant uppercase tracking-widest">Total High Risk Files</p>
+            <p className="font-label-caps text-[10px] text-on-surface-variant uppercase tracking-widest">Total High Risk Files</p>
             <h2 className="font-display-lg text-4xl font-bold mt-2 text-error">{totalHighRisk}</h2>
             <div className="flex items-center gap-1 mt-2 text-error text-xs">
               <span className="material-symbols-outlined text-xs">warning</span>
@@ -181,19 +214,19 @@ export default function BugHotspots() {
             </div>
           </div>
           <div className="bg-[#111111] border border-[#222222] p-4 rounded-xl hover:border-[#333333] transition-all">
-            <p className="font-label-caps text-[10px] text-indigo-on-surface-variant uppercase tracking-widest">Average Risk Score</p>
+            <p className="font-label-caps text-[10px] text-on-surface-variant uppercase tracking-widest">Average Risk Score</p>
             <h2 className="font-display-lg text-4xl font-bold mt-2 text-on-surface">{avgRiskScore.toFixed(1)}</h2>
-            <div className="flex items-center gap-1 mt-2 text-indigo-primary text-xs">
+            <div className="flex items-center gap-1 mt-2 text-primary text-xs">
               <span className="material-symbols-outlined text-xs">trending_flat</span>
               <span>Across {rows.length} scored files</span>
             </div>
           </div>
           <div className="bg-[#111111] border border-[#222222] p-4 rounded-xl hover:border-[#333333] transition-all">
-            <p className="font-label-caps text-[10px] text-indigo-on-surface-variant uppercase tracking-widest">Repository Analyzed</p>
-            <h2 className="font-display-lg text-2xl font-code truncate font-bold mt-3.5 text-indigo-secondary">
+            <p className="font-label-caps text-[10px] text-on-surface-variant uppercase tracking-widest">Repository Analyzed</p>
+            <h2 className="font-display-lg text-2xl font-code truncate font-bold mt-3.5 text-secondary">
               {repo}
             </h2>
-            <div className="flex items-center gap-1 mt-2.5 text-indigo-on-surface-variant/60 text-xs">
+            <div className="flex items-center gap-1 mt-2.5 text-on-surface-variant/60 text-xs">
               <span className="material-symbols-outlined text-xs">calendar_today</span>
               <span>Generated {timeAgo(data.generated_at)}</span>
             </div>
@@ -207,24 +240,24 @@ export default function BugHotspots() {
             {/* Header filters */}
             <div className="bg-[#050505] px-4 py-3 border-b border-[#222222] flex flex-col sm:flex-row justify-between items-center gap-3">
               <div className="flex items-center gap-2">
-                <span className="w-2.5 h-2.5 rounded-full bg-indigo-primary"></span>
-                <span className="font-code text-xs text-indigo-on-surface-variant font-bold">hotspot_matrix.log</span>
+                <span className="w-2.5 h-2.5 rounded-full bg-primary"></span>
+                <span className="font-code text-xs text-on-surface-variant font-bold">hotspot_matrix.log</span>
               </div>
               <div className="flex items-center gap-3 w-full sm:w-auto">
                 <div className="relative flex-grow sm:flex-grow-0">
-                  <span className="material-symbols-outlined absolute left-2.5 top-1/2 -translate-y-1/2 text-indigo-on-surface-variant text-[14px]">search</span>
+                  <span className="material-symbols-outlined absolute left-2.5 top-1/2 -translate-y-1/2 text-on-surface-variant text-[14px]">search</span>
                   <input
                     type="text"
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
                     placeholder="Search file paths..."
-                    className="bg-[#0a0a0a] border border-[#222222] rounded px-8 py-1 font-code text-xs focus:outline-none focus:border-indigo-primary w-full sm:w-56 text-on-surface placeholder:text-indigo-on-surface-variant/40"
+                    className="bg-[#0a0a0a] border border-[#222222] rounded px-8 py-1 font-code text-xs focus:outline-none focus:border-primary w-full sm:w-56 text-on-surface placeholder:text-on-surface-variant/40"
                   />
                 </div>
                 <select
                   value={filterLevel}
                   onChange={(e) => setFilterLevel(e.target.value)}
-                  className="bg-[#0a0a0a] border border-[#222222] rounded px-3 py-1 font-code text-xs focus:outline-none focus:border-indigo-primary text-on-surface"
+                  className="bg-[#0a0a0a] border border-[#222222] rounded px-3 py-1 font-code text-xs focus:outline-none focus:border-primary text-on-surface"
                 >
                   <option value="ALL">ALL LEVELS</option>
                   <option value="CRITICAL">CRITICAL</option>
@@ -238,7 +271,7 @@ export default function BugHotspots() {
             <div className="overflow-x-auto">
               <table className="w-full text-left border-collapse">
                 <thead>
-                  <tr className="bg-surface-container-low border-b border-[#222222] text-[10px] text-indigo-on-surface-variant font-code font-bold uppercase select-none">
+                  <tr className="bg-surface-container-low border-b border-[#222222] text-[10px] text-on-surface-variant font-code font-bold uppercase select-none">
                     <th className="px-4 py-3 w-16">Rank</th>
                     <th className="px-4 py-3">File path</th>
                     <th className="px-4 py-3 w-28">Risk Level</th>
@@ -249,7 +282,7 @@ export default function BugHotspots() {
                 <tbody className="text-xs font-code">
                   {filteredRows.length === 0 ? (
                     <tr>
-                      <td colSpan={hasMLColumn ? 5 : 4} className="p-8 text-center text-indigo-on-surface-variant">
+                      <td colSpan={hasMLColumn ? 5 : 4} className="p-8 text-center text-on-surface-variant">
                         No hotspot items match active query criteria.
                       </td>
                     </tr>
@@ -264,11 +297,10 @@ export default function BugHotspots() {
                         <tr
                           key={row.path}
                           onClick={() => setSelectedRow(row)}
-                          className={`border-b border-[#222222]/40 hover:bg-white/[0.03] transition-colors cursor-pointer ${
-                            isSelected ? "bg-indigo-primary/[0.04] border-l-2 border-l-indigo-primary" : ""
-                          }`}
+                          className={`border-b border-[#222222]/40 hover:bg-white/[0.03] transition-colors cursor-pointer ${isSelected ? "bg-primary/[0.04] border-l-2 border-l-primary" : ""
+                            }`}
                         >
-                          <td className="px-4 py-3.5 text-indigo-on-surface-variant font-bold">
+                          <td className="px-4 py-3.5 text-on-surface-variant font-bold">
                             {rank.toString().padStart(2, "0")}
                           </td>
                           <td className="px-4 py-3.5 pr-2">
@@ -276,17 +308,17 @@ export default function BugHotspots() {
                               <span className="text-on-surface font-medium truncate max-w-xs md:max-w-md" title={row.path}>
                                 {row.path}
                               </span>
-                              
+
                               {/* Component level mini-bars */}
                               {row.components && (
                                 <div className="flex items-center gap-1.5 mt-1 select-none">
                                   <div className="flex gap-0.5" title={`bug: ${row.components.bug?.toFixed(2)}, churn: ${row.components.churn?.toFixed(2)}, authors: ${row.components.authors?.toFixed(2)}, complexity: ${row.components.complexity?.toFixed(2)}`}>
                                     <div className="w-4 h-1 bg-error/20 overflow-hidden"><div className="h-full bg-error" style={{ width: `${(row.components.bug || 0) * 100}%` }}></div></div>
-                                    <div className="w-4 h-1 bg-indigo-tertiary/20 overflow-hidden"><div className="h-full bg-indigo-tertiary" style={{ width: `${(row.components.churn || 0) * 100}%` }}></div></div>
+                                    <div className="w-4 h-1 bg-tertiary/20 overflow-hidden"><div className="h-full bg-tertiary" style={{ width: `${(row.components.churn || 0) * 100}%` }}></div></div>
                                     <div className="w-4 h-1 bg-green-500/20 overflow-hidden"><div className="h-full bg-green-500" style={{ width: `${(row.components.authors || 0) * 100}%` }}></div></div>
-                                    <div className="w-4 h-1 bg-indigo-primary/20 overflow-hidden"><div className="h-full bg-indigo-primary" style={{ width: `${(row.components.complexity || 0) * 100}%` }}></div></div>
+                                    <div className="w-4 h-1 bg-primary/20 overflow-hidden"><div className="h-full bg-primary" style={{ width: `${(row.components.complexity || 0) * 100}%` }}></div></div>
                                   </div>
-                                  <span className="text-[9px] text-indigo-on-surface-variant/40 leading-none">weights</span>
+                                  <span className="text-[9px] text-on-surface-variant/40 leading-none">weights</span>
                                 </div>
                               )}
                             </div>
@@ -325,9 +357,9 @@ export default function BugHotspots() {
                 </tbody>
               </table>
             </div>
-            
+
             {/* Table pagination footer */}
-            <div className="p-3 bg-[#0a0a0a] border-t border-[#222222] flex justify-between items-center text-[10px] font-code text-indigo-on-surface-variant select-none">
+            <div className="p-3 bg-[#0a0a0a] border-t border-[#222222] flex justify-between items-center text-[10px] font-code text-on-surface-variant select-none">
               <span>Scored {filteredRows.length} files matching query</span>
               <span className="uppercase">Heuristics active</span>
             </div>
@@ -338,16 +370,16 @@ export default function BugHotspots() {
             {selectedRow ? (
               <div className="bg-[#111111] border border-[#222222] rounded-xl flex flex-col overflow-hidden">
                 <div className="bg-[#050505] px-4 py-3 border-b border-[#222222] flex items-center justify-between">
-                  <span className="font-code text-xs text-indigo-primary font-bold">Deep File Analysis</span>
-                  <span className="material-symbols-outlined text-indigo-on-surface-variant text-[16px] cursor-pointer hover:text-on-surface" onClick={() => setSelectedRow(null)}>
+                  <span className="font-code text-xs text-primary font-bold">Deep File Analysis</span>
+                  <span className="material-symbols-outlined text-on-surface-variant text-[16px] cursor-pointer hover:text-on-surface" onClick={() => setSelectedRow(null)}>
                     close
                   </span>
                 </div>
-                
+
                 <div className="p-4 space-y-6">
                   {/* File Metadata */}
                   <div className="space-y-1">
-                    <p className="font-code text-[9px] text-indigo-on-surface-variant uppercase tracking-wider font-bold">// PATH</p>
+                    <p className="font-code text-[9px] text-on-surface-variant uppercase tracking-wider font-bold">PATH</p>
                     <h4 className="font-code text-xs text-on-surface break-all bg-black/40 border border-[#222222] p-2.5 rounded-sm select-all">
                       {selectedRow.path}
                     </h4>
@@ -356,14 +388,14 @@ export default function BugHotspots() {
                   {/* Quantitative metrics cards */}
                   <div className="grid grid-cols-2 gap-3">
                     <div className="bg-[#181818] border border-[#222222] p-3 rounded-lg space-y-1">
-                      <p className="text-[9px] font-code font-bold text-indigo-on-surface-variant uppercase">Complexity Code</p>
+                      <p className="text-[9px] font-code font-bold text-on-surface-variant uppercase">Complexity Code</p>
                       <p className="text-xl font-bold font-code text-on-surface">{selectedRow.raw.cyclomatic || selectedRow.raw.complexity || "N/A"}</p>
-                      <p className="text-[9px] font-code text-indigo-on-surface-variant/50 leading-tight">Cyclomatic rating</p>
+                      <p className="text-[9px] font-code text-on-surface-variant/50 leading-tight">Cyclomatic rating</p>
                     </div>
                     <div className="bg-[#181818] border border-[#222222] p-3 rounded-lg space-y-1">
-                      <p className="text-[9px] font-code font-bold text-indigo-on-surface-variant uppercase">Change Commits</p>
+                      <p className="text-[9px] font-code font-bold text-on-surface-variant uppercase">Change Commits</p>
                       <p className="text-xl font-bold font-code text-on-surface">{selectedRow.raw.commits || "N/A"}</p>
-                      <p className="text-[9px] font-code text-indigo-on-surface-variant/50 leading-tight">{selectedRow.raw.churn_lines ? `${selectedRow.raw.churn_lines} lines churned` : "Historical frequency"}</p>
+                      <p className="text-[9px] font-code text-on-surface-variant/50 leading-tight">{selectedRow.raw.churn_lines ? `${selectedRow.raw.churn_lines} lines churned` : "Historical frequency"}</p>
                     </div>
                   </div>
 
@@ -371,12 +403,12 @@ export default function BugHotspots() {
                   {selectedRow.reasons && selectedRow.reasons.length > 0 && (
                     <div className="space-y-3">
                       <div className="flex items-center gap-1.5">
-                        <span className="material-symbols-outlined text-sm text-indigo-primary">auto_awesome</span>
-                        <span className="font-code text-[10px] text-indigo-primary uppercase font-bold tracking-wider">AI Diagnostic Factors</span>
+                        <span className="material-symbols-outlined text-sm text-primary">auto_awesome</span>
+                        <span className="font-code text-[10px] text-primary uppercase font-bold tracking-wider">AI Diagnostic Factors</span>
                       </div>
                       <div className="space-y-2">
                         {selectedRow.reasons.map((reason, idx) => (
-                          <div key={idx} className="p-2.5 bg-indigo-primary/5 border-l border-l-indigo-primary font-code text-[11px] leading-relaxed text-on-surface/90">
+                          <div key={idx} className="p-2.5 bg-primary/5 border-l border-l-primary font-code text-[11px] leading-relaxed text-on-surface/90">
                             {reason}
                           </div>
                         ))}
@@ -387,7 +419,7 @@ export default function BugHotspots() {
                   {/* Recent Activity Context list */}
                   {activity && activity.recent_commits && (
                     <div className="space-y-3 font-code">
-                      <span className="text-[9px] text-indigo-on-surface-variant uppercase font-bold tracking-wider block">// RECENT RISKY CHANGES IN REPO</span>
+                      <span className="text-[9px] text-on-surface-variant uppercase font-bold tracking-wider block">RECENT RISKY CHANGES IN REPO</span>
                       <div className="divide-y divide-[#222222] max-h-[140px] overflow-y-auto pr-1 scrollbar-thin">
                         {activity.recent_commits.slice(0, 3).map((c) => (
                           <div key={c.sha} className="py-2 text-[10px] leading-tight space-y-0.5">
@@ -395,7 +427,7 @@ export default function BugHotspots() {
                               <span className="text-on-surface font-medium truncate">{c.subject}</span>
                               {c.is_bugfix && <span className="text-error font-bold shrink-0 text-[8px] border border-error/30 px-1 rounded-sm">FIX</span>}
                             </div>
-                            <div className="text-[9px] text-indigo-on-surface-variant/40 flex justify-between">
+                            <div className="text-[9px] text-on-surface-variant/40 flex justify-between">
                               <span>author: {c.author}</span>
                               <span>{c.sha.slice(0, 7)}</span>
                             </div>
@@ -408,8 +440,8 @@ export default function BugHotspots() {
               </div>
             ) : (
               <div className="bg-[#111111] border border-[#222222] rounded-xl p-8 text-center space-y-3">
-                <span className="material-symbols-outlined text-indigo-on-surface-variant opacity-30 text-[48px]">input</span>
-                <p className="text-xs text-indigo-on-surface-variant font-code leading-relaxed">
+                <span className="material-symbols-outlined text-on-surface-variant opacity-30 text-[48px]">input</span>
+                <p className="text-xs text-on-surface-variant font-code leading-relaxed">
                   Select a hotspot file row in the matrix list to profile structural code complexity metrics and reasons.
                 </p>
               </div>

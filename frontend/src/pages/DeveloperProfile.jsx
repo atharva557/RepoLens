@@ -1,41 +1,24 @@
 import { useEffect, useState, useCallback } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
 import { getJSON, postJSON } from "../lib/api";
-import { PieChart, Pie, Cell, ResponsiveContainer } from "recharts";
 
-const DEFAULT_USER = "gaearon";
-const COLORS = ["#6366f1", "#a855f7", "#ffb783", "#908fa0", "#ffb4ab", "#c0c1ff"];
 
 function formatNumber(num) {
   if (num === undefined || num === null) return "0";
-  return num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-}
-
-function timeAgo(dateString) {
-  if (!dateString) return "";
-  const date = new Date(dateString);
-  const now = new Date();
-  const diffMs = now - date;
-  if (isNaN(diffMs)) return "";
-  const seconds = Math.floor(diffMs / 1000);
-  if (seconds < 60) return "just now";
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  return `${Math.floor(hours / 24)}d ago`;
+  if (num >= 1000) return (num / 1000).toFixed(1).replace(/\.0$/, "") + "k";
+  return num.toString();
 }
 
 export default function DeveloperProfile() {
   const navigate = useNavigate();
-  const user = new URLSearchParams(window.location.search).get("user") || DEFAULT_USER;
+  const user = new URLSearchParams(window.location.search).get("user");
 
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [searchVal, setSearchVal] = useState("");
   const [triggeringBuild, setTriggeringBuild] = useState(false);
   const [tokenError, setTokenError] = useState(false);
+  const [gaugeAnimated, setGaugeAnimated] = useState(false);
 
   const loadProfile = useCallback(() => {
     setLoading(true);
@@ -45,11 +28,11 @@ export default function DeveloperProfile() {
       .then((profileData) => {
         setData(profileData);
         setLoading(false);
+        setTimeout(() => setGaugeAnimated(true), 100);
       })
       .catch(async (e) => {
         const msg = String(e);
         if (msg.includes("404") || msg.includes("no profile") || msg.includes("POST /profiles")) {
-          console.log(`Profile for @${user} not found. Auto-triggering build...`);
           setTriggeringBuild(true);
           try {
             const res = await postJSON(`/profiles/${user}`);
@@ -71,8 +54,12 @@ export default function DeveloperProfile() {
   }, [user, navigate]);
 
   useEffect(() => {
-    loadProfile();
-  }, [loadProfile]);
+    if (user) {
+      loadProfile();
+    } else {
+      setLoading(false);
+    }
+  }, [loadProfile, user]);
 
   const handleBuildProfile = async () => {
     setTriggeringBuild(true);
@@ -90,30 +77,42 @@ export default function DeveloperProfile() {
     }
   };
 
-  const handleSearchSubmit = (e) => {
-    e.preventDefault();
-    let val = searchVal.trim();
-    if (val) {
-      // Extract username from GitHub profile URL
-      const match = val.match(/github\.com\/([a-zA-Z0-9_-]+)/i);
-      if (match) {
-        val = match[1];
-      } else {
-        // Strip protocols and leading path variables if any
-        val = val.replace(/^(https?:\/\/)?(www\.)?github\.com\//i, "");
-        val = val.split("/")[0];
-      }
-      navigate(`/profile?user=${val}`);
-      setSearchVal("");
-    }
-  };
+  if (!user) {
+    return (
+      <div className="min-h-[calc(100vh-52px)] flex items-center justify-center bg-background text-on-surface p-6 relative overflow-hidden">
+        {/* Ambient background glow */}
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-primary/5 rounded-full blur-[100px] pointer-events-none"></div>
+
+        <div className="relative w-full max-w-[460px] h-auto p-10 rounded-3xl bg-surface-container-lowest/60 backdrop-blur-xl border border-outline-variant/40 shadow-2xl shadow-primary/10 transition-all duration-300 hover:scale-[1.02] hover:shadow-[0_0_60px_color-mix(in_srgb,var(--color-primary)_20%,transparent)] text-center flex flex-col items-center gap-6">
+          <div className="w-20 h-20 rounded-full bg-primary/10 flex items-center justify-center border border-primary/20 shadow-inner">
+            <span className="material-symbols-outlined text-primary text-[40px]">link_off</span>
+          </div>
+          
+          <div className="space-y-3">
+            <h2 className="font-display-lg text-3xl text-on-surface font-bold tracking-tight">Missing Link</h2>
+            <p className="text-sm text-on-surface-variant leading-relaxed px-2 font-body">
+              We need a valid GitHub username to analyze the profile. Please return to the home page to enter one.
+            </p>
+          </div>
+          
+          <Link
+            to="/"
+            className="w-full bg-primary hover:bg-primary-container text-on-primary font-code font-bold py-3.5 rounded-xl transition-all duration-300 active:scale-95 text-center flex items-center justify-center gap-2 mt-2 shadow-lg shadow-primary/20 hover:shadow-primary/40"
+          >
+            <span className="material-symbols-outlined text-[20px]">arrow_back</span>
+            <span>Return Home</span>
+          </Link>
+        </div>
+      </div>
+    );
+  }
 
   if (loading) {
     return (
-      <div className="min-h-[calc(100vh-52px)] flex items-center justify-center bg-[#000000] text-on-surface">
+      <div className="min-h-screen flex items-center justify-center">
         <div className="text-center space-y-4">
-          <div className="w-12 h-12 border-4 border-indigo-primary border-t-transparent rounded-full animate-spin mx-auto"></div>
-          <p className="font-code text-label text-indigo-on-surface-variant uppercase tracking-widest animate-pulse">
+          <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto"></div>
+          <p className="font-code-sm text-on-surface-variant uppercase tracking-widest animate-pulse">
             Retrieving developer profile...
           </p>
         </div>
@@ -121,40 +120,36 @@ export default function DeveloperProfile() {
     );
   }
 
-  // Handle 404 / Profile Not Found State
   if (error && (error.includes("404") || error.includes("not found"))) {
     return (
-      <div className="min-h-[calc(100vh-52px)] flex items-center justify-center bg-[#000000] text-on-surface p-6">
-        <div className="max-w-md w-full bg-[#111111] border border-indigo-outline-variant/30 p-8 text-center space-y-6 rounded-lg">
-          <span className="material-symbols-outlined text-indigo-primary text-[64px]">person_off</span>
-          
+      <div className="min-h-screen flex items-center justify-center p-6">
+        <div className="glass-panel p-8 text-center space-y-6 rounded-xl max-w-md w-full">
+          <span className="material-symbols-outlined text-primary text-[64px]">person_off</span>
           <div className="space-y-2">
-            <h2 className="font-code text-heading-lg text-indigo-primary font-bold">Profile Not Found</h2>
-            <p className="text-xs text-indigo-on-surface-variant leading-relaxed">
+            <h2 className="font-headline-lg text-primary font-bold">Profile Not Found</h2>
+            <p className="font-body-sm text-on-surface-variant leading-relaxed">
               No developer profile index found for <span className="text-on-surface font-bold">@{user}</span>.
             </p>
           </div>
-
           {tokenError && (
-            <div className="p-3.5 bg-error-container/20 border border-error-container/50 text-error rounded-sm font-code text-left text-[11px] leading-relaxed space-y-1">
-              <p className="font-bold flex items-center gap-1"><span className="material-symbols-outlined text-xs">warning</span> ACCESS DENIED (400)</p>
-              <p>The server lacks a GitHub API Token. Rebuilding profiles requires configuring a GITHUB_TOKEN in the server environment variables.</p>
+            <div className="p-sm bg-error-container/20 border border-error-container/50 text-error rounded-lg text-left font-body-sm">
+              <p className="font-bold flex items-center gap-1 mb-1"><span className="material-symbols-outlined text-sm">warning</span> ACCESS DENIED</p>
+              <p>The server lacks a GitHub API Token. Rebuilding profiles requires GITHUB_TOKEN.</p>
             </div>
           )}
-
           <div className="space-y-3 pt-2">
             <button
               onClick={handleBuildProfile}
               disabled={triggeringBuild}
-              className="w-full bg-indigo-primary hover:opacity-90 text-on-primary font-code font-bold py-3 rounded-md transition-all disabled:opacity-50 active:scale-[0.98]"
+              className="w-full bg-primary text-on-primary font-label-caps py-sm rounded-lg hover:shadow-[0_0_15px_rgba(99,102,241,0.5)] transition-all disabled:opacity-50"
             >
               {triggeringBuild ? "BUILDING PIPELINE..." : `BUILD @${user} PROFILE`}
             </button>
             <button
               onClick={() => navigate("/")}
-              className="w-full border border-indigo-outline-variant/40 hover:bg-surface-container text-indigo-on-surface-variant font-code font-bold py-2.5 rounded-md text-xs transition-colors"
+              className="w-full border border-outline-variant hover:bg-surface-container-low text-on-surface-variant font-label-caps py-sm rounded-lg transition-colors"
             >
-              RETURN_HOME
+              RETURN HOME
             </button>
           </div>
         </div>
@@ -162,17 +157,16 @@ export default function DeveloperProfile() {
     );
   }
 
-  // Handle general error
   if (error) {
     return (
-      <div className="min-h-[calc(100vh-52px)] flex items-center justify-center bg-[#000000] text-on-surface p-6">
-        <div className="max-w-md w-full bg-[#111111] border border-error/30 p-8 text-center space-y-4 rounded-lg">
+      <div className="min-h-screen flex items-center justify-center p-6">
+        <div className="glass-panel p-8 text-center space-y-4 rounded-xl max-w-md w-full">
           <span className="material-symbols-outlined text-error text-[54px]">warning</span>
-          <h2 className="font-code text-heading-lg text-error font-bold">Error loading developer profile</h2>
-          <p className="text-xs text-indigo-on-surface-variant leading-relaxed break-words">{error}</p>
+          <h2 className="font-headline-lg text-error font-bold">Error loading profile</h2>
+          <p className="font-body-sm text-on-surface-variant leading-relaxed break-words">{error}</p>
           <button
             onClick={loadProfile}
-            className="w-full bg-indigo-primary hover:opacity-90 text-on-primary font-code font-bold py-2 rounded-md"
+            className="w-full bg-primary text-on-primary font-label-caps py-sm rounded-lg"
           >
             RETRY
           </button>
@@ -181,26 +175,27 @@ export default function DeveloperProfile() {
     );
   }
 
-  // Generate 365 Days Grid for Heatmap
+  const social = data.user || {};
+  const hasSocial = Object.keys(social).length > 0;
+  const lquality = data.commit_message_quality || 0;
+  const lqualityPct = Math.round(lquality * 10);
+
+  // Heatmap generation
   const generateHeatmapGrid = () => {
     const today = new Date();
     const cells = [];
     const heatmapLookup = {};
-    
     if (data.heatmap) {
       data.heatmap.forEach((h) => {
         heatmapLookup[h.date] = h.count;
       });
     }
-
     const startDate = new Date();
     startDate.setDate(today.getDate() - 364);
-
     const dayOfWeek = startDate.getDay();
     startDate.setDate(startDate.getDate() - dayOfWeek);
 
-    const totalDays = 52 * 7;
-    for (let i = 0; i < totalDays; i++) {
+    for (let i = 0; i < 52 * 7; i++) {
       const d = new Date(startDate);
       d.setDate(startDate.getDate() + i);
       const dateStr = d.toISOString().split("T")[0];
@@ -209,414 +204,289 @@ export default function DeveloperProfile() {
     }
     return cells;
   };
-
   const heatmapCells = generateHeatmapGrid();
 
   const getHeatmapColor = (count) => {
     if (count === 0) return "bg-[#111111]";
-    if (count <= 2) return "bg-indigo-primary/20";
-    if (count <= 5) return "bg-indigo-primary/40";
-    if (count <= 9) return "bg-indigo-primary/70";
-    return "bg-indigo-primary";
+    if (count <= 2) return "bg-primary/20";
+    if (count <= 5) return "bg-primary/40";
+    if (count <= 9) return "bg-primary/70";
+    return "bg-primary";
   };
 
-  // Safe variables fallback
-  const social = data.user || {};
-  const hasSocial = Object.keys(social).length > 0;
-  const lquality = data.commit_message_quality || 0; // 0..10
-  
-  // Custom Gauge setup properties
-  // Math circumference of radius 40 arc is 2 * pi * 40 = 251.3
-  // Semi-circle length is ~125.6
-  const strokeDash = 125.6;
-  const strokeOffset = strokeDash - (strokeDash * lquality) / 10;
+  const activityColors = [
+    { text: "text-primary", bg: "bg-primary" },
+    { text: "text-secondary", bg: "bg-secondary" },
+    { text: "text-tertiary", bg: "bg-tertiary" },
+    { text: "text-on-surface", bg: "bg-on-surface" },
+    { text: "text-error", bg: "bg-error" },
+    { text: "text-outline", bg: "bg-outline" },
+  ];
+
+  const topLanguage = data.languages && data.languages.length > 0 ? data.languages[0] : null;
 
   return (
-    <div className="min-h-screen bg-[#000000] text-on-surface pb-12 font-body selection:bg-indigo-primary selection:text-on-primary">
-      <main className="pt-8 px-margin-mobile md:px-margin-desktop max-w-[1440px] mx-auto space-y-6">
-        
-        {/* Search profile input bar */}
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-indigo-outline-variant/20 pb-4">
-          <h2 className="font-headline-lg text-2xl font-bold bg-gradient-to-r from-indigo-primary to-indigo-secondary bg-clip-text text-transparent">
-            Developer Profile
-          </h2>
-          <form onSubmit={handleSearchSubmit} className="relative flex items-center w-full sm:w-80">
-            <span className="material-symbols-outlined absolute left-3 text-indigo-on-surface-variant/50 text-[14px]">search</span>
-            <input
-              type="text"
-              placeholder="Search GitHub username..."
-              value={searchVal}
-              onChange={(e) => setSearchVal(e.target.value)}
-              className="w-full bg-[#111111] border border-indigo-outline-variant/30 rounded pl-9 pr-24 py-1.5 font-code text-xs focus:outline-none focus:border-indigo-primary text-on-surface"
-            />
-            <button
-              type="submit"
-              className="absolute right-1 text-[9px] bg-indigo-primary text-on-primary font-code font-bold px-2 py-1 hover:opacity-90 rounded-sm"
-            >
-              QUERY
-            </button>
-          </form>
+    <div className="min-h-screen overflow-x-hidden">
+      {/* TopNavBar */}
+      <nav className="fixed top-0 left-0 w-full z-50 flex justify-between items-center px-margin-desktop py-4 bg-[#1a1a1a]/80 backdrop-blur-xl border-b border-outline-variant/20 shadow-sm">
+        <div className="flex items-center gap-lg">
+          <span className="font-display-lg text-display-lg font-bold bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent">RepoLens</span>
+          <div className="hidden md:flex gap-md items-center">
+            <a className="font-body-lg text-body-lg text-on-surface-variant font-medium hover:text-primary transition-colors duration-200" href="/dashboard">Dashboard</a>
+            <a className="font-body-lg text-body-lg text-on-surface-variant font-medium hover:text-primary transition-colors duration-200" href="/hotspots">Bug Hotspots</a>
+            <a className="font-body-lg text-body-lg text-primary font-bold border-b-2 border-primary pb-1" href="/profile">Developer Profile</a>
+          </div>
         </div>
+        <div className="flex items-center gap-md">
+          <button className="text-on-surface-variant hover:text-primary transition-colors">
+            <span className="material-symbols-outlined">notifications</span>
+          </button>
+          <div className="w-10 h-10 rounded-full overflow-hidden border border-outline-variant/20">
+            {hasSocial && social.avatar_url ? (
+              <img className="w-full h-full object-cover" src={social.avatar_url} alt="Profile" />
+            ) : (
+              <div className="w-full h-full flex items-center justify-center bg-primary/20 text-primary font-bold">{data.username.slice(0, 2).toUpperCase()}</div>
+            )}
+          </div>
+        </div>
+      </nav>
 
-        {/* Profile Header Box */}
-        <section className="bg-[#111111] border border-indigo-outline-variant/30 p-6 rounded-xl flex flex-col md:flex-row gap-6 items-center md:items-start relative overflow-hidden">
-          <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-indigo-primary via-indigo-secondary to-indigo-tertiary"></div>
-          
+      <main className="mt-xl pt-lg pb-xl px-margin-mobile md:px-margin-desktop max-w-[1440px] mx-auto">
+        {/* Profile Header */}
+        <section className="glass-panel p-md rounded-xl mb-lg flex flex-col md:flex-row gap-lg items-center md:items-start relative overflow-hidden">
+          <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-primary via-secondary to-tertiary"></div>
           <div className="relative shrink-0">
-            <div className="w-28 h-28 rounded-xl overflow-hidden border border-indigo-primary/20 shadow-xl bg-surface-container-highest">
+            <div className="w-32 h-32 rounded-xl overflow-hidden border-2 border-primary/20 shadow-xl">
               {hasSocial && social.avatar_url ? (
-                <img className="w-full h-full object-cover" src={social.avatar_url} alt={data.username} />
+                <img className="w-full h-full object-cover" src={social.avatar_url} alt="Profile" />
               ) : (
-                <div className="w-full h-full flex items-center justify-center bg-indigo-primary/10 text-indigo-primary font-bold text-3xl font-code">
-                  {data.username.slice(0, 2).toUpperCase()}
-                </div>
+                <div className="w-full h-full flex items-center justify-center bg-primary/20 text-primary font-display-lg text-4xl font-bold">{data.username.slice(0, 2).toUpperCase()}</div>
               )}
             </div>
-            <div className="absolute -bottom-2 -right-2 bg-black border border-indigo-outline-variant/40 p-0.5 rounded-lg flex items-center justify-center select-none">
-              <span className="material-symbols-outlined text-indigo-primary text-xs font-bold">verified</span>
+            <div className="absolute -bottom-2 -right-2 bg-surface border border-outline-variant p-1 rounded-lg">
+              <span className="material-symbols-outlined text-primary text-sm">verified</span>
             </div>
           </div>
 
-          <div className="flex-grow text-center md:text-left space-y-4">
-            <div className="space-y-1.5">
-              <div className="flex flex-col md:flex-row md:items-end gap-2 justify-center md:justify-start">
-                <h1 className="font-display-lg text-3xl font-bold leading-none">{social.name || data.username}</h1>
-                <span className="px-2.5 py-0.5 rounded-full bg-indigo-secondary/15 border border-indigo-secondary/30 text-indigo-secondary font-code text-[9px] uppercase tracking-wider font-bold inline-block mx-auto md:mx-0">
-                  {data.primary_type || "Feature Builder"}
-                </span>
-              </div>
-              <p className="font-code text-[11px] text-indigo-on-surface-variant">@{data.username}</p>
+          <div className="flex-grow text-center md:text-left">
+            <div className="flex flex-col md:flex-row md:items-end gap-sm mb-xs">
+              <h1 className="font-display-lg text-display-lg leading-none">{social.name || data.username}</h1>
+              <span className="px-3 py-1 rounded-full bg-secondary/10 border border-secondary/20 text-secondary font-label-caps uppercase">
+                {data.primary_type || "Feature Builder"}
+              </span>
             </div>
-            
-            <p className="text-xs text-indigo-on-surface-variant max-w-2xl leading-relaxed">
-              {social.bio || `${social.name || data.username} is a verified contributor profiled on RepoLens.`}
+            <p className="font-body-lg text-on-surface-variant mb-md max-w-2xl">
+              {social.bio || `${social.name || data.username} is an elite contributor profiled on RepoLens. Analyzing obsidian-grade software systems and high-density technical solutions.`}
             </p>
-            
-            <div className="flex flex-wrap justify-center md:justify-start gap-6 font-code text-xs">
+            <div className="flex flex-wrap justify-center md:justify-start gap-lg">
               <div className="flex flex-col">
-                <span className="font-bold text-indigo-primary text-sm">{formatNumber(social.followers) || "0"}</span>
-                <span className="text-[9px] uppercase text-indigo-on-surface-variant/60">Followers</span>
+                <span className="font-headline-md text-headline-md text-primary">{formatNumber(social.followers)}</span>
+                <span className="font-label-caps text-on-surface-variant">Followers</span>
               </div>
               <div className="flex flex-col">
-                <span className="font-bold text-indigo-primary text-sm">{formatNumber(social.following) || "0"}</span>
-                <span className="text-[9px] uppercase text-indigo-on-surface-variant/60">Following</span>
+                <span className="font-headline-md text-headline-md text-primary">{formatNumber(social.following)}</span>
+                <span className="font-label-caps text-on-surface-variant">Following</span>
               </div>
               <div className="flex flex-col">
-                <span className="font-bold text-indigo-primary text-sm">{formatNumber(social.public_repos) || "0"}</span>
-                <span className="text-[9px] uppercase text-indigo-on-surface-variant/60">Repositories</span>
+                <span className="font-headline-md text-headline-md text-primary">{formatNumber(social.public_repos)}</span>
+                <span className="font-label-caps text-on-surface-variant">Repositories</span>
               </div>
             </div>
           </div>
-          
-          <div className="flex gap-2">
+
+          <div className="flex gap-sm">
             <button
               onClick={handleBuildProfile}
               disabled={triggeringBuild}
-              className="bg-indigo-primary hover:opacity-95 text-on-primary font-code text-xs font-bold px-4 py-2 rounded-md active:scale-95 disabled:opacity-50"
+              className="bg-gradient-to-r from-primary to-secondary text-on-primary font-label-caps px-lg py-sm rounded-lg hover:shadow-[0_0_15px_rgba(99,102,241,0.5)] transition-all disabled:opacity-50"
             >
-              {triggeringBuild ? "PIPELINE..." : "REFRESH_INDEX"}
+              {triggeringBuild ? "SYNCING..." : "SYNC INDEX"}
+            </button>
+            <button className="border border-outline-variant hover:bg-surface-container-low transition-colors p-sm rounded-lg">
+              <span className="material-symbols-outlined">mail</span>
             </button>
           </div>
         </section>
 
-        {/* Bento Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
-          {/* Quick Stats Grid */}
-          <div className="md:col-span-12 grid grid-cols-2 lg:grid-cols-4 gap-6">
-            <div className="bg-[#111111] border border-indigo-outline-variant/30 p-4 rounded-xl flex flex-col justify-between group hover:border-[#333333] transition-all">
-              <span className="font-code text-[10px] text-indigo-on-surface-variant/60 uppercase font-bold select-none" title="Commits indexed inside workspace profiles">Analyzed Commits</span>
-              <div className="flex items-end justify-between mt-3">
-                <span className="font-stat text-2xl font-bold text-indigo-primary">{formatNumber(data.commits_analyzed)}</span>
-                <span className="text-[8px] text-indigo-on-surface-variant/40 font-code uppercase">Profile Cap</span>
+        {/* Bento Grid Section */}
+        <div className="grid grid-cols-1 md:grid-cols-12 gap-gutter">
+          {/* Quick Stats */}
+          <div className="md:col-span-12 grid grid-cols-2 lg:grid-cols-4 gap-gutter">
+            <div className="glass-panel p-md rounded-xl flex flex-col justify-between">
+              <span className="font-label-caps text-on-surface-variant mb-sm">Analyzed Commits</span>
+              <div className="flex items-end justify-between">
+                <span className="font-display-lg text-display-lg text-primary leading-none">{formatNumber(data.commits_analyzed)}</span>
+                <span className="text-tertiary font-body-sm flex items-center"><span className="material-symbols-outlined text-sm">trending_up</span> Profiler</span>
               </div>
             </div>
-            <div className="bg-[#111111] border border-indigo-outline-variant/30 p-4 rounded-xl flex flex-col justify-between group hover:border-[#333333] transition-all">
-              <span className="font-code text-[10px] text-indigo-on-surface-variant/60 uppercase font-bold select-none">PRs Merged</span>
-              <div className="flex items-end justify-between mt-3">
-                <span className="font-stat text-2xl font-bold text-indigo-secondary">{formatNumber(data.prs_merged)}</span>
-                <span className="text-indigo-tertiary font-code text-[10px] flex items-center">
-                  out of {data.authored_prs || data.prs_merged || 0}
-                </span>
+            <div className="glass-panel p-md rounded-xl flex flex-col justify-between">
+              <span className="font-label-caps text-on-surface-variant mb-sm">PRs Merged</span>
+              <div className="flex items-end justify-between">
+                <span className="font-display-lg text-display-lg text-secondary leading-none">{formatNumber(data.prs_merged)}</span>
+                <span className="text-tertiary font-body-sm flex items-center"><span className="material-symbols-outlined text-sm">trending_up</span> out of {data.authored_prs || 0}</span>
               </div>
             </div>
-            <div className="bg-[#111111] border border-indigo-outline-variant/30 p-4 rounded-xl flex flex-col justify-between group hover:border-[#333333] transition-all">
-              <span className="font-code text-[10px] text-indigo-on-surface-variant/60 uppercase font-bold select-none">Issues Resolved</span>
-              <div className="flex items-end justify-between mt-3">
-                <span className="font-stat text-2xl font-bold text-indigo-tertiary">{formatNumber(data.issues_resolved)}</span>
-                <span className="text-indigo-on-surface-variant/40 font-code text-[9px]">Verified</span>
+            <div className="glass-panel p-md rounded-xl flex flex-col justify-between">
+              <span className="font-label-caps text-on-surface-variant mb-sm">Issues Resolved</span>
+              <div className="flex items-end justify-between">
+                <span className="font-display-lg text-display-lg text-tertiary leading-none">{formatNumber(data.issues_resolved)}</span>
+                <span className="text-on-surface-variant font-body-sm">Verified</span>
               </div>
             </div>
-            <div className="bg-[#111111] border border-indigo-outline-variant/30 p-4 rounded-xl flex flex-col justify-between group hover:border-[#333333] transition-all">
-              <span className="font-code text-[10px] text-indigo-on-surface-variant/60 uppercase font-bold select-none">Years Active</span>
-              <div className="flex items-end justify-between mt-3">
-                <span className="font-stat text-2xl font-bold text-on-surface">{social.years_active?.toFixed(1) || "1.0"}</span>
-                <span className="text-indigo-on-surface-variant/40 font-code text-[9px] uppercase">Experience</span>
+            <div className="glass-panel p-md rounded-xl flex flex-col justify-between">
+              <span className="font-label-caps text-on-surface-variant mb-sm">Years Active</span>
+              <div className="flex items-end justify-between">
+                <span className="font-display-lg text-display-lg text-on-surface leading-none">{social.years_active?.toFixed(1) || "1.0"}</span>
+                <span className="text-on-surface-variant font-body-sm">Experience</span>
               </div>
             </div>
           </div>
 
-          {/* Annual Velocity Heatmap */}
-          <div className="md:col-span-8 bg-[#111111] border border-indigo-outline-variant/30 rounded-xl overflow-hidden flex flex-col">
-            <div className="bg-[#050505] px-4 py-3 border-b border-[#222222] flex items-center justify-between">
-              <span className="font-code text-xs text-indigo-on-surface-variant font-bold">contribution_density.sh</span>
-              <span className="text-[10px] font-code text-indigo-on-surface-variant/50 uppercase">Annual Activity Calendar</span>
+          {/* Heatmap */}
+          <div className="md:col-span-8 glass-panel rounded-xl overflow-hidden flex flex-col">
+            <div className="terminal-header px-md py-sm flex items-center justify-between">
+              <div className="flex gap-2">
+                <div className="dot"></div><div className="dot"></div><div className="dot"></div>
+              </div>
+              <span className="font-code-sm text-on-surface-variant">contribution_matrix.sh</span>
             </div>
-            <div className="p-4 space-y-4">
-              <div className="flex flex-wrap gap-0.5 overflow-x-auto pb-2 scrollbar-thin select-none">
-                <div className="grid grid-flow-col grid-rows-7 gap-0.5">
+            <div className="p-md">
+              <h3 className="font-headline-md text-headline-md mb-md">Annual Velocity</h3>
+              <div className="flex flex-wrap gap-1 overflow-x-auto pb-4">
+                <div className="grid grid-flow-col grid-rows-7 gap-1">
                   {heatmapCells.map((cell, idx) => (
-                    <div
-                      key={idx}
-                      title={`${cell.date}: ${cell.count} commits`}
-                      className={`w-2.5 h-2.5 rounded-[1px] ${getHeatmapColor(cell.count)} hover:ring-1 hover:ring-indigo-primary`}
-                    ></div>
+                    <div key={idx} title={`${cell.date}: ${cell.count}`} className={`contribution-cell ${getHeatmapColor(cell.count)}`}></div>
                   ))}
                 </div>
               </div>
-              <div className="flex justify-between items-center text-[10px] text-indigo-on-surface-variant/60 font-code select-none">
-                <span>Less Velocity</span>
-                <div className="flex gap-0.5">
-                  <div className="w-2.5 h-2.5 bg-[#111111] rounded-[1px]"></div>
-                  <div className="w-2.5 h-2.5 bg-indigo-primary/20 rounded-[1px]"></div>
-                  <div className="w-2.5 h-2.5 bg-indigo-primary/40 rounded-[1px]"></div>
-                  <div className="w-2.5 h-2.5 bg-indigo-primary/70 rounded-[1px]"></div>
-                  <div className="w-2.5 h-2.5 bg-indigo-primary rounded-[1px]"></div>
+              <div className="flex justify-between items-center mt-sm text-on-surface-variant font-label-caps">
+                <span>Less Activity</span>
+                <div className="flex gap-1">
+                  <div className="contribution-cell bg-[#111111]"></div>
+                  <div className="contribution-cell bg-primary/20"></div>
+                  <div className="contribution-cell bg-primary/40"></div>
+                  <div className="contribution-cell bg-primary/70"></div>
+                  <div className="contribution-cell bg-primary"></div>
                 </div>
-                <span>More Velocity</span>
+                <span>More Activity</span>
               </div>
             </div>
           </div>
 
-          {/* Language circular chart */}
-          <div className="md:col-span-4 bg-[#111111] border border-indigo-outline-variant/30 p-4 rounded-xl flex flex-col items-center justify-center text-center">
-            <h3 className="font-code text-xs text-indigo-on-surface-variant/60 uppercase font-bold mb-4 select-none">Top Languages split</h3>
-            
-            {data.languages && data.languages.length > 0 ? (
-              <div className="w-full space-y-4">
-                <div className="h-28 w-full relative flex items-center justify-center">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie
-                        data={data.languages}
-                        cx="50%"
-                        cy="50%"
-                        innerRadius={30}
-                        outerRadius={45}
-                        paddingAngle={2}
-                        dataKey="pct"
-                      >
-                        {data.languages.map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                        ))}
-                      </Pie>
-                    </PieChart>
-                  </ResponsiveContainer>
-                  
-                  {/* Overlay text */}
-                  <div className="absolute flex flex-col">
-                    <span className="font-code text-[11px] font-bold text-indigo-primary leading-none">
-                      {data.languages[0].name}
-                    </span>
-                    <span className="text-[9px] text-indigo-on-surface-variant/40 mt-0.5 leading-none">
-                      {data.languages[0].pct.toFixed(0)}%
-                    </span>
+          {/* Language Circular Chart */}
+          <div className="md:col-span-4 glass-panel p-md rounded-xl flex flex-col items-center justify-center text-center">
+            <h3 className="font-headline-md text-headline-md mb-lg">Top Languages</h3>
+            {topLanguage ? (
+              <>
+                <div
+                  className="relative w-40 h-40 radial-progress rounded-full flex items-center justify-center mb-lg"
+                  style={{ background: `radial-gradient(closest-side, #111111 79%, transparent 80% 100%), conic-gradient(#c0c1ff ${Math.round(topLanguage.pct)}%, #222222 0)` }}
+                >
+                  <div className="flex flex-col">
+                    <span className="font-headline-lg text-headline-lg">{topLanguage.name}</span>
+                    <span className="font-label-caps text-on-surface-variant">{Math.round(topLanguage.pct)}% Usage</span>
                   </div>
                 </div>
-
-                <div className="grid grid-cols-2 gap-2 text-left font-code text-[10px]">
-                  {data.languages.slice(0, 4).map((lang, idx) => (
-                    <div key={lang.name} className="flex items-center gap-1.5 text-indigo-on-surface-variant">
-                      <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: COLORS[idx % COLORS.length] }}></div>
-                      <span className="truncate" title={`${lang.name}: ${lang.pct.toFixed(1)}%`}>
-                        {lang.name} ({Math.round(lang.pct)}%)
-                      </span>
-                    </div>
-                  ))}
+                <div className="grid grid-cols-2 gap-md w-full">
+                  {data.languages.slice(0, 4).map((lang, idx) => {
+                    const bgColors = ["bg-primary", "bg-secondary", "bg-tertiary", "bg-outline"];
+                    return (
+                      <div key={lang.name} className="flex items-center gap-sm">
+                        <div className={`w-3 h-3 rounded-full ${bgColors[idx % bgColors.length]}`}></div>
+                        <span className="font-body-sm truncate">{lang.name}</span>
+                      </div>
+                    );
+                  })}
                 </div>
-              </div>
+              </>
             ) : (
-              <div className="py-6 text-indigo-on-surface-variant/40 text-xs font-code">
-                No language data compiled.
-              </div>
+              <div className="text-on-surface-variant font-body-sm py-8">No language data</div>
             )}
           </div>
 
-          {/* Left Split column: Contribution Mix */}
-          <div className="md:col-span-6 bg-[#111111] border border-indigo-outline-variant/30 p-4 rounded-xl">
-            <h3 className="font-code text-xs text-indigo-on-surface-variant/60 uppercase font-bold mb-4 border-b border-indigo-outline-variant/20 pb-2 select-none">Contribution Mix</h3>
-            <div className="space-y-4 pt-1 font-code text-xs">
-              {Object.entries(data.activity_split || {}).map(([key, value]) => (
-                <div key={key} className="space-y-1.5">
-                  <div className="flex justify-between">
-                    <span className="text-on-surface">{key}</span>
-                    <span className="text-indigo-primary font-bold">{value}%</span>
+          {/* Activity Split */}
+          <div className="md:col-span-6 glass-panel p-md rounded-xl">
+            <h3 className="font-headline-md text-headline-md mb-lg">Contribution Mix</h3>
+            <div className="space-y-lg">
+              {Object.entries(data.activity_split || {}).map(([key, value], idx) => {
+                const col = activityColors[idx % activityColors.length];
+                return (
+                  <div key={key}>
+                    <div className="flex justify-between mb-2">
+                      <span className="font-body-lg">{key}</span>
+                      <span className={col.text}>{Math.round(value)}%</span>
+                    </div>
+                    <div className="w-full h-2 bg-surface-container rounded-full overflow-hidden">
+                      <div className={`h-full ${col.bg}`} style={{ width: `${value}%` }}></div>
+                    </div>
                   </div>
-                  <div className="w-full bg-[#1c1b1b] h-1.5 overflow-hidden rounded-full">
-                    <div
-                      className="bg-indigo-primary h-full rounded-full"
-                      style={{ width: `${value}%` }}
-                    ></div>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
 
-          {/* Right Split column: Commit Message Quality Gauge */}
-          <div className="md:col-span-6 bg-[#111111] border border-indigo-outline-variant/30 p-4 rounded-xl flex flex-col justify-between">
-            <div>
-              <h3 className="font-code text-xs text-indigo-on-surface-variant/60 uppercase font-bold mb-1 select-none">Commit Quality Index</h3>
-              <p className="text-[10px] text-indigo-on-surface-variant/40 font-code">Semantic writing and structure evaluation score.</p>
-            </div>
-            
-            <div className="flex items-center justify-center flex-grow py-6">
-              <div className="relative w-48 h-24 overflow-hidden select-none">
-                {/* SVG Gauge */}
-                <svg className="w-48 h-24 absolute top-0 left-0" viewBox="0 0 100 50">
-                  {/* Gauge Track */}
-                  <path
-                    d="M 10,50 A 40,40 0 0,1 90,50"
-                    fill="none"
-                    stroke="#1c1b1b"
-                    strokeWidth="8"
-                    strokeLinecap="round"
-                  />
-                  {/* Gauge Value */}
-                  <path
-                    d="M 10,50 A 40,40 0 0,1 90,50"
-                    fill="none"
-                    stroke="url(#indigoGrad)"
-                    strokeWidth="8"
-                    strokeLinecap="round"
-                    strokeDasharray={strokeDash}
-                    strokeDashoffset={strokeOffset}
-                    className="transition-all duration-1000 ease-out"
-                  />
-                  <defs>
-                    <linearGradient id="indigoGrad" x1="0%" y1="0%" x2="100%" y2="0%">
-                      <stop offset="0%" stopColor="#6366f1" />
-                      <stop offset="100%" stopColor="#ddb7ff" />
-                    </linearGradient>
-                  </defs>
-                </svg>
-
-                <div className="absolute bottom-0 left-0 right-0 flex flex-col items-center">
-                  <span className="font-stat text-3xl font-bold leading-none">
-                    {Math.round(lquality * 10)}
-                  </span>
-                  <span className="font-code text-[9px] uppercase tracking-wider text-indigo-primary font-bold mt-1">
-                    {lquality >= 8.5 ? "Elite Class" : lquality >= 7.0 ? "Strong Class" : lquality >= 5.0 ? "Good" : "Needs Work"}
+          {/* Commit Quality Gauge */}
+          <div className="md:col-span-6 glass-panel p-md rounded-xl flex flex-col justify-between">
+            <h3 className="font-headline-md text-headline-md mb-xs">Commit Health</h3>
+            <p className="font-body-sm text-on-surface-variant mb-lg">Semantic clarity and description depth index.</p>
+            <div className="flex items-center justify-center flex-grow py-md">
+              <div className="relative w-48 h-24 overflow-hidden">
+                <div className="absolute top-0 left-0 w-48 h-48 rounded-full border-[12px] border-surface-container"></div>
+                <div
+                  className="absolute top-0 left-0 w-48 h-48 rounded-full border-[12px] border-primary border-b-transparent border-l-transparent transition-transform duration-1000 ease-out"
+                  style={{ transform: `rotate(${gaugeAnimated ? -45 + (180 * (lqualityPct / 100)) : -45}deg)` }}
+                ></div>
+                <div className="absolute bottom-0 left-1/2 -translate-x-1/2 flex flex-col items-center">
+                  <span className="font-display-lg text-display-lg leading-none">{lqualityPct}</span>
+                  <span className="font-label-caps text-primary">
+                    {lqualityPct >= 85 ? "Elite" : lqualityPct >= 70 ? "Strong" : lqualityPct >= 50 ? "Good" : "Weak"}
                   </span>
                 </div>
               </div>
             </div>
-
-            <div className="flex gap-4 justify-center border-t border-indigo-outline-variant/20 pt-4 mt-2">
-              <div className="text-center font-code">
-                <span className="text-sm font-bold block text-indigo-primary">{Math.round(lquality * 10)}%</span>
-                <span className="text-[8px] uppercase tracking-wider text-indigo-on-surface-variant/50">Semantic rating</span>
+            <div className="flex gap-md justify-center border-t border-outline-variant/10 pt-md mt-md">
+              <div className="text-center">
+                <span className="font-headline-md block">{lqualityPct}%</span>
+                <span className="font-label-caps text-on-surface-variant">Semantic</span>
               </div>
-              <div className="text-center font-code">
-                <span className="text-sm font-bold block text-indigo-secondary">
+              <div className="text-center">
+                <span className="font-headline-md block">
                   {data.review_participation !== undefined ? `${Math.round(data.review_participation * 100)}%` : "N/A"}
                 </span>
-                <span className="text-[8px] uppercase tracking-wider text-indigo-on-surface-variant/50">Participation</span>
+                <span className="font-label-caps text-on-surface-variant">Participation</span>
               </div>
             </div>
           </div>
 
-          {/* Top Repositories Card */}
-          <div className="md:col-span-12 bg-[#111111] border border-indigo-outline-variant/30 rounded-xl overflow-hidden flex flex-col">
-            <div className="bg-[#050505] px-4 py-3 border-b border-[#222222] flex items-center justify-between">
-              <span className="font-code text-xs text-indigo-on-surface-variant font-bold flex items-center gap-1.5">
-                <span className="material-symbols-outlined text-sm text-indigo-primary">folder</span>
-                repository_inventory.log
-              </span>
-              <span className="text-[10px] font-code text-indigo-on-surface-variant/50 uppercase">Public Repositories</span>
-            </div>
-            
-            <div className="divide-y divide-[#222222]/40 font-code text-xs max-h-[320px] overflow-y-auto pr-1 scrollbar-thin">
-              {data.repos && data.repos.length > 0 ? (
-                data.repos.map((repo) => (
-                  <div key={repo.full_name || repo} className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-white/[0.01] transition-colors">
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2">
-                        {typeof repo === "string" ? (
-                          <span onClick={() => navigate(`/dashboard?repo=${repo}`)} className="text-on-surface hover:text-indigo-primary transition-colors font-bold cursor-pointer">
-                            {repo}
-                          </span>
-                        ) : (
-                          <span onClick={() => navigate(`/dashboard?repo=${repo.full_name}`)} className="text-on-surface hover:text-indigo-primary transition-colors font-bold cursor-pointer">
-                            {repo.name}
-                          </span>
-                        )}
-                        {repo.url && (
-                          <a href={repo.url} target="_blank" rel="noreferrer" className="text-indigo-on-surface-variant/40 hover:text-indigo-primary flex items-center">
-                            <span className="material-symbols-outlined text-xs">open_in_new</span>
-                          </a>
-                        )}
-                      </div>
-                      {repo.full_name && (
-                        <p className="text-[10px] text-indigo-on-surface-variant/60">@{repo.full_name}</p>
-                      )}
-                    </div>
-
-                    <div className="flex flex-wrap items-center gap-4 text-[10px] text-indigo-on-surface-variant/85">
-                      {repo.language && (
-                        <div className="flex items-center gap-1">
-                          <span className="w-1.5 h-1.5 rounded-full bg-indigo-primary shrink-0"></span>
-                          <span>{repo.language}</span>
-                        </div>
-                      )}
-                      
-                      {repo.stars !== undefined && (
-                        <div className="flex items-center gap-1">
-                          <span className="material-symbols-outlined text-[11px] text-indigo-tertiary">star</span>
-                          <span>{repo.stars}</span>
-                        </div>
-                      )}
-
-                      {repo.forks !== undefined && (
-                        <div className="flex items-center gap-1">
-                          <span className="material-symbols-outlined text-[11px] text-indigo-secondary">fork_left</span>
-                          <span>{repo.forks}</span>
-                        </div>
-                      )}
-
-                      {repo.updated_at && (
-                        <span className="text-indigo-on-surface-variant/40">
-                          {timeAgo(repo.updated_at) ? `updated ${timeAgo(repo.updated_at)}` : ""}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                ))
-              ) : (
-                <div className="p-8 text-center text-indigo-on-surface-variant/40">
-                  No public repositories metadata compiled.
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* AI Developer Blurb */}
-          <div className="md:col-span-12 bg-[#111111] border border-indigo-outline-variant/30 p-4 rounded-xl space-y-3">
-            <h3 className="font-code text-xs text-indigo-primary font-bold uppercase tracking-wider flex items-center gap-1.5 select-none border-b border-indigo-outline-variant/20 pb-2">
-              <span className="material-symbols-outlined text-sm text-indigo-primary">auto_awesome</span>
-              AI Developer Summary
-            </h3>
-            {data.llm_summary ? (
-              <p className="text-xs text-indigo-on-surface-variant font-code leading-relaxed bg-black/40 border border-[#222222] p-4 rounded-md">
+          {/* AI Developer Summary */}
+          {data.llm_summary && (
+            <div className="md:col-span-12 glass-panel p-md rounded-xl space-y-3 mt-4">
+              <h3 className="font-label-caps text-primary font-bold uppercase tracking-wider flex items-center gap-1.5 select-none border-b border-outline-variant/20 pb-2">
+                <span className="material-symbols-outlined text-sm text-primary">auto_awesome</span>
+                AI Developer Summary
+              </h3>
+              <p className="text-body-sm text-on-surface-variant font-code-sm leading-relaxed bg-[#0a0a0a] border border-[#222222] p-4 rounded-md">
                 {data.llm_summary}
               </p>
-            ) : (
-              <div className="text-center py-4 font-code text-xs text-indigo-on-surface-variant/40 bg-black/40 border border-[#222222] p-4 rounded-md">
-                No LLM configured on the server, AI summary blurb unavailable.
-              </div>
-            )}
-          </div>
+            </div>
+          )}
+
         </div>
       </main>
+
+      {/* Footer */}
+      <footer className="w-full px-margin-desktop flex flex-col md:flex-row justify-between items-center gap-md py-xl border-t border-outline-variant/10 bg-surface">
+        <div className="flex flex-col items-center md:items-start gap-xs">
+          <span className="font-display-lg text-display-lg font-bold text-primary">RepoLens</span>
+          <span className="font-body-sm text-body-sm text-on-surface-variant">© 2024 RepoLens. All systems operational.</span>
+        </div>
+        <div className="flex gap-lg">
+          <a className="font-body-sm text-body-sm text-on-surface-variant hover:text-primary transition-colors" href="#">GitHub</a>
+          <a className="font-body-sm text-body-sm text-on-surface-variant hover:text-primary transition-colors" href="#">Twitter</a>
+          <a className="font-body-sm text-body-sm text-on-surface-variant hover:text-primary transition-colors" href="#">Documentation</a>
+          <a className="font-body-sm text-body-sm text-on-surface-variant hover:text-primary transition-colors" href="#">Status</a>
+        </div>
+      </footer>
     </div>
   );
 }

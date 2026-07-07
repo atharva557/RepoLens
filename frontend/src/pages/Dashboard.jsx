@@ -1,9 +1,8 @@
 import { useEffect, useState, useCallback, useRef } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
 import { getJSON, postJSON } from "../lib/api";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
 
-const DEFAULT_REPO = "pallets/flask";
 
 function formatNumber(num) {
   if (num === undefined || num === null) return "0";
@@ -27,7 +26,7 @@ function timeAgo(dateString) {
 
 export default function Dashboard() {
   const navigate = useNavigate();
-  const repo = new URLSearchParams(window.location.search).get("repo") || DEFAULT_REPO;
+  const repo = new URLSearchParams(window.location.search).get("repo");
 
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
@@ -102,7 +101,7 @@ export default function Dashboard() {
     setLoading(true);
     setError(null);
     const soft = (p) => getJSON(p).catch((e) => ({ error: String(e), unavailable: true }));
-    
+
     try {
       let activityData;
       try {
@@ -152,11 +151,15 @@ export default function Dashboard() {
   }, [repo, navigate, getParsedSettings, pollBackgroundInsights]);
 
   useEffect(() => {
-    loadData();
+    if (repo) {
+      loadData();
+    } else {
+      setLoading(false);
+    }
     return () => {
       clearTimeout(insightsTimerRef.current);
     };
-  }, [loadData]);
+  }, [loadData, repo]);
 
   const handleReAnalyze = async () => {
     setTriggeringAnalyze(true);
@@ -220,6 +223,36 @@ export default function Dashboard() {
     handleReAnalyze();
   };
 
+  if (!repo) {
+    return (
+      <div className="min-h-[calc(100vh-52px)] flex items-center justify-center bg-background text-on-surface p-6 relative overflow-hidden">
+        {/* Ambient background glow */}
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-primary/5 rounded-full blur-[100px] pointer-events-none"></div>
+
+        <div className="relative w-full max-w-[460px] h-auto p-10 rounded-3xl bg-surface-container-lowest/60 backdrop-blur-xl border border-outline-variant/40 shadow-2xl shadow-primary/10 transition-all duration-300 hover:scale-[1.02] hover:shadow-[0_0_60px_color-mix(in_srgb,var(--color-primary)_20%,transparent)] text-center flex flex-col items-center gap-6">
+          <div className="w-20 h-20 rounded-full bg-primary/10 flex items-center justify-center border border-primary/20 shadow-inner">
+            <span className="material-symbols-outlined text-primary text-[40px]">link_off</span>
+          </div>
+
+          <div className="space-y-3">
+            <h2 className="font-display-lg text-3xl text-on-surface font-bold tracking-tight">Missing Link</h2>
+            <p className="text-sm text-on-surface-variant leading-relaxed px-2 font-body">
+              We need a valid GitHub repository link to analyze the data. Please return to the home page to enter one.
+            </p>
+          </div>
+
+          <Link
+            to="/"
+            className="w-full bg-primary hover:bg-primary-container text-on-primary font-code font-bold py-3.5 rounded-xl transition-all duration-300 active:scale-95 text-center flex items-center justify-center gap-2 mt-2 shadow-lg shadow-primary/20 hover:shadow-primary/40"
+          >
+            <span className="material-symbols-outlined text-[20px]">arrow_back</span>
+            <span>Return Home</span>
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
   if (loading) {
     return (
       <div className="min-h-[calc(100vh-52px)] flex items-center justify-center bg-[#0e0e0e] text-on-surface">
@@ -261,7 +294,7 @@ export default function Dashboard() {
     const today = new Date();
     const cells = [];
     const heatmapLookup = {};
-    
+
     if (activity.heatmap) {
       activity.heatmap.forEach((h) => {
         heatmapLookup[h.date] = h.count;
@@ -342,15 +375,15 @@ export default function Dashboard() {
       {/* Main Dashboard Content */}
       <main className="pt-6 px-gutter max-w-container-max mx-auto space-y-section-gap">
         {/* Repo Header Section */}
-        <section className="space-y-4 pt-4">
-          <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
-            <div className="space-y-2">
-              <div className="flex items-center gap-3 font-code">
-                <h1 className="text-heading-lg text-2xl font-bold">
+        <section className="pt-4 pb-2">
+          <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-6 lg:gap-8">
+            <div className="flex-1 space-y-4">
+              <div className="flex flex-wrap items-center gap-3 font-code">
+                <h1 className="text-heading-lg text-3xl font-bold leading-none tracking-tight">
                   {hasMeta ? meta.full_name : repo}
                 </h1>
                 {hasMeta && (
-                  <>
+                  <div className="flex items-center gap-1.5 px-2.5 py-1 bg-surface-container-high border border-outline-variant/50 rounded-full shadow-sm">
                     <span
                       className="w-2.5 h-2.5 rounded-full"
                       style={{
@@ -358,42 +391,42 @@ export default function Dashboard() {
                           meta.language === "JavaScript" || meta.language === "TypeScript"
                             ? "#f1e05a"
                             : meta.language === "Python"
-                            ? "#3572a5"
-                            : meta.language === "Rust"
-                            ? "#dea584"
-                            : "#8b8b8b",
+                              ? "#3572a5"
+                              : meta.language === "Rust"
+                                ? "#dea584"
+                                : "#8b8b8b",
                       }}
                     ></span>
-                    <span className="text-label text-on-surface-variant">{meta.language}</span>
-                  </>
+                    <span className="text-[11px] font-bold text-on-surface-variant leading-none">{meta.language}</span>
+                  </div>
                 )}
               </div>
-              <p className="text-on-surface-variant max-w-2xl text-sm leading-relaxed">
+              <p className="text-on-surface-variant max-w-2xl text-[14px] leading-relaxed">
                 {hasMeta ? meta.description : "Local workspace directory parsed and indexed."}
               </p>
-              
+
               {hasMeta && (
-                <div className="flex flex-wrap gap-2 pt-2">
-                  <span className="px-2 py-0.5 bg-surface-container border border-outline-variant text-[10px] uppercase font-bold tracking-wider text-on-surface-variant rounded-sm">
+                <div className="flex flex-wrap items-center gap-4 pt-1">
+                  <span className="px-2.5 py-1 bg-surface-container border border-outline-variant/50 text-[11px] uppercase font-bold tracking-wider text-on-surface-variant rounded-md shadow-sm">
                     {meta.visibility}
                   </span>
-                  <span className="px-2 py-0.5 bg-surface-container border border-outline-variant text-[10px] flex items-center gap-1 text-on-surface-variant rounded-sm">
-                    <span className="material-symbols-outlined text-[12px] text-primary">star</span>
+                  <span className="flex items-center gap-1.5 text-[13px] text-on-surface-variant font-medium">
+                    <span className="material-symbols-outlined text-[16px] text-primary">star</span>
                     {formatNumber(meta.stars)} stars
                   </span>
-                  <span className="px-2 py-0.5 bg-surface-container border border-outline-variant text-[10px] flex items-center gap-1 text-on-surface-variant rounded-sm">
-                    <span className="material-symbols-outlined text-[12px] text-primary">fork_right</span>
+                  <span className="flex items-center gap-1.5 text-[13px] text-on-surface-variant font-medium">
+                    <span className="material-symbols-outlined text-[16px] text-primary">fork_right</span>
                     {formatNumber(meta.forks)} forks
                   </span>
                 </div>
               )}
             </div>
 
-            <div className="flex flex-wrap gap-3">
+            <div className="flex flex-wrap sm:grid sm:grid-cols-2 lg:flex lg:justify-end gap-3 shrink-0">
               <button
                 onClick={() => setShowSettings(true)}
                 disabled={triggeringAnalyze}
-                className="bg-surface-container border border-outline-variant px-4 py-2 text-label font-code font-bold flex items-center gap-2 hover:bg-surface-container-high transition-all rounded-sm cursor-pointer disabled:opacity-50"
+                className="h-10 px-4 bg-surface-container hover:bg-surface-container-high border border-outline-variant text-on-surface font-code text-[12px] font-bold flex items-center justify-center gap-2 rounded-lg transition-all shadow-sm active:scale-95 disabled:opacity-50"
               >
                 <span className="material-symbols-outlined text-[18px]">settings</span>
                 CONFIG
@@ -401,14 +434,14 @@ export default function Dashboard() {
               <button
                 onClick={handleReAnalyze}
                 disabled={triggeringAnalyze}
-                className="bg-surface-container border border-outline-variant px-4 py-2 text-label font-code font-bold flex items-center gap-2 hover:bg-surface-container-high transition-all rounded-sm cursor-pointer disabled:opacity-50"
+                className="h-10 px-4 bg-surface-container hover:bg-surface-container-high border border-outline-variant text-on-surface font-code text-[12px] font-bold flex items-center justify-center gap-2 rounded-lg transition-all shadow-sm active:scale-95 disabled:opacity-50"
               >
                 <span className="material-symbols-outlined text-[18px]">refresh</span>
                 RE-ANALYZE
               </button>
               <button
                 onClick={() => navigate(`/hotspots?repo=${repo}`)}
-                className="bg-primary hover:bg-primary-container text-on-primary px-4 py-2 text-label font-code font-bold flex items-center gap-2 transition-all rounded-sm cursor-pointer active:scale-95"
+                className="h-10 px-4 bg-primary hover:bg-primary-container text-on-primary font-code text-[12px] font-bold flex items-center justify-center gap-2 rounded-lg transition-all shadow-sm shadow-primary/20 hover:shadow-primary/40 active:scale-95"
               >
                 <span className="material-symbols-outlined text-[18px]">visibility</span>
                 BUG HOTSPOTS
@@ -418,7 +451,7 @@ export default function Dashboard() {
                   href={meta.url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="bg-surface-container-high border border-outline-variant px-4 py-2 text-label font-code font-bold flex items-center gap-2 hover:bg-surface-container-highest transition-all rounded-sm"
+                  className="h-10 px-4 bg-surface-container hover:bg-surface-container-high border border-outline-variant text-on-surface font-code text-[12px] font-bold flex items-center justify-center gap-2 rounded-lg transition-all shadow-sm active:scale-95"
                 >
                   <span className="material-symbols-outlined text-[18px]">open_in_new</span>
                   GITHUB
@@ -432,7 +465,7 @@ export default function Dashboard() {
         <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           {/* Card 1: Contributors */}
           <div className="bg-surface-container border border-outline-variant p-4 space-y-1 rounded-sm">
-            <p className="text-[10px] text-on-surface-variant font-code uppercase tracking-widest">// CONTRIBUTORS</p>
+            <p className="text-[10px] text-on-surface-variant font-code uppercase tracking-widest"> CONTRIBUTORS</p>
             <div className="flex items-baseline gap-2">
               <span className="font-stat text-3xl font-bold">{activity.contributors_total}</span>
               <span className="text-label text-primary">active authors</span>
@@ -444,7 +477,7 @@ export default function Dashboard() {
 
           {/* Card 2: Total Commits */}
           <div className="bg-surface-container border border-outline-variant p-4 space-y-1 rounded-sm">
-            <p className="text-[10px] text-on-surface-variant font-code uppercase tracking-widest">// TOTAL COMMITS</p>
+            <p className="text-[10px] text-on-surface-variant font-code uppercase tracking-widest">TOTAL COMMITS</p>
             <div className="flex items-baseline gap-2">
               <span className="font-stat text-3xl font-bold">{formatNumber(activity.total_commits)}</span>
               <span className="text-label text-on-surface-variant">historical</span>
@@ -456,7 +489,7 @@ export default function Dashboard() {
 
           {/* Card 3: Open Issues */}
           <div className="bg-surface-container border border-outline-variant p-4 space-y-1 rounded-sm">
-            <p className="text-[10px] text-on-surface-variant font-code uppercase tracking-widest">// OPEN ISSUES</p>
+            <p className="text-[10px] text-on-surface-variant font-code uppercase tracking-widest">OPEN ISSUES</p>
             <div className="flex items-baseline gap-2">
               <span className="font-stat text-3xl font-bold">
                 {hasMeta ? formatNumber(meta.open_issues) : "N/A"}
@@ -473,7 +506,7 @@ export default function Dashboard() {
           {/* Card 4: Health Score */}
           <div className="relative bg-surface-container border border-outline-variant p-4 space-y-1 rounded-sm group cursor-help">
             <p className="text-[10px] text-on-surface-variant font-code uppercase tracking-widest flex justify-between">
-              <span>// HEALTH SCORE</span>
+              <span>HEALTH SCORE</span>
               <span className="material-symbols-outlined text-xs">info</span>
             </p>
             <div className="flex items-baseline gap-2">
@@ -504,38 +537,41 @@ export default function Dashboard() {
         </section>
 
         {/* Heatmap Section */}
-        <section className="bg-surface-container border border-outline-variant p-4 overflow-x-auto scrollbar-thin rounded-sm">
-          <div className="flex justify-between items-center mb-4 min-w-[800px]">
-            <p className="text-[10px] text-on-surface-variant font-code font-bold uppercase tracking-widest">// ANNUAL CONTRIBUTION VELOCITY</p>
-            <div className="flex items-center gap-2 font-code text-[10px] text-on-surface-variant">
+        <section className="bg-surface-container border border-outline-variant p-6 overflow-x-auto scrollbar-thin rounded-xl shadow-sm">
+          <div className="flex justify-between items-center mb-6 min-w-[800px]">
+            <p className="text-[11px] text-on-surface-variant font-code font-bold uppercase tracking-widest"> ANNUAL CONTRIBUTION VELOCITY</p>
+            <div className="flex items-center gap-3 font-code text-[11px] text-on-surface-variant">
               <span>Less</span>
-              <div className="flex gap-0.5">
-                <div className="w-2.5 h-2.5 bg-surface-container-highest rounded-sm"></div>
-                <div className="w-2.5 h-2.5 bg-primary/20 rounded-sm"></div>
-                <div className="w-2.5 h-2.5 bg-primary/40 rounded-sm"></div>
-                <div className="w-2.5 h-2.5 bg-primary/70 rounded-sm"></div>
-                <div className="w-2.5 h-2.5 bg-primary rounded-sm"></div>
+              <div className="flex gap-1">
+                <div className="w-[13px] h-[13px] bg-surface-container-highest border border-outline-variant/30 rounded-sm shadow-inner"></div>
+                <div className="w-[13px] h-[13px] bg-primary/20 rounded-sm shadow-inner"></div>
+                <div className="w-[13px] h-[13px] bg-primary/40 rounded-sm shadow-inner"></div>
+                <div className="w-[13px] h-[13px] bg-primary/70 rounded-sm shadow-inner"></div>
+                <div className="w-[13px] h-[13px] bg-primary rounded-sm shadow-inner"></div>
               </div>
               <span>More</span>
             </div>
           </div>
 
-          <div className="min-w-[800px] flex gap-1.5">
+          <div className="min-w-[800px] flex gap-3">
             {/* Days of week labels */}
-            <div className="flex flex-col justify-between text-[9px] text-on-surface-variant/60 font-code pt-4 pb-2 pr-1 select-none">
-              <span>Sun</span>
-              <span>Tue</span>
-              <span>Thu</span>
-              <span>Sat</span>
+            <div className="grid grid-rows-7 gap-1 text-[10px] text-on-surface-variant/70 font-code pr-1 select-none h-[115px] items-center">
+              <span className="leading-none flex items-center h-[13px]">Sun</span>
+              <span className="leading-none flex items-center h-[13px]">Mon</span>
+              <span className="leading-none flex items-center h-[13px]">Tue</span>
+              <span className="leading-none flex items-center h-[13px]">Wed</span>
+              <span className="leading-none flex items-center h-[13px]">Thu</span>
+              <span className="leading-none flex items-center h-[13px]">Fri</span>
+              <span className="leading-none flex items-center h-[13px]">Sat</span>
             </div>
 
             {/* Grid */}
-            <div className="flex-grow grid grid-flow-col grid-rows-7 gap-0.5">
+            <div className="flex-grow grid grid-flow-col grid-rows-7 gap-1 h-[115px]">
               {heatmapCells.map((cell, idx) => (
                 <div
                   key={idx}
                   title={`${cell.date}: ${cell.count} commits`}
-                  className={`w-2.5 h-2.5 rounded-[1px] transition-colors hover:ring-1 hover:ring-primary ${getHeatmapColor(cell.count)}`}
+                  className={`w-[13px] h-[13px] rounded-[3px] transition-all duration-200 hover:ring-2 hover:ring-primary/60 cursor-crosshair ${getHeatmapColor(cell.count)} ${cell.count === 0 ? "border border-outline-variant/30 shadow-inner" : "shadow-sm"}`}
                 ></div>
               ))}
             </div>
@@ -549,7 +585,7 @@ export default function Dashboard() {
             {/* Top Contributors */}
             <div className="bg-surface-container border border-outline-variant rounded-sm overflow-hidden">
               <div className="p-4 border-b border-outline-variant flex justify-between items-center">
-                <p className="text-[10px] text-on-surface-variant font-code font-bold uppercase tracking-widest">// TOP CONTRIBUTORS</p>
+                <p className="text-[10px] text-on-surface-variant font-code font-bold uppercase tracking-widest"> TOP CONTRIBUTORS</p>
                 <span className="text-[10px] font-code text-on-surface-variant uppercase">{activity.contributors.length} indexed</span>
               </div>
               <div className="divide-y divide-outline-variant max-h-[360px] overflow-y-auto pr-1 scrollbar-thin">
@@ -582,7 +618,7 @@ export default function Dashboard() {
             {/* Recent Commits */}
             <div className="bg-surface-container border border-outline-variant rounded-sm overflow-hidden">
               <div className="p-4 border-b border-outline-variant flex justify-between items-center">
-                <p className="text-[10px] text-on-surface-variant font-code font-bold uppercase tracking-widest">// RECENT COMMITS ACTIVITY</p>
+                <p className="text-[10px] text-on-surface-variant font-code font-bold uppercase tracking-widest"> RECENT COMMITS ACTIVITY</p>
                 <span className="text-[10px] font-code text-on-surface-variant uppercase">recent {activity.recent_commits.length}</span>
               </div>
               <div className="divide-y divide-outline-variant">
@@ -814,7 +850,7 @@ export default function Dashboard() {
             {/* Languages donut/bars card */}
             {hasMeta && meta.languages && meta.languages.length > 0 && (
               <div className="bg-surface-container border border-outline-variant rounded-sm p-4 space-y-3">
-                <p className="text-[10px] text-on-surface-variant font-code font-bold uppercase tracking-widest border-b border-outline-variant pb-2">// LANGUAGE INVENTORY</p>
+                <p className="text-[10px] text-on-surface-variant font-code font-bold uppercase tracking-widest border-b border-outline-variant pb-2">LANGUAGE INVENTORY</p>
                 <div className="space-y-2.5 pt-1">
                   {meta.languages.slice(0, 4).map((lang) => (
                     <div key={lang.name} className="space-y-1">

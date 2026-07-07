@@ -32,7 +32,12 @@ export const API_BASE = "/api";
 export async function getJSON(path) {
   const res = await fetch(API_BASE + path);
   const body = await res.json().catch(() => null);
-  if (!res.ok) throw new Error((body && body.detail) || `${res.status} ${res.statusText}`);
+  if (!res.ok) {
+    if (res.status === 502) {
+      throw new Error("Backend server is currently unavailable (502 Bad Gateway). Please try again later.");
+    }
+    throw new Error((body && body.detail) || `${res.status} ${res.statusText}`);
+  }
   return body;
 }
 
@@ -43,6 +48,11 @@ export async function postJSON(path, payload) {
     body: payload ? JSON.stringify(payload) : undefined,
   });
   const body = await res.json().catch(() => null);
-  if (!res.ok) throw new Error((body && body.detail) || `${res.status} ${res.statusText}`);
+  if (!res.ok) {
+    if (res.status === 502) {
+      throw new Error("Backend server is currently unavailable (502 Bad Gateway). Please try again later.");
+    }
+    throw new Error((body && body.detail) || `${res.status} ${res.statusText}`);
+  }
   return body;
 }
