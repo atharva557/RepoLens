@@ -16,10 +16,21 @@ def fetch_and_store_commits(
     *,
     keywords=None,
     max_commits: int | None = None,
+    progress=None,
 ) -> list[dict]:
     """Read commits from `local_path`, classify them, persist, and return them."""
+    from core.progress import reporter_or_print
+
+    report = reporter_or_print(progress)
     gc = GitClient(local_path)
-    commits = list(gc.iter_commits(max_count=max_commits))
+    report("reading commit history (git)", detail=repo_key)
+    commits: list[dict] = []
+    for c in gc.iter_commits(max_count=max_commits):
+        commits.append(c)
+        if len(commits) % 200 == 0:  # no known total — tick, don't fake a pct
+            report("reading commit history (git)", detail=f"{len(commits)} commits")
     classify_commits(commits, keywords)
     store.save_commits(repo_key, commits)
+    report("reading commit history (git)", pct=100,
+           detail=f"{len(commits)} commits cached")
     return commits

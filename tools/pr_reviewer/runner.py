@@ -23,32 +23,49 @@ def parse_pr_spec(spec: str) -> tuple[str, str, int]:
     raise SystemExit("PR must be 'owner/repo#123' or a full pull-request URL.")
 
 
-def _hotspot_paths(store, key: str, settings, url: str) -> set[str]:
+def _hotspot_context(store, key: str, settings, url: str) -> tuple[set[str], dict[str, float]]:
+    """(top-N hotspot paths, {path: days} for recently-bug-fixed files).
+
+    The recently-fixed map ("bug echo") reads the per-file features already
+    stored on hotspot rows: files whose latest change was a bug fix within
+    the churn window. Empty results mean the checks are skipped and the
+    report says so (coverage note)."""
     hs = store.load_hotspots(key)
-    if hs and hs.get("rows"):
-        return {r.get("path") for r in hs["rows"][: settings.hotspot_top_n] if r.get("path")}
-    # no cached hotspots -> compute them (also caches for next time)
-    try:
-        from core.analysis import run_hotspot_analysis
+    rows = (hs or {}).get("rows") or []
+    if not rows:
+        try:  # no cached hotspots -> compute them (also caches for next time)
+            from core.analysis import run_hotspot_analysis
 
-        res = run_hotspot_analysis(url, settings, store, top=settings.hotspot_top_n)
-        return {s.path for s in res["scores"][: settings.hotspot_top_n]}
-    except Exception as exc:
-        print(f"  [warn] could not compute hotspots for file-risk: {exc}")
-        return set()
+            res = run_hotspot_analysis(url, settings, store, top=settings.hotspot_top_n)
+            rows = [s.to_dict() for s in res["scores"]]
+        except Exception as exc:
+            print(f"  [warn] could not compute hotspots for file-risk: {exc}")
+            return set(), {}
+    top = {r.get("path") for r in rows[: settings.hotspot_top_n] if r.get("path")}
+    recent = {}
+    for r in rows:
+        raw = r.get("raw") or {}
+        days = raw.get("last_change_days")
+        if raw.get("last_was_bugfix") and days is not None \
+                and days <= settings.churn_window_days:
+            recent[r["path"]] = float(days)
+    return top, recent
 
 
-def run_pr_review(spec: str, settings, store, *, post: bool = False) -> dict:
+def run_pr_review(spec: str, settings, store, *, post: bool = False,
+                  progress=None) -> dict:
     if not settings.github_token:
         raise SystemExit("GITHUB_TOKEN required to review a PR. Set it in .env.")
 
     from core.github_client import GitHubAPI, ensure_local_clone
+    from core.progress import reporter_or_print
 
+    report_progress = reporter_or_print(progress)
     owner, repo, number = parse_pr_spec(spec)
     key = f"{owner}/{repo}"
     url = f"https://github.com/{owner}/{repo}.git"
 
-    print(f"  fetching PR {key}#{number} ...")
+    report_progress("fetching PR (GitHub)", detail=f"{key}#{number}")
     api = GitHubAPI(settings.github_token)
     pr = api.get_pull(owner, repo, number)
 
@@ -59,15 +76,18 @@ def run_pr_review(spec: str, settings, store, *, post: bool = False) -> dict:
         from pipeline.build_bug_index import build_bug_diff_index
         from pipeline.fetch_commits import fetch_and_store_commits
 
-        local_path, _ = ensure_local_clone(url, settings.cache_dir)
+        local_path, _ = ensure_local_clone(url, settings.cache_dir, progress=progress)
         commits = store.load_commits(key) or fetch_and_store_commits(
-            local_path, key, store, keywords=settings.bug_keywords)
+            local_path, key, store, keywords=settings.bug_keywords, progress=progress)
+        report_progress("embedding bug-fix diffs (ML)",
+                        detail=f"{sum(1 for c in commits if c.get('is_bugfix'))} diffs")
         index, corpus_n = build_bug_diff_index(commits, GitClient(local_path), settings)
         print(f"  bug-diff corpus: {corpus_n} diffs [{index.backend}]")
     except Exception as exc:
         print(f"  [warn] similarity corpus unavailable: {exc}")
 
-    hotspots = _hotspot_paths(store, key, settings, url)
+    report_progress("checking hotspot file risk (processing)")
+    hotspots, recently_fixed = _hotspot_context(store, key, settings, url)
 
     from core.llm import get_llm
     from tools.pr_reviewer.llm_summarizer import summarize
@@ -75,10 +95,19 @@ def run_pr_review(spec: str, settings, store, *, post: bool = False) -> dict:
     from tools.pr_reviewer.risk_scorer import assess_risk
     from tools.pr_reviewer.similarity import assess_similarity
 
-    risk = assess_risk(pr["files"], hotspots)
+    report_progress("risk checks + diff similarity (processing)")
+    risk = assess_risk(pr["files"], hotspots,
+                       recently_fixed=recently_fixed,
+                       title=pr.get("title", ""), body=pr.get("body", ""))
     sim = assess_similarity(index, pr, settings)
+    report_progress("summarizing the diff (LLM)")
     summary = summarize(get_llm(settings), pr)
-    report = build_report(pr, risk, sim, summary)
+    report_progress("saving report (database)", pct=100)
+    report = build_report(pr, risk, sim, summary,
+                          coverage={"hotspots": bool(hotspots or recently_fixed),
+                                    "similarity": corpus_n > 0},
+                          high=getattr(settings, "pr_risk_high", 0.5),
+                          medium=getattr(settings, "pr_risk_medium", 0.2))
     report.update({"repo": key, "pr": number, "url": pr["url"], "corpus_size": corpus_n})
 
     store.save_report("pr_review", f"{key}#{number}", report)

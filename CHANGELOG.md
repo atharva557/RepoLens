@@ -7,6 +7,74 @@ This project follows the milestone roadmap in `../GitPulse_Revised_Sections.md`.
 
 ## [Unreleased]
 
+- **Pre-review upgrades (Tool 3)**: the risk level is now a **weighted signal
+  score** (mirroring Tool 1's formula brand — `RISK_WEIGHTS`, bands tunable
+  via `PR_RISK_HIGH`/`PR_RISK_MEDIUM`, arithmetic printed in the report);
+  four new deterministic checks: **PR description quality** (Tool 4's scorer
+  reused on `title\n\nbody`), **bug echo** (source files whose latest change
+  was a recent bug fix, read from stored hotspot features), a **new-file
+  blind-spot note** (large brand-new files have no history for hotspot
+  analysis), and a **coverage honesty note** (report states which checks
+  could not run when the repo lacks cached hotspots/corpus). Report dict
+  gains `risk_score`, `breakdown`, `notes`. Suite grown to 11 tests.
+- **PR risk levels are no longer always-HIGH** — three root causes fixed:
+  (1) hotspot file-risk now counts **source files only** — churn-ranked docs
+  and test files in the hotspot list (e.g. `CHANGES.rst`) no longer mark a PR
+  risky; (2) the similarity corpus **excludes docs/config-only bug fixes**
+  (changelog typo "fixes" matched PRs' own changelog edits — flask's corpus
+  dropped 53 → 20 diffs); (3) **HIGH now requires two independent signals**,
+  one signal = MEDIUM, none = LOW. Validated live: `pallets/flask#6066`
+  (focused feature PR with tests) went from a false HIGH to LOW. Four new
+  regression tests in `tests/test_pr_reviewer.py`.
+- **Job progress reporting — long runs are no longer a black box**: every
+  background job now carries a `progress` field
+  (`{phase, pct, detail, updated_at}` on `GET /jobs/{id}`), fed by a progress
+  callback (`core/progress.py`) threaded through all five engine runners.
+  Phases are worded to answer "what is slow": `cloning repository (GitHub)`
+  with live per-stage percentages (GitPython progress adapter, decile-
+  throttled), `reading commit history (git)`, `fetching commits (GitHub)`
+  (percent = repos completed — the profiler's dominant cost),
+  `embedding bug-fix diffs (ML)`, `scoring files (weighted formula / ML
+  second opinion)`, LLM phases, `saving report (database)`. The CLI prints
+  the same phases through the default `print_progress` sink; the dashboard
+  progress bar is specced in `frontend/AGENTS.md` (§4.2). Verified live: a
+  fresh clone shows `[ 40%] cloning repository (GitHub) - receiving objects`.
+- **GitHub reads are now database-first everywhere**: cached repo metadata and
+  developer profiles are served whatever their age — the server never silently
+  re-hits GitHub on a `GET`. GitHub is called only on the first fetch or an
+  explicit refresh (`GET .../meta?refresh=true`, `POST /profiles/{u}`,
+  `POST /analyze {"refresh": true}` — the dashboard's "Sync from GitHub"
+  button, spec'd in `frontend/AGENTS.md` §5a). `PROFILE_CACHE_HOURS` now only
+  labels a served profile as stale. Fixed along the way: an explicit analyze
+  refresh now actually `git pull`s the cached clone (previously it re-read
+  the same stale history), with a graceful warn-and-continue when offline.
+  Tests updated + a new database-first suite entry (`test_dev_profiler.py`).
+- **Multi-user identity plane (Postgres) — first v2 slice** (`MULTIUSER=true`,
+  default off = exactly the single-user app): the spec §6.4 schema (`users`,
+  `sessions`, `user_repos`, `llm_configs`, `audit_log`) bootstrapped
+  idempotently in PostgreSQL (`core/identity.py`, psycopg lazy import);
+  "Sign in with GitHub" OAuth (`api/auth.py`: login redirect with state nonce,
+  code exchange, user upsert, session cookie httpOnly/SameSite=Lax with only
+  its SHA-256 hash stored, sliding 30-day expiry); GitHub tokens and BYO LLM
+  keys **Fernet-encrypted** at rest with `FERNET_KEY` (spec §2.5: hash what
+  you check, encrypt what you use); CSRF via required `X-GitPulse-Client`
+  header; account routes `/api/v1/me` (+ llm / github-token management,
+  write-only secrets); every audit-worthy action logged. In multiuser mode,
+  analysis triggers require a session and jobs record `created_by`; CORS pins
+  to `DASHBOARD_ORIGIN` with credentials. Auth routes answer 503 while off
+  (webhook precedent). New deps (optional): `psycopg[binary]`, `cryptography`.
+  New 9th suite `tests/test_identity.py` (8 tests, DB- and network-free via a
+  `MemoryIdentity` twin + stubbed OAuth exchange). Deferred to the next slice:
+  per-repo access rules (§7.12), quotas, per-request LLM resolution (§8.3),
+  scope escalation.
+- **LM Studio model autoload** (`LOCAL_LLM_AUTOLOAD=true`, default off): when
+  the local provider finds the server running but no model loaded, it resolves
+  a model (`LLM_MODEL` if downloaded, else an already-loaded one, else the
+  first downloaded chat model — via the new `pick_local_model()`), triggers
+  LM Studio's just-in-time load with a 1-token request, and falls back to the
+  `lms load` CLI if JIT loading is disabled. Announced with `[llm] autoload:`
+  lines; `test-llm` shows the toggle; off = exactly the previous behavior.
+  Two new tests in `tests/test_llm.py` (7 total in the suite).
 - **ChromaDB similarity backend is now live**: `chromadb` + `sentence-transformers`
   installed and verified end-to-end; Tool 3 diff-similarity now uses real semantic
   embeddings (persistent index at `data/chroma`) instead of the TF-IDF fallback.

@@ -14,10 +14,15 @@ from tools.commit_quality.suggester import suggest as suggest_message
 def run_commit_quality_report(target: str, settings, store, *,
                               max_commits: int | None = None,
                               suggest_count: int | None = None,
-                              suggest: bool = False, top: int = 15) -> dict:
+                              suggest: bool = False, top: int = 15,
+                              progress=None) -> dict:
+    from core.progress import reporter_or_print
+
+    report_progress = reporter_or_print(progress)
     local_path = None
     try:
-        local_path, key = ensure_local_clone(target, settings.cache_dir)
+        local_path, key = ensure_local_clone(target, settings.cache_dir,
+                                             progress=progress)
     except Exception as exc:
         key = _repo_key(target)
         print(f"  [warn] {exc}; using cached data only for '{key}'")
@@ -26,14 +31,17 @@ def run_commit_quality_report(target: str, settings, store, *,
     if not commits:
         if local_path is None:
             raise SystemExit(f"No cached commits for '{key}' and no local repo to pull.")
-        print(f"  pulling commit history from {local_path} ...")
         commits = fetch_and_store_commits(
             local_path, key, store,
             keywords=settings.bug_keywords, max_commits=max_commits,
+            progress=progress,
         )
     else:
-        print(f"  loaded {len(commits)} commits from cache ({store.backend})")
+        report_progress("loading cached commits (database)",
+                        detail=f"{len(commits)} commits from {store.backend}")
 
+    report_progress("scoring commit messages (processing)",
+                    detail=f"{len(commits)} messages")
     report = build_report(commits)
     report["repo"] = key
 
@@ -51,13 +59,17 @@ def run_commit_quality_report(target: str, settings, store, *,
             print(f"  generating rewrites via {llm.describe()} ...")
             gc = GitClient(local_path)
             n = suggest_count or top
-            for row in report["worst"][:n]:
+            for i, row in enumerate(report["worst"][:n]):
+                report_progress("rewriting worst messages (LLM)",
+                                pct=int(i * 100 / max(n, 1)),
+                                detail=f"{i + 1}/{n}")
                 diff = gc.commit_diff(row["sha"])
                 full = next((c.get("message", "") for c in commits
                              if c.get("sha", "").startswith(row["sha"])), row["subject"])
                 row["suggestion"] = suggest_message(llm, full, diff)
             report["suggested"] = True
 
+    report_progress("saving report (database)", pct=100)
     store.save_report("commit_quality", key, _slim(report, top))
     return report
 

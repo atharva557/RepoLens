@@ -28,11 +28,50 @@ def _looks_like_url(target: str) -> bool:
     return bool(re.match(r"^(https?://|git@|ssh://|git://)", target))
 
 
-def ensure_local_clone(target: str, cache_dir: str) -> tuple[str, str]:
+class _GitProgress:
+    """GitPython progress adapter -> our report(phase, pct, detail).
+
+    Git fires updates constantly and runs several 0-100% stages per clone
+    (counting, receiving, resolving...). Report only decile crossings, name
+    the stage in `detail`, and reset the throttle per stage so the restart
+    from 0% is legible instead of confusing."""
+
+    def __init__(self, report, phase: str):
+        self.report, self.phase = report, phase
+        self._stage, self._last = None, -1
+
+    @staticmethod
+    def _stage_name(op_code) -> str:
+        from git import RemoteProgress as RP  # lazy import
+
+        names = {RP.COUNTING: "counting objects", RP.COMPRESSING: "compressing",
+                 RP.WRITING: "writing", RP.RECEIVING: "receiving objects",
+                 RP.RESOLVING: "resolving deltas",
+                 RP.FINDING_SOURCES: "finding sources",
+                 RP.CHECKING_OUT: "checking out files"}
+        return names.get(op_code & RP.OP_MASK, "")
+
+    def __call__(self, op_code, cur_count, max_count=None, message=""):
+        if not max_count:
+            return
+        stage = self._stage_name(op_code)
+        if stage != self._stage:
+            self._stage, self._last = stage, -1
+        pct = int(cur_count * 100 / max_count)
+        if pct // 10 != self._last:
+            self._last = pct // 10
+            self.report(self.phase, pct=pct, detail=stage)
+
+
+def ensure_local_clone(target: str, cache_dir: str, *, update: bool = False,
+                       progress=None) -> tuple[str, str]:
     """Return (local_path, repo_key) for a repo reference.
 
-    - An existing local git repo is used in place.
+    - An existing local git repo is used in place (never touched).
     - A remote URL is cloned (once) into `<cache_dir>/clones/<name>`.
+    - `update=True` (an explicit refresh) additionally pulls the cached clone
+      so new upstream commits actually arrive; a failed pull (offline, forced
+      push upstream) warns and proceeds with the existing history.
     """
     key = repo_key(target)
 
@@ -48,12 +87,25 @@ def ensure_local_clone(target: str, cache_dir: str) -> tuple[str, str]:
 
     from git import Repo  # lazy import
 
+    from core.progress import reporter_or_print
+
+    report = reporter_or_print(progress)
     name = key.split("/")[-1]
     dest = os.path.join(cache_dir, "clones", name)
     if not os.path.isdir(os.path.join(dest, ".git")):
         os.makedirs(os.path.dirname(dest), exist_ok=True)
-        print(f"  cloning {target} -> {dest} ...")
-        Repo.clone_from(target, dest)
+        report("cloning repository (GitHub)", pct=0, detail=target)
+        Repo.clone_from(target, dest,
+                        progress=_GitProgress(report, "cloning repository (GitHub)"))
+        report("cloning repository (GitHub)", pct=100, detail=key)
+    elif update:
+        try:
+            report("updating clone (GitHub)", detail=key)
+            Repo(dest).remotes.origin.pull(
+                ff_only=True, progress=_GitProgress(report, "updating clone (GitHub)"))
+        except Exception as exc:
+            print(f"  [warn] clone update failed ({type(exc).__name__}); "
+                  f"using existing history")
     return os.path.abspath(dest), key
 
 
@@ -225,20 +277,17 @@ class GitHubAPI:
 def get_repo_meta(repo_key: str, settings, store, *, refresh: bool = False) -> dict | None:
     """Store-cached GitHub metadata for the dashboard header.
 
-    Serves a cached copy younger than `profile_cache_hours` unless `refresh`.
-    Only 'owner/repo' keys have a GitHub side — bare local-clone keys (and
-    runs without a token) get whatever is cached, or None.
+    Database-first: anything cached is served as-is, whatever its age. GitHub
+    is called only on the *first* fetch or on an explicit `refresh=True` (the
+    dashboard's "sync from GitHub" button). Only 'owner/repo' keys have a
+    GitHub side — bare local-clone keys (and runs without a token) get
+    whatever is cached, or None.
     """
-    from core.db import report_age_hours
-
     cached = store.load_report("repo_meta", repo_key)
     if "/" not in repo_key or not settings.github_token:
         return cached
     if cached and not refresh:
-        age = report_age_hours(cached)
-        max_age = getattr(settings, "profile_cache_hours", 24)
-        if age is not None and age <= max_age:
-            return cached
+        return cached
     try:
         meta = GitHubAPI(settings.github_token).repo_meta(repo_key)
     except Exception as exc:

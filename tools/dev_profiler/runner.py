@@ -2,9 +2,10 @@
 
 Fetches a GitHub user's public activity, classifies their developer type, builds
 the profile (reusing Tool 4's commit-message scorer + the optional LLM), and
-caches it in the store. A fresh cached profile (younger than
-PROFILE_CACHE_HOURS) is reused instead of re-hitting the GitHub API; pass
-`refresh=True` to force a rebuild. Shared by the CLI and the API.
+caches it in the store. Database-first: any cached profile is served without
+touching GitHub (PROFILE_CACHE_HOURS only marks it stale in the message);
+`refresh=True` — the UI's re-fetch button — forces a rebuild. Shared by the
+CLI and the API.
 """
 from __future__ import annotations
 
@@ -12,7 +13,7 @@ from core.db import report_age_hours
 
 
 def run_developer_profile(username: str, settings, store, *,
-                          refresh: bool = False) -> dict | None:
+                          refresh: bool = False, progress=None) -> dict | None:
     cached = store.load_report("developer_profile", username)
 
     if not settings.github_token:
@@ -24,13 +25,17 @@ def run_developer_profile(username: str, settings, store, *,
             "(needs a token with public read access)."
         )
 
-    max_age = getattr(settings, "profile_cache_hours", 24)
+    # Database-first: any cached profile is served as-is; GitHub is only hit
+    # on the first build or an explicit refresh (the UI's re-fetch button).
+    # PROFILE_CACHE_HOURS now just marks the profile as stale in the message.
     if cached and not refresh:
         age = report_age_hours(cached)
-        if age is not None and age <= max_age:
-            print(f"  [cache] using cached profile for @{username} "
-                  f"(built {age:.1f}h ago; re-fetch to rebuild)")
-            return cached
+        max_age = getattr(settings, "profile_cache_hours", 24)
+        note = f"built {age:.1f}h ago" if age is not None else "age unknown"
+        if age is not None and age > max_age:
+            note += " - stale; re-fetch to rebuild"
+        print(f"  [cache] using cached profile for @{username} ({note})")
+        return cached
     if cached and refresh:
         print(f"  [cache] ignoring cached profile for @{username} (re-fetch requested)")
 
@@ -39,13 +44,18 @@ def run_developer_profile(username: str, settings, store, *,
     from pipeline.fetch_user_activity import fetch_user_activity
     from tools.dev_profiler.profile_builder import build_profile
 
+    from core.progress import reporter_or_print
+
+    report = reporter_or_print(progress)
     print(f"  fetching @{username} activity via GitHub API (this can take a minute) ...")
     api = GitHubAPI(settings.github_token)
-    activity = fetch_user_activity(api, username, settings)
+    activity = fetch_user_activity(api, username, settings, progress=progress)
     if not activity["commits"]:
         print(f"  [warn] no public commits found for @{username}")
 
+    report("building profile (processing + LLM summary)")
     profile = build_profile(activity, settings, llm=get_llm(settings))
+    report("saving profile (database)", pct=100)
     store.save_report("developer_profile", username, profile)
     print(f"  [cache] profile for @{username} saved to the {store.backend} store")
     return profile

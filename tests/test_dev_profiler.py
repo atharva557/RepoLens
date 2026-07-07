@@ -141,13 +141,10 @@ def test_runner_reuses_fresh_cached_profile():
         settings = _settings(github_token="tok", profile_cache_hours=24)
         # fresh cache -> served without touching the network
         assert run_developer_profile("alice", settings, _FakeStore(cached)) is cached
-        # stale cache -> rebuild is attempted (our stub raises)
+        # database-first: even a STALE cache is served — GitHub is only hit
+        # on an explicit refresh (the UI's re-fetch button)
         stale = dict(cached, generated_at=datetime.now(timezone.utc) - timedelta(hours=48))
-        try:
-            run_developer_profile("alice", settings, _FakeStore(stale))
-            assert False, "stale cache should trigger a rebuild attempt"
-        except Sentinel:
-            pass
+        assert run_developer_profile("alice", settings, _FakeStore(stale)) is stale
         # refresh=True -> rebuild even when the cache is fresh
         try:
             run_developer_profile("alice", settings, _FakeStore(cached), refresh=True)
@@ -159,7 +156,53 @@ def test_runner_reuses_fresh_cached_profile():
         assert run_developer_profile("alice", no_token, _FakeStore(stale)) is stale
     finally:
         ghc.GitHubAPI, fua.fetch_user_activity = orig_api, orig_fetch
-    print("  ok: runner cache (fresh hit, stale rebuild, refresh bypass, token-less)")
+    print("  ok: runner cache (fresh hit, stale hit, refresh bypass, token-less)")
+
+
+def test_repo_meta_is_database_first():
+    import core.github_client as ghc
+
+    class Sentinel(Exception):
+        pass
+
+    calls = []
+
+    class _NoNetAPI:
+        def __init__(self, token):
+            calls.append("fetch")
+            raise Sentinel("GitHub API constructed")
+
+    orig = ghc.GitHubAPI
+    ghc.GitHubAPI = _NoNetAPI
+    try:
+        month_old = {"full_name": "o/r", "stars": 5,
+                     "generated_at": datetime.now(timezone.utc) - timedelta(days=30)}
+        settings = _settings(github_token="tok", profile_cache_hours=24)
+
+        # database-first: even a month-old cached doc is served, GitHub untouched
+        assert ghc.get_repo_meta("o/r", settings, _FakeStore(month_old)) is month_old
+        assert calls == []
+
+        # refresh=True attempts GitHub; on failure the stale copy still wins
+        assert ghc.get_repo_meta("o/r", settings, _FakeStore(month_old),
+                                 refresh=True) is month_old
+        assert calls == ["fetch"]
+
+        # nothing cached -> the first fetch must go to GitHub
+        try:
+            ghc.get_repo_meta("o/r", settings, _FakeStore(None))
+            assert False, "first fetch should call GitHub"
+        except Sentinel:
+            pass
+
+        # no token -> cache or None, never a network attempt
+        calls.clear()
+        assert ghc.get_repo_meta("o/r", _settings(github_token=""),
+                                 _FakeStore(None)) is None
+        assert calls == []
+    finally:
+        ghc.GitHubAPI = orig
+    print("  ok: repo meta is database-first (stale hit, refresh path, first fetch)")
 
 
 def _run_all():

@@ -21,6 +21,7 @@ from core.llm import (
     LocalProvider,
     OpenAIProvider,
     get_llm,
+    pick_local_model,
 )
 
 
@@ -29,6 +30,7 @@ def _settings(**over):
         llm_provider="local",
         llm_model="",
         local_llm_base_url="http://localhost:1234/v1",
+        local_llm_autoload=False,
         anthropic_api_key="",
         openai_api_key="",
         gemini_api_key="",
@@ -80,6 +82,81 @@ def test_unknown_provider_raises():
         print("  ok: unknown provider raises")
         return
     raise AssertionError("expected LLMUnavailable")
+
+
+def test_pick_local_model():
+    models = [
+        {"id": "embed-1", "type": "embeddings", "state": "loaded"},
+        {"id": "qwen", "type": "llm", "state": "not-loaded"},
+        {"id": "gemma", "type": "llm", "state": "loaded"},
+    ]
+    # a downloaded preferred model wins, reporting its own load state
+    assert pick_local_model(models, "qwen") == ("qwen", False)
+    # no preference -> an already-loaded chat model
+    assert pick_local_model(models) == ("gemma", True)
+    # unknown preference falls back to the loaded model
+    assert pick_local_model(models, "nope") == ("gemma", True)
+    # embeddings models are never picked
+    assert pick_local_model([{"id": "e", "type": "embeddings", "state": "loaded"}]) == (None, False)
+    assert pick_local_model([]) == (None, False)
+    print("  ok: pick_local_model preference order")
+
+
+def test_local_autoload_flow():
+    # the factory wires the setting through (default off)
+    assert get_llm(_settings(local_llm_autoload=True)).autoload is True
+    assert get_llm(_settings()).autoload is False
+
+    # an already-loaded model resolves the placeholder id without a load call
+    llm = get_llm(_settings(local_llm_autoload=True))
+    llm._downloaded_models = lambda: [{"id": "gemma", "type": "llm", "state": "loaded"}]
+
+    def _no_load(_mid):
+        raise AssertionError("no load expected for an already-loaded model")
+
+    llm._jit_load = _no_load
+    assert llm._ensure_model() is True
+    assert llm.model == "gemma"
+    # ...and the result is cached: a dead server no longer matters
+    llm._downloaded_models = _no_load
+    assert llm._ensure_model() is True
+
+    # an unloaded model triggers a JIT load and adopts the id
+    llm = get_llm(_settings(local_llm_autoload=True, llm_model="qwen"))
+    calls = []
+    llm._downloaded_models = lambda: [{"id": "qwen", "type": "llm", "state": "not-loaded"}]
+    llm._jit_load = lambda mid: calls.append(mid) or True
+    assert llm._ensure_model() is True
+    assert calls == ["qwen"] and llm.model == "qwen"
+
+    # JIT refused (disabled server-side) -> lms CLI fallback
+    llm = get_llm(_settings(local_llm_autoload=True))
+    llm._downloaded_models = lambda: [{"id": "m", "type": "llm", "state": "not-loaded"}]
+    llm._jit_load = lambda mid: False
+    llm._cli_load = lambda mid: True
+    assert llm._ensure_model() is True
+
+    # both load paths fail -> unavailable, no crash
+    llm = get_llm(_settings(local_llm_autoload=True))
+    llm._downloaded_models = lambda: [{"id": "m", "type": "llm", "state": "not-loaded"}]
+    llm._jit_load = lambda mid: False
+    llm._cli_load = lambda mid: False
+    assert llm._ensure_model() is False
+
+    # server down / no /api/v0 -> graceful False
+    llm = get_llm(_settings(local_llm_autoload=True))
+
+    def _boom():
+        raise OSError("connection refused")
+
+    llm._downloaded_models = _boom
+    assert llm._ensure_model() is False
+
+    # nothing downloaded -> graceful False
+    llm = get_llm(_settings(local_llm_autoload=True))
+    llm._downloaded_models = lambda: []
+    assert llm._ensure_model() is False
+    print("  ok: local autoload flow (resolve, load, fallback, degrade)")
 
 
 def test_fake_provider():

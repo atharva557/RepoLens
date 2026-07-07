@@ -46,6 +46,7 @@ class Settings:
     llm_provider: str = "local"
     llm_model: str = ""  # empty -> per-provider default in core/llm.py
     local_llm_base_url: str = "http://localhost:1234/v1"  # LM Studio default
+    local_llm_autoload: bool = False  # auto-load a model in LM Studio when none is loaded
     anthropic_api_key: str = ""
     openai_api_key: str = ""
     gemini_api_key: str = ""
@@ -84,6 +85,8 @@ class Settings:
     pr_similarity_top_k: int = 5
     pr_similarity_warn: float = 0.6
     hotspot_top_n: int = 10                 # a file in the top-N hotspots is "high risk"
+    pr_risk_high: float = 0.5               # weighted PR risk score >= this -> HIGH
+    pr_risk_medium: float = 0.2             # >= this -> MEDIUM (below -> LOW)
 
     # FastAPI layer (v0.4) — PR webhook behaviour + dashboard CORS
     webhook_post_comment: bool = False  # post Tool 3 reports back to the PR automatically
@@ -91,6 +94,16 @@ class Settings:
 
     # Storage backend override: "auto" (try Mongo, fall back to json), "mongo", "json"
     store_backend: str = "auto"
+
+    # Multi-user identity plane (v2, spec §6.4/§8/§9.2). MULTIUSER=false keeps
+    # exactly the single-user behavior; true requires Postgres + enables /auth.
+    multiuser: bool = False
+    database_url: str = "postgresql://localhost:5432/gitpulse"
+    fernet_key: str = ""       # token/key encryption — generate once, NEVER commit
+    session_secret: str = ""   # session/CSRF signing
+    github_oauth_client_id: str = ""
+    github_oauth_client_secret: str = ""
+    dashboard_origin: str = "http://localhost:5173"  # CORS allow-origin when multiuser
 
     @classmethod
     def load(cls, env_path: str = ".env") -> "Settings":
@@ -117,6 +130,8 @@ class Settings:
             llm_provider=get("LLM_PROVIDER", "local").lower(),
             llm_model=get("LLM_MODEL", ""),
             local_llm_base_url=get("LOCAL_LLM_BASE_URL", "http://localhost:1234/v1"),
+            local_llm_autoload=str(get("LOCAL_LLM_AUTOLOAD", "")).strip().lower()
+            in ("1", "true", "yes", "on"),
             anthropic_api_key=get("ANTHROPIC_API_KEY", ""),
             openai_api_key=get("OPENAI_API_KEY", ""),
             gemini_api_key=get("GEMINI_API_KEY", ""),
@@ -147,16 +162,27 @@ class Settings:
             pr_similarity_top_k=get_num("PR_SIMILARITY_TOP_K", 5, int),
             pr_similarity_warn=get_num("PR_SIMILARITY_WARN", 0.6, float),
             hotspot_top_n=get_num("HOTSPOT_TOP_N", 10, int),
+            pr_risk_high=get_num("PR_RISK_HIGH", 0.5, float),
+            pr_risk_medium=get_num("PR_RISK_MEDIUM", 0.2, float),
             webhook_post_comment=str(get("GITPULSE_WEBHOOK_POST", "")).strip().lower()
             in ("1", "true", "yes", "on"),
             cors_origins=[o.strip() for o in get("GITPULSE_CORS_ORIGINS", "*").split(",")
                           if o.strip()] or ["*"],
             store_backend=get("GITPULSE_STORE", "auto").lower(),
+            multiuser=str(get("MULTIUSER", "")).strip().lower()
+            in ("1", "true", "yes", "on"),
+            database_url=get("DATABASE_URL", "postgresql://localhost:5432/gitpulse"),
+            fernet_key=get("FERNET_KEY", ""),
+            session_secret=get("SESSION_SECRET", ""),
+            github_oauth_client_id=get("GITHUB_OAUTH_CLIENT_ID", ""),
+            github_oauth_client_secret=get("GITHUB_OAUTH_CLIENT_SECRET", ""),
+            dashboard_origin=get("DASHBOARD_ORIGIN", "http://localhost:5173"),
         )
 
     def summary(self) -> str:
         masked = {f.name: getattr(self, f.name) for f in fields(self)}
         for secret in ("github_token", "github_webhook_secret",
-                       "anthropic_api_key", "openai_api_key", "gemini_api_key"):
+                       "anthropic_api_key", "openai_api_key", "gemini_api_key",
+                       "fernet_key", "session_secret", "github_oauth_client_secret"):
             masked[secret] = "***" if getattr(self, secret) else "(unset)"
         return "\n".join(f"  {k} = {v}" for k, v in masked.items())

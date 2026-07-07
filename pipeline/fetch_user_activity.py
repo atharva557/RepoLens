@@ -11,12 +11,23 @@ from collections import Counter
 from pipeline.classify_commits import classify_commits
 
 
-def fetch_user_activity(api, username: str, settings) -> dict:
+def fetch_user_activity(api, username: str, settings, progress=None) -> dict:
+    from core.progress import reporter_or_print
+
+    report = reporter_or_print(progress)
     commits: list[dict] = []
     languages: Counter = Counter()
     repos: list[str] = []
 
-    for repo in api.list_user_repos(username, settings.profile_max_repos):
+    report("listing repositories (GitHub)", detail=f"@{username}")
+    user_repos = api.list_user_repos(username, settings.profile_max_repos)
+    for i, repo in enumerate(user_repos):
+        name = getattr(repo, "full_name", "?")
+        # the dominant cost: one API call per commit — show which repo and
+        # how far along we are so long builds are never a black box
+        report("fetching commits (GitHub)",
+               pct=int(i * 100 / max(len(user_repos), 1)),
+               detail=f"{name} ({i + 1}/{len(user_repos)})")
         repos.append({
             "name": getattr(repo, "name", "?"),
             "full_name": getattr(repo, "full_name", "?"),
@@ -34,6 +45,7 @@ def fetch_user_activity(api, username: str, settings) -> dict:
         )
 
     classify_commits(commits, settings.bug_keywords)
+    report("fetching PR & review stats (GitHub)", pct=100)
     authored, pr_samples = api.authored_prs(username, settings.profile_pr_sample)
     reviews = api.reviews_count(username)
 

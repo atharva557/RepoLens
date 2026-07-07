@@ -84,17 +84,125 @@ class _OpenAICompatProvider(LLMProvider):
         return (resp.choices[0].message.content or "").strip()
 
 
+def pick_local_model(models: list[dict], preferred: str = "") -> tuple[str | None, bool]:
+    """Choose which LM Studio model to use from its `/api/v0/models` listing.
+
+    Returns (model_id, already_loaded). Preference order: the `preferred` id
+    when it is downloaded, else an already-loaded chat model, else the first
+    downloaded chat model. (None, False) when nothing usable is downloaded.
+    """
+    llms = [m for m in models if m.get("type") in ("llm", "vlm")]
+    if preferred:
+        for m in llms:
+            if m.get("id") == preferred:
+                return preferred, m.get("state") == "loaded"
+    for m in llms:
+        if m.get("state") == "loaded":
+            return m["id"], True
+    if llms:
+        return llms[0]["id"], False
+    return None, False
+
+
 class LocalProvider(_OpenAICompatProvider):
     name = "local (LM Studio)"
     default_base_url = "http://localhost:1234/v1"
+
+    # default model id when LLM_MODEL is unset; autoload resolves it to a real one
+    PLACEHOLDER_MODEL = "local-model"
+
+    def __init__(self, *, autoload: bool = False, load_timeout: int = 180, **kw):
+        super().__init__(**kw)
+        self.autoload = autoload
+        self.load_timeout = load_timeout
+        self._model_ready = False
+
+    # -- LM Studio native REST helpers (stdlib urllib; /api/v0 is the only
+    #    endpoint that reports downloaded-vs-loaded model state) --
+    def _rest_root(self) -> str:
+        root = (self.base_url or "").rstrip("/")
+        return root[:-3] if root.endswith("/v1") else root
+
+    def _downloaded_models(self) -> list[dict]:
+        import json
+        import urllib.request
+
+        with urllib.request.urlopen(self._rest_root() + "/api/v0/models", timeout=5) as resp:
+            data = json.load(resp)
+        return [m for m in data.get("data", []) if isinstance(m, dict)]
+
+    def _jit_load(self, model_id: str) -> bool:
+        """Load via LM Studio's just-in-time mechanism: requesting a 1-token
+        completion for a downloaded-but-unloaded model makes the server load it."""
+        import json
+        import urllib.request
+
+        body = json.dumps({"model": model_id, "max_tokens": 1,
+                           "messages": [{"role": "user", "content": "ping"}]}).encode()
+        req = urllib.request.Request(
+            (self.base_url or "").rstrip("/") + "/chat/completions",
+            body, {"Content-Type": "application/json"})
+        try:
+            urllib.request.urlopen(req, timeout=self.load_timeout).read()
+            return True
+        except Exception:
+            return False
+
+    def _cli_load(self, model_id: str) -> bool:
+        """Fallback for servers with JIT loading disabled: `lms load`."""
+        import shutil
+        import subprocess
+
+        lms = shutil.which("lms")
+        if not lms:
+            return False
+        try:
+            proc = subprocess.run([lms, "load", model_id, "--yes"],
+                                  capture_output=True, timeout=self.load_timeout)
+            return proc.returncode == 0
+        except Exception:
+            return False
+
+    def _ensure_model(self) -> bool:
+        """Resolve — and, when autoload is on, load — a model once per process."""
+        if self._model_ready:
+            return True
+        try:
+            models = self._downloaded_models()
+        except Exception:
+            return False  # server down, or an LM Studio too old for /api/v0
+        preferred = "" if self.model == self.PLACEHOLDER_MODEL else (self.model or "")
+        target, loaded = pick_local_model(models, preferred)
+        if target is None:
+            print("  [llm] autoload: no models downloaded in LM Studio")
+            return False
+        if preferred and target != preferred:
+            print(f"  [llm] autoload: '{preferred}' is not downloaded; using '{target}'")
+        if not loaded:
+            print(f"  [llm] autoload: loading '{target}' in LM Studio ...")
+            if not (self._jit_load(target) or self._cli_load(target)):
+                print(f"  [llm] autoload: could not load '{target}' "
+                      f"(enable JIT model loading in LM Studio, or install the lms CLI)")
+                return False
+        self.model = target
+        self._model_ready = True
+        return True
 
     def available(self) -> bool:
         # local server: actually ping it (no API key to check)
         try:
             self._client().models.list()
-            return True
         except Exception:
             return False
+        if not self.autoload:
+            return True
+        return self._ensure_model()
+
+    def generate(self, prompt, *, system=None, max_tokens=None, temperature=None):
+        if self.autoload:
+            self._ensure_model()  # best-effort; the request below reports failures
+        return super().generate(prompt, system=system,
+                                max_tokens=max_tokens, temperature=temperature)
 
 
 class OpenAIProvider(_OpenAICompatProvider):
@@ -181,7 +289,9 @@ def get_llm(settings) -> LLMProvider:
         temperature=getattr(settings, "llm_temperature", 0.2),
     )
     if provider == "local":
-        return LocalProvider(base_url=settings.local_llm_base_url, api_key="", **common)
+        return LocalProvider(
+            base_url=settings.local_llm_base_url, api_key="",
+            autoload=getattr(settings, "local_llm_autoload", False), **common)
     if provider == "openai":
         return OpenAIProvider(api_key=settings.openai_api_key, **common)
     if provider == "claude":

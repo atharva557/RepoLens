@@ -38,6 +38,7 @@ class JobRegistry:
                 "status": "pending",
                 "created_at": _now(),
                 "finished_at": None,
+                "progress": None,   # latest {phase, pct, detail, updated_at}
                 "result": None,
                 "error": None,
             }
@@ -55,6 +56,16 @@ class JobRegistry:
             job = self._jobs.get(job_id)
             if job:
                 job.update(changes)
+
+    def reporter(self, job_id: str):
+        """A progress callback bound to a job (see core/progress.py).
+
+        Threaded into the engine so `GET /jobs/{id}` can say *which* stage a
+        long run is in — cloning from GitHub vs scoring vs LLM."""
+        def report(phase: str, pct: int | None = None, detail: str = "") -> None:
+            self._update(job_id, progress={"phase": phase, "pct": pct,
+                                           "detail": detail, "updated_at": _now()})
+        return report
 
     def run(self, job_id: str, fn, *args, **kwargs) -> None:
         """Execute `fn` and record its outcome. Designed for BackgroundTasks.
