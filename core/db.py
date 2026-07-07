@@ -59,12 +59,19 @@ class JsonStore:
     def __init__(self, root: str):
         self.root = os.path.abspath(root)
         os.makedirs(self.root, exist_ok=True)
+        self.collection_mapping = {
+            "repo_insights": "insights",
+            "developer_profile": "profiles",
+            "commit_quality": "quality_reports",
+            "configs": "configs"
+        }
 
     def _slug(self, repo_key: str) -> str:
         return repo_key.replace("/", "__").replace("\\", "__")
 
     def _path(self, collection: str, repo_key: str) -> str:
-        d = os.path.join(self.root, collection)
+        coll_name = self.collection_mapping.get(collection, collection)
+        d = os.path.join(self.root, coll_name)
         os.makedirs(d, exist_ok=True)
         return os.path.join(d, f"{self._slug(repo_key)}.json")
 
@@ -114,7 +121,8 @@ class JsonStore:
         "commits" rows carry a count; "hotspots" rows carry the file count;
         report rows carry key + generated_at (+ any requested `fields`).
         """
-        d = os.path.join(self.root, kind)
+        coll_name = self.collection_mapping.get(kind, kind)
+        d = os.path.join(self.root, coll_name)
         if not os.path.isdir(d):
             return []
         out = []
@@ -152,8 +160,20 @@ class MongoStore:
         # tz_aware: commit dates must round-trip as aware UTC datetimes — the
         # feature extractor subtracts them from datetime.now(timezone.utc).
         self.client = MongoClient(uri, serverSelectionTimeoutMS=timeout_ms, tz_aware=True)
-        self.client.admin.command("ping")  # raises if unreachable
+        try:
+            self.client.admin.command("ping")  # raises if unreachable
+        except Exception as e:
+            raise ConnectionError(
+                f"Failed to connect to MongoDB at {uri}. "
+                f"Ensure the MongoDB service is installed and running. Error: {e}"
+            ) from e
         self.db = self.client[dbname]
+        self.collection_mapping = {
+            "repo_insights": "insights",
+            "developer_profile": "profiles",
+            "commit_quality": "quality_reports",
+            "configs": "configs"
+        }
 
     def ensure_indexes(self) -> None:
         from pymongo import ASCENDING, DESCENDING
@@ -163,6 +183,10 @@ class MongoStore:
         )
         self.db.commits.create_index([("repo", ASCENDING), ("date", DESCENDING)])
         self.db.hotspots.create_index([("repo", ASCENDING)], unique=True)
+        self.db.insights.create_index([("key", ASCENDING)], unique=True)
+        self.db.profiles.create_index([("key", ASCENDING)], unique=True)
+        self.db.quality_reports.create_index([("key", ASCENDING)], unique=True)
+        self.db.configs.create_index([("key", ASCENDING)], unique=True)
 
     def save_commits(self, repo_key: str, commits: list[dict]) -> int:
         coll = self.db.commits
@@ -194,14 +218,16 @@ class MongoStore:
         return doc
 
     def save_report(self, kind: str, key: str, doc: dict) -> None:
-        self.db[kind].replace_one(
+        coll_name = self.collection_mapping.get(kind, kind)
+        self.db[coll_name].replace_one(
             {"key": key},
             {"key": key, "generated_at": datetime.now(timezone.utc), **doc},
             upsert=True,
         )
 
     def load_report(self, kind: str, key: str) -> dict | None:
-        return self.db[kind].find_one({"key": key}, {"_id": 0})
+        coll_name = self.collection_mapping.get(kind, kind)
+        return self.db[coll_name].find_one({"key": key}, {"_id": 0})
 
     def list_reports(self, kind: str, fields: tuple = ()) -> list[dict]:
         """Same discovery shape as JsonStore.list_reports (see there)."""
@@ -218,8 +244,9 @@ class MongoStore:
                 {"$sort": {"key": 1}},
             ])
             return list(rows)
+        coll_name = self.collection_mapping.get(kind, kind)
         proj = {"_id": 0, "key": 1, "generated_at": 1, **{f: 1 for f in fields}}
-        return sorted(self.db[kind].find({}, proj), key=lambda r: r.get("key") or "")
+        return sorted(self.db[coll_name].find({}, proj), key=lambda r: r.get("key") or "")
 
 
 def open_store(settings) -> JsonStore | MongoStore:

@@ -155,6 +155,8 @@ class GitHubAPI:
             "created_at": created.isoformat() if created else None,
             "years_active": years,
             "url": u.html_url,
+            "location": u.location or "",
+            "company": u.company or "",
         }
 
     def merged_prs_count(self, username: str) -> int:

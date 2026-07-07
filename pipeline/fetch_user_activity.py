@@ -17,7 +17,15 @@ def fetch_user_activity(api, username: str, settings) -> dict:
     repos: list[str] = []
 
     for repo in api.list_user_repos(username, settings.profile_max_repos):
-        repos.append(getattr(repo, "full_name", "?"))
+        repos.append({
+            "name": getattr(repo, "name", "?"),
+            "full_name": getattr(repo, "full_name", "?"),
+            "stars": getattr(repo, "stargazers_count", 0),
+            "forks": getattr(repo, "forks_count", 0),
+            "language": getattr(repo, "language", ""),
+            "updated_at": repo.updated_at.isoformat() if getattr(repo, "updated_at", None) else None,
+            "url": getattr(repo, "html_url", ""),
+        })
         lang = getattr(repo, "language", None)
         if lang:
             languages[lang] += 1

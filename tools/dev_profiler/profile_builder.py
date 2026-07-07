@@ -61,6 +61,7 @@ def build_profile(activity: dict, settings, llm=None) -> dict:
         "activity_split": classification["distribution"],
         "commits_analyzed": len(commits),
         "repos_analyzed": len(activity.get("repos", [])),
+        "repos": activity.get("repos", []),
         "top_languages": top_languages,
         "languages": language_shares,
         "commit_message_quality": _commit_quality(commits),

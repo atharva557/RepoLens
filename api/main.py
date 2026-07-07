@@ -128,6 +128,7 @@ def create_app(settings: Settings | None = None, store=None) -> FastAPI:
     async def lifespan(app: FastAPI):
         app.state.settings = settings
         app.state.store = store if store is not None else open_store(settings)
+        app.state.store.ensure_indexes()
         app.state.jobs = JobRegistry()
         yield
 
@@ -387,9 +388,39 @@ def create_app(settings: Settings | None = None, store=None) -> FastAPI:
 
     @app.get("/profiles/{username}")
     def profile(username: str, request: Request):
-        doc = request.app.state.store.load_report("developer_profile", username)
+        st = request.app.state
+        try:
+            doc = st.store.load_report("developer_profile", username)
+        except Exception as e:
+            raise HTTPException(500, f"Database read failure: {e}")
+
         if doc is None:
-            raise HTTPException(404, f"no profile for '{username}' — POST /profiles/{username} first")
+            _require_token(st.settings)
+            try:
+                doc = run_developer_profile(username, st.settings, st.store)
+            except Exception as e:
+                # Map specific GitHub exceptions if raised
+                try:
+                    from github import GithubException, UnknownObjectException, RateLimitExceededException
+                    if isinstance(e, UnknownObjectException):
+                        raise HTTPException(404, f"GitHub user '{username}' not found. Please verify the URL.")
+                    elif isinstance(e, RateLimitExceededException):
+                        raise HTTPException(429, "GitHub API rate limit exceeded. Please wait a few minutes and try again.")
+                    elif isinstance(e, GithubException):
+                        raise HTTPException(502, f"GitHub API error: {e.data.get('message', str(e)) if hasattr(e, 'data') else str(e)}")
+                except ImportError:
+                    pass
+
+                # Fallback check by name string
+                etype = type(e).__name__
+                if "UnknownObjectException" in etype:
+                    raise HTTPException(404, f"GitHub user '{username}' not found. Please verify the URL.")
+                elif "RateLimitExceededException" in etype:
+                    raise HTTPException(429, "GitHub API rate limit exceeded. Please wait a few minutes and try again.")
+                elif "GithubException" in etype:
+                    raise HTTPException(502, f"GitHub API error: {e}")
+                else:
+                    raise HTTPException(500, f"Failed to build developer profile: {e}")
         return doc
 
     # --------------------------------------------------------------- webhook
