@@ -413,39 +413,16 @@ def create_app(settings: Settings | None = None, store=None, identity=None) -> F
 
     @app.get("/profiles/{username}")
     def profile(username: str, request: Request):
-        st = request.app.state
+        # Pure read: 404 when not built yet (its detail names the POST to run).
+        # Building is the async trigger POST /profiles/{username} — a GET must
+        # never block on a multi-minute live build (browsers/proxies time out),
+        # and the dashboard already turns this 404 into that POST + job poll.
         try:
-            doc = st.store.load_report("developer_profile", username)
+            doc = request.app.state.store.load_report("developer_profile", username)
         except Exception as e:
             raise HTTPException(500, f"Database read failure: {e}")
-
         if doc is None:
-            _require_token(st.settings)
-            try:
-                doc = run_developer_profile(username, st.settings, st.store)
-            except Exception as e:
-                # Map specific GitHub exceptions if raised
-                try:
-                    from github import GithubException, UnknownObjectException, RateLimitExceededException
-                    if isinstance(e, UnknownObjectException):
-                        raise HTTPException(404, f"GitHub user '{username}' not found. Please verify the URL.")
-                    elif isinstance(e, RateLimitExceededException):
-                        raise HTTPException(429, "GitHub API rate limit exceeded. Please wait a few minutes and try again.")
-                    elif isinstance(e, GithubException):
-                        raise HTTPException(502, f"GitHub API error: {e.data.get('message', str(e)) if hasattr(e, 'data') else str(e)}")
-                except ImportError:
-                    pass
-
-                # Fallback check by name string
-                etype = type(e).__name__
-                if "UnknownObjectException" in etype:
-                    raise HTTPException(404, f"GitHub user '{username}' not found. Please verify the URL.")
-                elif "RateLimitExceededException" in etype:
-                    raise HTTPException(429, "GitHub API rate limit exceeded. Please wait a few minutes and try again.")
-                elif "GithubException" in etype:
-                    raise HTTPException(502, f"GitHub API error: {e}")
-                else:
-                    raise HTTPException(500, f"Failed to build developer profile: {e}")
+            raise HTTPException(404, f"no profile for '{username}' — POST /profiles/{username} first")
         return doc
 
     # ------------------------------------------------- auth & account (v2)

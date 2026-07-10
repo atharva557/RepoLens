@@ -313,7 +313,9 @@ def test_activity_endpoint():
                                            "share": 0.667}
         assert body["recent_commits"][0]["sha"] == "aaaa111"   # newest first, 7 chars
         assert body["recent_commits"][0]["subject"] == "Fix crash in parser"
-        assert sum(d["count"] for d in body["heatmap"]) == 2
+        # heatmap spans all history (incl. the 400-day-old commit), unlike
+        # the windowed stats above
+        assert sum(d["count"] for d in body["heatmap"]) == 3
         # health composite: 0.6*8.0 + 0.4*(1-0.5)*10 = 6.8
         assert body["health"]["score"] == 6.8
     print("  ok: activity endpoint (window, contributors, heatmap, health)")
