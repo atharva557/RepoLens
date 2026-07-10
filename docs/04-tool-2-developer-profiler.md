@@ -35,10 +35,16 @@ descriptions. Commit messages run through the same bug-fix keyword classifier
 as Tool 1.
 
 **Caching — database-first:** any stored profile is served without touching
-GitHub, however old; a profile older than `PROFILE_CACHE_HOURS` (default 24)
-is labeled stale in the output. GitHub is hit only on the first build or an
-explicit refresh: the CLI asks, and `POST /profiles/{user}` (the dashboard's
-re-fetch button) always rebuilds.
+GitHub, however old. A rebuild costs hundreds of API calls and minutes, so it
+is never a side effect of a read: `GET /profiles/{user}` is a pure store read
+that returns `age_hours` and `stale` (computed on read — a persisted flag
+would itself go stale) alongside the profile. The UI uses those to offer a
+re-sync. GitHub is hit only on the first build or an explicit refresh: the CLI
+asks, and `POST /profiles/{user}` — the async job the dashboard's re-fetch
+button triggers — always rebuilds.
+
+> Contrast with `repo_meta`, which *is* cheap to refetch and therefore
+> auto-refreshes on a TTL (see [02-data-and-storage.md](02-data-and-storage.md)).
 
 ## Classification — six developer types, deterministic signals
 

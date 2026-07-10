@@ -116,6 +116,29 @@ def test_read_endpoints_404_then_hit():
     print("  ok: read layer (404 -> seeded hits, both key shapes)")
 
 
+def test_profile_read_reports_freshness():
+    """The profile GET stays a pure read but tells the UI how old it is, so a
+    cached-forever profile can prompt a re-sync instead of silently going stale."""
+    store = FakeStore()
+    now = datetime.now(timezone.utc)
+    with _client(store=store) as c:
+        store.save_report("developer_profile", "fresh",
+                          {"username": "fresh", "generated_at": now - timedelta(hours=1)})
+        store.save_report("developer_profile", "old",
+                          {"username": "old", "generated_at": now - timedelta(days=9)})
+        store.save_report("developer_profile", "undated", {"username": "undated"})
+
+        fresh = c.get("/profiles/fresh").json()
+        assert fresh["stale"] is False and 0 <= fresh["age_hours"] <= 2
+
+        old = c.get("/profiles/old").json()          # older than PROFILE_CACHE_HOURS (24)
+        assert old["stale"] is True and old["age_hours"] > 24
+
+        undated = c.get("/profiles/undated").json()  # no timestamp -> unknown, not stale
+        assert undated["age_hours"] is None and undated["stale"] is False
+    print("  ok: profile read reports age_hours + stale")
+
+
 def test_analyze_trigger_and_job_lifecycle():
     calls = []
 

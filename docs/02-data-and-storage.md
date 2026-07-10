@@ -81,11 +81,21 @@ store.list_reports(kind, fields=())     # small discovery summaries
 | `api_selftest` | `"ping"` | `GET /test` round-trip check | — |
 
 `report_age_hours(doc)` computes a report's age from its `generated_at`.
-GitHub-backed documents (profiles, repo metadata) are **database-first**:
-whatever is cached is served regardless of age, and GitHub is called only on
-the first fetch or an explicit refresh (`refresh=True` — the dashboard's
-"Sync from GitHub" button). `PROFILE_CACHE_HOURS` (default 24 h) only decides
-when a served profile is *labeled* stale.
+GitHub-backed documents are cached, but they differ in *how* they go live
+again — the split is driven by how expensive a refetch is:
+
+| Document | Refresh policy |
+|---|---|
+| `repo_meta` (stars, forks, description, languages) | **Cache with a TTL.** Served while younger than `PROFILE_CACHE_HOURS` (default 24 h); once stale, the next read refetches from GitHub by itself. A refetch is two cheap API calls, so this needs no user action. `refresh=True` forces it. |
+| `developer_profile` | **Database-first.** Any cached profile is served regardless of age, because a rebuild costs hundreds of API calls and minutes. `GET /profiles/{u}` reports `age_hours` and `stale` (computed on read) so the UI can offer a re-sync; rebuilding is the explicit async `POST /profiles/{u}`. |
+
+Reads never block on a live GitHub build: a profile rebuild is always the
+async trigger, never a side effect of a `GET`.
+
+An explicit `POST /analyze {"refresh": true}` means *go back to GitHub* for
+everything about that repo — it pulls the cached clone, re-reads the commit
+history, **and** refreshes `repo_meta` — so the dashboard header can't keep
+showing the stars/description captured on the very first analysis.
 
 ## MongoStore (primary)
 

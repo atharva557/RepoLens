@@ -1,6 +1,6 @@
 # 11 — Testing
 
-9 suites (58 tests). Every suite runs standalone
+10 suites. Every suite runs standalone
 (`python tests/test_x.py`) **or** under pytest (`pytest tests/`), and every
 suite is **network-free and dependency-free** — the core analysis modules are
 pure stdlib, and everything heavy is faked.
@@ -31,6 +31,7 @@ the real backends.
 | `test_embeddings.py` | LiteIndex TF-IDF ranking, factory fallback selection |
 | `test_pr_reviewer.py` | PR spec parsing (`owner/repo#N` + URLs), each mechanical risk check, similarity assessment, risk-level logic, report building |
 | `test_api.py` | read layer + 404 messages, job lifecycle (success and failure), `GITHUB_TOKEN` gates, webhook security (secret gate, HMAC verification, event/action filtering, dispatch), discovery endpoints, CORS. Skips itself cleanly if `fastapi` isn't installed. |
+| `test_github_cache.py` | GitHub-data freshness policy for `get_repo_meta`: fresh cache served without a call, **stale cache refetches itself**, `refresh=True` forces a refetch, local keys / missing token never hit GitHub, and a failed refresh falls back to the stale copy rather than blanking the dashboard. `GitHubAPI` stubbed. |
 | `test_identity.py` | multi-user slice: crypto discipline (Fernet round-trip, SHA-256 sessions), user upsert idempotency, session expiry, encrypted LLM configs, the `MULTIUSER=false` 503 gate, full OAuth→cookie→`/me`→CSRF→logout flow (exchange stubbed via `MemoryIdentity`), trigger enforcement. Skips without `cryptography`/`fastapi`. |
 
 ## Conventions

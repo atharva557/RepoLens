@@ -194,9 +194,37 @@ class LocalProvider(_OpenAICompatProvider):
             self._client().models.list()
         except Exception:
             return False
-        if not self.autoload:
-            return True
-        return self._ensure_model()
+        if self.autoload:
+            return self._ensure_model()
+
+        # A reachable server is not a usable one: LM Studio happily answers
+        # /models with nothing loaded, and then every generate() dies with
+        # "No models loaded". Claiming available=True there is a false green
+        # that makes the AI features look silently broken, so verify a model
+        # can actually serve the request.
+        try:
+            models = self._downloaded_models()
+        except Exception:
+            return True  # not LM Studio (no /api/v0 endpoint) — trust the ping
+
+        chat = [m for m in models if m.get("type") in ("llm", "vlm")]
+        loaded = [m["id"] for m in chat if m.get("state") == "loaded"]
+        wanted = self.model if self.model != self.PLACEHOLDER_MODEL else ""
+
+        if wanted and not any(m.get("id") == wanted for m in chat):
+            known = ", ".join(m["id"] for m in chat[:4]) or "none"
+            print(f"  [llm] LLM_MODEL='{wanted}' is not downloaded in LM Studio "
+                  f"(downloaded: {known}...); fix LLM_MODEL or set LOCAL_LLM_AUTOLOAD=true")
+            return False
+        if not loaded:
+            print("  [llm] LM Studio is running but no model is loaded - load one "
+                  "in its UI, or set LOCAL_LLM_AUTOLOAD=true to load it automatically")
+            return False
+        if wanted and wanted not in loaded:
+            print(f"  [llm] LLM_MODEL='{wanted}' is downloaded but not loaded "
+                  f"(loaded: {', '.join(loaded)}); set LOCAL_LLM_AUTOLOAD=true")
+            return False
+        return True
 
     def generate(self, prompt, *, system=None, max_tokens=None, temperature=None):
         if self.autoload:

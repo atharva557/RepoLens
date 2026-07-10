@@ -34,7 +34,7 @@ from api.webhook import REVIEW_ACTIONS, review_pr_from_payload, verify_signature
 from config.settings import Settings
 from core.activity import build_activity
 from core.analysis import run_hotspot_analysis
-from core.db import open_store
+from core.db import open_store, report_age_hours
 from core.identity import open_identity
 from core.github_client import get_repo_meta
 from core.insights import run_repo_insights
@@ -417,12 +417,21 @@ def create_app(settings: Settings | None = None, store=None, identity=None) -> F
         # Building is the async trigger POST /profiles/{username} — a GET must
         # never block on a multi-minute live build (browsers/proxies time out),
         # and the dashboard already turns this 404 into that POST + job poll.
+        st = request.app.state
         try:
-            doc = request.app.state.store.load_report("developer_profile", username)
+            doc = st.store.load_report("developer_profile", username)
         except Exception as e:
             raise HTTPException(500, f"Database read failure: {e}")
         if doc is None:
             raise HTTPException(404, f"no profile for '{username}' — POST /profiles/{username} first")
+
+        # Freshness is computed on read, never stored — a persisted "stale"
+        # flag would itself go stale. Lets the UI offer "synced 3d ago — refresh"
+        # (POST /profiles/{username}) instead of silently showing old data.
+        age = report_age_hours(doc)
+        max_age = getattr(st.settings, "profile_cache_hours", 24)
+        doc["age_hours"] = round(age, 1) if age is not None else None
+        doc["stale"] = bool(age is not None and age > max_age)
         return doc
 
     # ------------------------------------------------- auth & account (v2)
