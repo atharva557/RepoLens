@@ -1,7 +1,6 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { getJSON, postJSON } from "../lib/api";
-
 
 function timeAgo(dateString) {
   if (!dateString) return "";
@@ -18,6 +17,8 @@ function timeAgo(dateString) {
   return `${Math.floor(hours / 24)}d ago`;
 }
 
+const PAGE_SIZE = 10;
+
 export default function BugHotspots() {
   const navigate = useNavigate();
   const repo = new URLSearchParams(window.location.search).get("repo");
@@ -30,6 +31,19 @@ export default function BugHotspots() {
   const [filterLevel, setFilterLevel] = useState("ALL");
   const [activity, setActivity] = useState(null);
   const [triggeringAnalyze, setTriggeringAnalyze] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageTransition, setPageTransition] = useState(false);
+  const asideRef = useRef(null);
+  const tableTopRef = useRef(null);
+
+  const handleRowClick = (row) => {
+    setSelectedRow(row);
+    if (window.innerWidth < 1024 && asideRef.current) {
+      setTimeout(() => {
+        asideRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
+      }, 50);
+    }
+  };
 
   const loadHotspots = useCallback(() => {
     setLoading(true);
@@ -53,12 +67,14 @@ export default function BugHotspots() {
   }, [repo]);
 
   useEffect(() => {
-    if (repo) {
-      loadHotspots();
-    } else {
-      setLoading(false);
-    }
+    if (repo) loadHotspots();
+    else setLoading(false);
   }, [loadHotspots, repo]);
+
+  // Reset to page 1 whenever search or filter changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [search, filterLevel]);
 
   const handleAnalyzeTrigger = async () => {
     setTriggeringAnalyze(true);
@@ -74,24 +90,20 @@ export default function BugHotspots() {
   if (!repo) {
     return (
       <div className="min-h-[calc(100vh-52px)] flex items-center justify-center bg-background text-on-surface p-6 relative overflow-hidden">
-        {/* Ambient background glow */}
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-primary/5 rounded-full blur-[100px] pointer-events-none"></div>
-
-        <div className="relative w-full max-w-[460px] h-auto p-10 rounded-3xl bg-surface-container-lowest/60 backdrop-blur-xl border border-outline-variant/40 shadow-2xl shadow-primary/10 transition-all duration-300 hover:scale-[1.02] hover:shadow-[0_0_60px_color-mix(in_srgb,var(--color-primary)_20%,transparent)] text-center flex flex-col items-center gap-6">
+        <div className="relative w-full max-w-[460px] h-auto p-10 rounded-3xl bg-surface-container-lowest/60 backdrop-blur-xl border border-outline-variant/40 shadow-2xl shadow-primary/10 transition-all duration-300 hover:scale-[1.02] text-center flex flex-col items-center gap-6">
           <div className="w-20 h-20 rounded-full bg-primary/10 flex items-center justify-center border border-primary/20 shadow-inner">
             <span className="material-symbols-outlined text-primary text-[40px]">link_off</span>
           </div>
-
           <div className="space-y-3">
             <h2 className="font-display-lg text-3xl text-on-surface font-bold tracking-tight">Missing Link</h2>
             <p className="text-sm text-on-surface-variant leading-relaxed px-2 font-body">
               We need a valid GitHub repository link to analyze the data. Please return to the home page to enter one.
             </p>
           </div>
-
           <Link
             to="/"
-            className="w-full bg-primary hover:bg-primary-container text-on-primary font-code font-bold py-3.5 rounded-xl transition-all duration-300 active:scale-95 text-center flex items-center justify-center gap-2 mt-2 shadow-lg shadow-primary/20 hover:shadow-primary/40"
+            className="w-full bg-primary hover:bg-primary-container text-on-primary font-code font-bold py-3.5 rounded-xl transition-all duration-300 active:scale-95 text-center flex items-center justify-center gap-2 mt-2 shadow-lg shadow-primary/20"
           >
             <span className="material-symbols-outlined text-[20px]">arrow_back</span>
             <span>Return Home</span>
@@ -114,7 +126,6 @@ export default function BugHotspots() {
     );
   }
 
-  // Handle 404 or Not Analyzed State
   if (error && (error.includes("404") || error.includes("not found") || error.includes("not analyzed"))) {
     return (
       <div className="min-h-[calc(100vh-52px)] flex items-center justify-center bg-[#000000] text-on-surface p-6">
@@ -138,7 +149,6 @@ export default function BugHotspots() {
     );
   }
 
-  // General error handler
   if (error) {
     return (
       <div className="min-h-[calc(100vh-52px)] flex items-center justify-center bg-[#000000] text-on-surface p-6">
@@ -146,10 +156,7 @@ export default function BugHotspots() {
           <span className="material-symbols-outlined text-error text-[54px]">warning</span>
           <h2 className="font-code text-heading-lg text-error font-bold">Error loading hotspots</h2>
           <p className="text-xs text-on-surface-variant leading-relaxed break-words">{error}</p>
-          <button
-            onClick={loadHotspots}
-            className="w-full bg-primary hover:opacity-90 text-on-primary font-code font-bold py-2 rounded-md"
-          >
+          <button onClick={loadHotspots} className="w-full bg-primary hover:opacity-90 text-on-primary font-code font-bold py-2 rounded-md">
             RETRY
           </button>
         </div>
@@ -159,41 +166,58 @@ export default function BugHotspots() {
 
   const rows = data.rows || [];
 
-  // Determine Risk Category client-side
   const getRiskCategory = (score) => {
     if (score >= 0.7) return { label: "Critical", color: "text-error border-error/20 bg-error/10", barColor: "bg-error" };
     if (score >= 0.4) return { label: "High", color: "text-tertiary border-tertiary/20 bg-tertiary/10", barColor: "bg-tertiary" };
     return { label: "Medium", color: "text-primary border-primary/20 bg-primary/10", barColor: "bg-primary" };
   };
 
-  // Client-side statistics
   const totalHighRisk = rows.filter((r) => r.score >= 0.7).length;
   const avgRiskScore = rows.length > 0 ? (rows.reduce((acc, r) => acc + r.score, 0) / rows.length) * 100 : 0;
-
-  // Check if any row has ML opinion
   const hasMLColumn = rows.some((r) => r.ml_prob !== undefined && r.ml_prob !== null);
 
-  // Search and Filter Rows
+  // All filtered rows (search + risk filter applied to full dataset)
   const filteredRows = rows.filter((r) => {
     const matchesSearch = r.path.toLowerCase().includes(search.toLowerCase());
-
     if (filterLevel === "ALL") return matchesSearch;
     const cat = getRiskCategory(r.score).label.toUpperCase();
     return matchesSearch && cat === filterLevel;
   });
 
-  // Check if a row has score / ml_prob disagreement
+  // Pagination derived values
+  const totalPages = Math.max(1, Math.ceil(filteredRows.length / PAGE_SIZE));
+  const safePage = Math.min(currentPage, totalPages);
+  const pageStart = (safePage - 1) * PAGE_SIZE;       // 0-based index into filteredRows
+  const pageEnd = pageStart + PAGE_SIZE;
+  const pageRows = filteredRows.slice(pageStart, pageEnd);
+
   const checkDisagreement = (row) => {
     if (row.ml_prob === undefined || row.ml_prob === null) return false;
-    // Disagreement if difference is > 0.4
     return Math.abs(row.score - row.ml_prob) > 0.4;
   };
+
+  // Animated page change
+  const goToPage = (next) => {
+    if (next < 1 || next > totalPages) return;
+    setPageTransition(true);
+    setTimeout(() => {
+      setCurrentPage(next);
+      setPageTransition(false);
+      // Scroll table back to top on page change
+      if (tableTopRef.current) {
+        tableTopRef.current.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      }
+    }, 120);
+  };
+
+  // Keep selectedRow in sync: if selected row is not on current page, keep it visible in the panel
+  // (do NOT deselect — requirement says "maintain selected file if it still exists")
 
   return (
     <div className="min-h-screen bg-[#000000] text-on-surface pb-12 font-body selection:bg-primary selection:text-on-primary">
       <main className="pt-8 px-margin-mobile md:px-margin-desktop grid grid-cols-12 gap-gutter max-w-[1920px] mx-auto space-y-6">
 
-        {/* Header Section */}
+        {/* Header */}
         <div className="col-span-12 space-y-2">
           <h1 className="font-headline-lg text-3xl font-bold bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent inline-block">
             Bug Hotspots
@@ -205,7 +229,7 @@ export default function BugHotspots() {
 
         {/* Key Risk Metrics */}
         <div className="col-span-12 grid grid-cols-1 sm:grid-cols-3 gap-gutter">
-          <div className="bg-[#111111] border border-[#222222] p-4 rounded-xl hover:border-[#333333] transition-all">
+          <div className="bg-[#111111] border border-[#3A322D] border-t-[#7A5A44] p-4 rounded-xl hover:border-[#333333] hover:border-t-[#7A5A44] transition-all">
             <p className="font-label-caps text-[10px] text-on-surface-variant uppercase tracking-widest">Total High Risk Files</p>
             <h2 className="font-display-lg text-4xl font-bold mt-2 text-error">{totalHighRisk}</h2>
             <div className="flex items-center gap-1 mt-2 text-error text-xs">
@@ -213,7 +237,7 @@ export default function BugHotspots() {
               <span>score threshold &gt;= 0.70</span>
             </div>
           </div>
-          <div className="bg-[#111111] border border-[#222222] p-4 rounded-xl hover:border-[#333333] transition-all">
+          <div className="bg-[#111111] border border-[#3A322D] border-t-[#7A5A44] p-4 rounded-xl hover:border-[#333333] hover:border-t-[#7A5A44] transition-all">
             <p className="font-label-caps text-[10px] text-on-surface-variant uppercase tracking-widest">Average Risk Score</p>
             <h2 className="font-display-lg text-4xl font-bold mt-2 text-on-surface">{avgRiskScore.toFixed(1)}</h2>
             <div className="flex items-center gap-1 mt-2 text-primary text-xs">
@@ -221,11 +245,9 @@ export default function BugHotspots() {
               <span>Across {rows.length} scored files</span>
             </div>
           </div>
-          <div className="bg-[#111111] border border-[#222222] p-4 rounded-xl hover:border-[#333333] transition-all">
+          <div className="bg-[#111111] border border-[#3A322D] border-t-[#7A5A44] p-4 rounded-xl hover:border-[#333333] hover:border-t-[#7A5A44] transition-all">
             <p className="font-label-caps text-[10px] text-on-surface-variant uppercase tracking-widest">Repository Analyzed</p>
-            <h2 className="font-display-lg text-2xl font-code truncate font-bold mt-3.5 text-secondary">
-              {repo}
-            </h2>
+            <h2 className="font-display-lg text-2xl font-code truncate font-bold mt-3.5 text-secondary">{repo}</h2>
             <div className="flex items-center gap-1 mt-2.5 text-on-surface-variant/60 text-xs">
               <span className="material-symbols-outlined text-xs">calendar_today</span>
               <span>Generated {timeAgo(data.generated_at)}</span>
@@ -233,12 +255,14 @@ export default function BugHotspots() {
           </div>
         </div>
 
-        {/* Main Content Split: Table and Detail Panel */}
+        {/* Main split: table + detail panel */}
         <div className="col-span-12 grid grid-cols-1 lg:grid-cols-12 gap-gutter items-start">
-          {/* Table Container */}
-          <div className="lg:col-span-8 bg-[#111111] border border-[#222222] rounded-xl overflow-hidden flex flex-col">
-            {/* Header filters */}
-            <div className="bg-[#050505] px-4 py-3 border-b border-[#222222] flex flex-col sm:flex-row justify-between items-center gap-3">
+
+          {/* ── Table ── */}
+          <div className="lg:col-span-8 bg-[#111111] border border-[#3A322D] border-t-[#7A5A44] rounded-xl overflow-hidden flex flex-col">
+
+            {/* Filters bar */}
+            <div ref={tableTopRef} className="bg-[#050505] px-4 py-3 border-b border-[#222222] flex flex-col sm:flex-row justify-between items-center gap-3">
               <div className="flex items-center gap-2">
                 <span className="w-2.5 h-2.5 rounded-full bg-primary"></span>
                 <span className="font-code text-xs text-on-surface-variant font-bold">hotspot_matrix.log</span>
@@ -267,7 +291,7 @@ export default function BugHotspots() {
               </div>
             </div>
 
-            {/* Scroller table */}
+            {/* Scrollable table */}
             <div className="overflow-x-auto">
               <table className="w-full text-left border-collapse">
                 <thead>
@@ -279,16 +303,23 @@ export default function BugHotspots() {
                     {hasMLColumn && <th className="px-4 py-3 w-32">ML Probability</th>}
                   </tr>
                 </thead>
-                <tbody className="text-xs font-code">
-                  {filteredRows.length === 0 ? (
+                <tbody
+                  className="text-xs font-code"
+                  style={{
+                    opacity: pageTransition ? 0 : 1,
+                    transition: "opacity 0.12s ease",
+                  }}
+                >
+                  {pageRows.length === 0 ? (
                     <tr>
                       <td colSpan={hasMLColumn ? 5 : 4} className="p-8 text-center text-on-surface-variant">
                         No hotspot items match active query criteria.
                       </td>
                     </tr>
                   ) : (
-                    filteredRows.map((row) => {
-                      const rank = rows.findIndex((r) => r.path === row.path) + 1;
+                    pageRows.map((row) => {
+                      // Global rank = position in the full (unfiltered) rows array
+                      const globalRank = rows.findIndex((r) => r.path === row.path) + 1;
                       const isSelected = selectedRow && selectedRow.path === row.path;
                       const risk = getRiskCategory(row.score);
                       const discrepancy = checkDisagreement(row);
@@ -296,20 +327,21 @@ export default function BugHotspots() {
                       return (
                         <tr
                           key={row.path}
-                          onClick={() => setSelectedRow(row)}
-                          className={`border-b border-[#222222]/40 hover:bg-white/[0.03] transition-colors cursor-pointer ${isSelected ? "bg-primary/[0.04] border-l-2 border-l-primary" : ""
+                          onClick={() => handleRowClick(row)}
+                          className={`border-b border-[#222222]/40 transition-all duration-200 cursor-pointer ${isSelected
+                            ? "bg-primary/[0.08] border-l-[3px] border-l-primary shadow-inner"
+                            : "hover:bg-white/[0.03] border-l-[3px] border-l-transparent"
                             }`}
                         >
                           <td className="px-4 py-3.5 text-on-surface-variant font-bold">
-                            {rank.toString().padStart(2, "0")}
+                            {/* Global numbering — continues across pages */}
+                            {globalRank.toString().padStart(2, "0")}
                           </td>
                           <td className="px-4 py-3.5 pr-2">
                             <div className="flex flex-col">
                               <span className="text-on-surface font-medium truncate max-w-xs md:max-w-md" title={row.path}>
                                 {row.path}
                               </span>
-
-                              {/* Component level mini-bars */}
                               {row.components && (
                                 <div className="flex items-center gap-1.5 mt-1 select-none">
                                   <div className="flex gap-0.5" title={`bug: ${row.components.bug?.toFixed(2)}, churn: ${row.components.churn?.toFixed(2)}, authors: ${row.components.authors?.toFixed(2)}, complexity: ${row.components.complexity?.toFixed(2)}`}>
@@ -358,26 +390,128 @@ export default function BugHotspots() {
               </table>
             </div>
 
-            {/* Table pagination footer */}
-            <div className="p-3 bg-[#0a0a0a] border-t border-[#222222] flex justify-between items-center text-[10px] font-code text-on-surface-variant select-none">
-              <span>Scored {filteredRows.length} files matching query</span>
-              <span className="uppercase">Heuristics active</span>
+            {/* ── Pagination footer ── */}
+            <div className="border-t border-[#222222] bg-[#0a0a0a]">
+              {/* Row count summary */}
+              <div className="px-4 pt-3 pb-1 flex justify-between items-center text-[10px] font-code text-on-surface-variant select-none">
+                <span>
+                  {filteredRows.length === 0
+                    ? "No results"
+                    : `Showing ${pageStart + 1}–${Math.min(pageEnd, filteredRows.length)} of ${filteredRows.length} hotspot${filteredRows.length !== 1 ? "s" : ""}`}
+                </span>
+                <span className="uppercase">Heuristics active</span>
+              </div>
+
+              {/* Pagination controls */}
+              {totalPages > 1 && (
+                <div className="px-4 pb-3 pt-2 flex items-center justify-between gap-3">
+                  {/* Previous */}
+                  <button
+                    onClick={() => goToPage(safePage - 1)}
+                    disabled={safePage <= 1}
+                    className={`
+                      flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-code text-[11px] font-bold
+                      border transition-all duration-150 select-none
+                      ${safePage <= 1
+                        ? "border-[#222222] text-on-surface-variant/30 cursor-not-allowed"
+                        : "border-[#333333] text-on-surface hover:bg-white/[0.05] hover:border-primary/40 active:scale-95 cursor-pointer"}
+                    `}
+                  >
+                    <span className="material-symbols-outlined text-[14px]">chevron_left</span>
+                    Previous
+                  </button>
+
+                  {/* Page pills */}
+                  <div className="flex items-center gap-1.5 font-code text-[11px] select-none">
+                    {/* Always show first page */}
+                    {safePage > 3 && (
+                      <>
+                        <button
+                          onClick={() => goToPage(1)}
+                          className="w-7 h-7 rounded-md border border-[#333333] text-on-surface-variant hover:border-primary/40 hover:text-on-surface transition-all text-[10px]"
+                        >
+                          1
+                        </button>
+                        {safePage > 4 && (
+                          <span className="text-on-surface-variant/40 px-1">…</span>
+                        )}
+                      </>
+                    )}
+
+                    {/* Window of pages around current */}
+                    {Array.from({ length: totalPages }, (_, i) => i + 1)
+                      .filter((p) => p >= safePage - 1 && p <= safePage + 1)
+                      .map((p) => (
+                        <button
+                          key={p}
+                          onClick={() => goToPage(p)}
+                          className={`
+                            w-7 h-7 rounded-md border text-[10px] font-bold transition-all active:scale-95
+                            ${p === safePage
+                              ? "bg-primary border-primary text-on-primary shadow-sm shadow-primary/30"
+                              : "border-[#333333] text-on-surface-variant hover:border-primary/40 hover:text-on-surface"}
+                          `}
+                        >
+                          {p}
+                        </button>
+                      ))}
+
+                    {/* Always show last page */}
+                    {safePage < totalPages - 2 && (
+                      <>
+                        {safePage < totalPages - 3 && (
+                          <span className="text-on-surface-variant/40 px-1">…</span>
+                        )}
+                        <button
+                          onClick={() => goToPage(totalPages)}
+                          className="w-7 h-7 rounded-md border border-[#333333] text-on-surface-variant hover:border-primary/40 hover:text-on-surface transition-all text-[10px]"
+                        >
+                          {totalPages}
+                        </button>
+                      </>
+                    )}
+                  </div>
+
+                  {/* Next */}
+                  <button
+                    onClick={() => goToPage(safePage + 1)}
+                    disabled={safePage >= totalPages}
+                    className={`
+                      flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-code text-[11px] font-bold
+                      border transition-all duration-150 select-none
+                      ${safePage >= totalPages
+                        ? "border-[#222222] text-on-surface-variant/30 cursor-not-allowed"
+                        : "border-[#333333] text-on-surface hover:bg-white/[0.05] hover:border-primary/40 active:scale-95 cursor-pointer"}
+                    `}
+                  >
+                    Next
+                    <span className="material-symbols-outlined text-[14px]">chevron_right</span>
+                  </button>
+                </div>
+              )}
+
+              {/* Single page: just show a minimal footer */}
+              {totalPages <= 1 && filteredRows.length > 0 && (
+                <div className="px-4 pb-3" />
+              )}
             </div>
           </div>
 
-          {/* Side Panel: File Insights (Deep Metrics) */}
-          <aside className="lg:col-span-4 h-full">
+          {/* ── Side Panel ── */}
+          <aside ref={asideRef} className="lg:col-span-4 lg:sticky lg:top-24 transition-all duration-300 self-start w-full">
             {selectedRow ? (
-              <div className="bg-[#111111] border border-[#222222] rounded-xl flex flex-col overflow-hidden">
-                <div className="bg-[#050505] px-4 py-3 border-b border-[#222222] flex items-center justify-between">
+              <div className="bg-[#111111] border border-[#3A322D] border-t-[#7A5A44] rounded-xl flex flex-col overflow-hidden max-h-[calc(100vh-120px)]">
+                <div className="bg-[#050505] px-4 py-3 border-b border-[#222222] flex items-center justify-between shrink-0">
                   <span className="font-code text-xs text-primary font-bold">Deep File Analysis</span>
-                  <span className="material-symbols-outlined text-on-surface-variant text-[16px] cursor-pointer hover:text-on-surface" onClick={() => setSelectedRow(null)}>
+                  <span
+                    className="material-symbols-outlined text-on-surface-variant text-[16px] cursor-pointer hover:text-on-surface"
+                    onClick={() => setSelectedRow(null)}
+                  >
                     close
                   </span>
                 </div>
 
-                <div className="p-4 space-y-6">
-                  {/* File Metadata */}
+                <div className="p-4 space-y-6 overflow-y-auto scrollbar-thin">
                   <div className="space-y-1">
                     <p className="font-code text-[9px] text-on-surface-variant uppercase tracking-wider font-bold">PATH</p>
                     <h4 className="font-code text-xs text-on-surface break-all bg-black/40 border border-[#222222] p-2.5 rounded-sm select-all">
@@ -385,21 +519,21 @@ export default function BugHotspots() {
                     </h4>
                   </div>
 
-                  {/* Quantitative metrics cards */}
                   <div className="grid grid-cols-2 gap-3">
-                    <div className="bg-[#181818] border border-[#222222] p-3 rounded-lg space-y-1">
+                    <div className="bg-[#181818] border border-[#3A322D] border-t-[#7A5A44] p-3 rounded-lg space-y-1">
                       <p className="text-[9px] font-code font-bold text-on-surface-variant uppercase">Complexity Code</p>
                       <p className="text-xl font-bold font-code text-on-surface">{selectedRow.raw.cyclomatic || selectedRow.raw.complexity || "N/A"}</p>
                       <p className="text-[9px] font-code text-on-surface-variant/50 leading-tight">Cyclomatic rating</p>
                     </div>
-                    <div className="bg-[#181818] border border-[#222222] p-3 rounded-lg space-y-1">
+                    <div className="bg-[#181818] border border-[#3A322D] border-t-[#7A5A44] p-3 rounded-lg space-y-1">
                       <p className="text-[9px] font-code font-bold text-on-surface-variant uppercase">Change Commits</p>
                       <p className="text-xl font-bold font-code text-on-surface">{selectedRow.raw.commits || "N/A"}</p>
-                      <p className="text-[9px] font-code text-on-surface-variant/50 leading-tight">{selectedRow.raw.churn_lines ? `${selectedRow.raw.churn_lines} lines churned` : "Historical frequency"}</p>
+                      <p className="text-[9px] font-code text-on-surface-variant/50 leading-tight">
+                        {selectedRow.raw.churn_lines ? `${selectedRow.raw.churn_lines} lines churned` : "Historical frequency"}
+                      </p>
                     </div>
                   </div>
 
-                  {/* Explanatory Reasons Block */}
                   {selectedRow.reasons && selectedRow.reasons.length > 0 && (
                     <div className="space-y-3">
                       <div className="flex items-center gap-1.5">
@@ -416,7 +550,6 @@ export default function BugHotspots() {
                     </div>
                   )}
 
-                  {/* Recent Activity Context list */}
                   {activity && activity.recent_commits && (
                     <div className="space-y-3 font-code">
                       <span className="text-[9px] text-on-surface-variant uppercase font-bold tracking-wider block">RECENT RISKY CHANGES IN REPO</span>
@@ -425,7 +558,9 @@ export default function BugHotspots() {
                           <div key={c.sha} className="py-2 text-[10px] leading-tight space-y-0.5">
                             <div className="flex justify-between items-start gap-1">
                               <span className="text-on-surface font-medium truncate">{c.subject}</span>
-                              {c.is_bugfix && <span className="text-error font-bold shrink-0 text-[8px] border border-error/30 px-1 rounded-sm">FIX</span>}
+                              {c.is_bugfix && (
+                                <span className="text-error font-bold shrink-0 text-[8px] border border-error/30 px-1 rounded-sm">FIX</span>
+                              )}
                             </div>
                             <div className="text-[9px] text-on-surface-variant/40 flex justify-between">
                               <span>author: {c.author}</span>
@@ -439,7 +574,7 @@ export default function BugHotspots() {
                 </div>
               </div>
             ) : (
-              <div className="bg-[#111111] border border-[#222222] rounded-xl p-8 text-center space-y-3">
+              <div className="bg-[#111111] border border-[#3A322D] border-t-[#7A5A44] rounded-xl p-8 text-center space-y-3">
                 <span className="material-symbols-outlined text-on-surface-variant opacity-30 text-[48px]">input</span>
                 <p className="text-xs text-on-surface-variant font-code leading-relaxed">
                   Select a hotspot file row in the matrix list to profile structural code complexity metrics and reasons.

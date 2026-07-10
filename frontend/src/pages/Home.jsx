@@ -68,7 +68,6 @@ export default function Home() {
         refresh: false,
         top: 15,
       });
-      // Navigate to loading page
       navigate(`/loading?job=${res.job_id}&repo=${repoKey}&next=/dashboard`);
     } catch (e) {
       setError(String(e));
@@ -95,66 +94,205 @@ export default function Home() {
   }
 
   return (
-    <div className="min-h-[calc(100vh-52px)] bg-background text-on-surface flex flex-col justify-between">
-      <main className="flex-grow flex flex-col items-center px-gutter pt-16 pb-16">
-        <div className="w-full max-w-[760px] space-y-16">
-          
-          {/* Input Section */}
-          <div className="w-full">
-            <form onSubmit={handleFormSubmit} className="relative group">
-              <div className="absolute -inset-1 bg-primary/10 blur opacity-0 group-focus-within:opacity-100 transition duration-500 rounded-sm"></div>
-              <div className="relative flex items-center bg-surface-container-lowest border border-outline-variant rounded-sm overflow-hidden focus-within:border-primary transition-colors">
-                <div className="pl-4 pr-3 text-on-surface-variant flex items-center">
-                  <span className="material-symbols-outlined text-[20px]">content_paste</span>
-                </div>
-                <input
-                  type="text"
-                  value={url}
-                  onChange={(e) => setUrl(e.target.value)}
-                  disabled={submitting}
-                  className="w-full bg-transparent border-none text-on-surface font-code text-[14px] py-4 focus:ring-0 focus:outline-none placeholder:text-surface-container-highest placeholder:opacity-50"
-                  placeholder="https://github.com/owner/repository or local path"
-                />
-                <button
-                  type="submit"
-                  disabled={submitting || !url.trim()}
-                  className="bg-primary hover:bg-primary-container text-on-primary font-bold text-[14px] px-8 py-4 flex items-center gap-2 transition-all active:scale-[0.98] whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <span>{submitting ? "Analyzing..." : "Analyze"}</span>
-                  <span className="material-symbols-outlined text-[18px]">arrow_forward</span>
-                </button>
-              </div>
-            </form>
+    <div
+      className="min-h-[calc(100vh-52px)] flex flex-col justify-between"
+      style={{ backgroundColor: "#141414" }}
+    >
+      <main className="flex-grow flex flex-col items-center pt-[80px] pb-[80px] px-4 w-full">
 
-            {error && (
-              <div className="mt-4 p-3 bg-error-container/20 border border-error-container/50 text-error rounded-sm font-code text-xs flex items-start gap-2 shadow-sm">
-                <span className="material-symbols-outlined text-sm mt-0.5">error</span>
-                <span>{error}</span>
-              </div>
-            )}
+        {/* ── Hero ── */}
+        <div className="text-center flex flex-col items-center w-full">
+          <h1
+            style={{
+              color: "#D4855A",
+              fontSize: "72px",
+              fontWeight: "bold",
+              letterSpacing: "-1px",
+              lineHeight: 1,
+            }}
+          >
+            RepoLens
+          </h1>
+          <p
+            style={{
+              color: "rgba(255,255,255,0.55)",
+              fontSize: "16px",
+              maxWidth: "480px",
+              margin: "24px auto 0",
+              lineHeight: 1.75,
+            }}
+          >
+            Analyze repositories instantly. Understand codebases, find
+            hotspots, and evaluate commit quality at a glance.
+          </p>
+        </div>
+
+        {/* ── Repository Input Spotlight ── */}
+        <div className="mt-[64px] w-full max-w-[640px] flex flex-col items-center">
+
+          {/* Decorative label row — gradient lines + icon + all-caps label */}
+          <div className="flex items-center w-full mb-[16px]">
+            <div
+              className="flex-grow h-[1px]"
+              style={{
+                background:
+                  "linear-gradient(to right, transparent, rgba(212,133,90,0.55))",
+              }}
+            />
+            <div
+              className="flex items-center gap-[8px] px-[14px]"
+              style={{ color: "#D4855A", flexShrink: 0 }}
+            >
+              <span
+                style={{
+                  fontSize: "11px",
+                  textTransform: "uppercase",
+                  letterSpacing: "0.16em",
+                  fontWeight: "bold",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                Enter GitHub Repository Link
+              </span>
+            </div>
+            <div
+              className="flex-grow h-[1px]"
+              style={{
+                background:
+                  "linear-gradient(to left, transparent, rgba(212,133,90,0.55))",
+              }}
+            />
           </div>
 
-          {/* Recent Analysis Centered Section */}
-          <div className="flex flex-col items-center w-full">
-            {/* Section Header */}
-            <div className="flex items-center w-full justify-center mb-6 opacity-90">
-              <div className="h-[1px] w-full max-w-[140px] bg-primary/40"></div>
-              <div className="w-1.5 h-1.5 rounded-full bg-primary/80 mx-3 shadow-[0_0_8px_var(--color-primary)]"></div>
-              <h2 className="font-display text-[18px] md:text-[20px] text-primary font-semibold tracking-wide whitespace-nowrap px-2">Recent Analysis</h2>
-              <div className="w-1.5 h-1.5 rounded-full bg-primary/80 mx-3 shadow-[0_0_8px_var(--color-primary)]"></div>
-              <div className="h-[1px] w-full max-w-[140px] bg-primary/40"></div>
+          {/* Input form */}
+          <form onSubmit={handleFormSubmit} className="w-full relative">
+            <div
+              className="flex items-center w-full rounded-[4px] overflow-hidden transition-shadow"
+              style={{
+                border: "1.5px solid rgba(212,133,90,0.75)",
+                backgroundColor: "rgba(212,133,90,0.04)",
+                boxShadow: "0 0 20px rgba(212,133,90,0.12)",
+              }}
+            >
+              <div
+                className="pl-[16px] pr-[8px] flex items-center"
+                style={{ color: "rgba(255,255,255,0.3)" }}
+              >
+                <span className="material-symbols-outlined text-[20px]">
+                  content_paste
+                </span>
+              </div>
+
+              <input
+                type="text"
+                value={url}
+                onChange={(e) => setUrl(e.target.value)}
+                disabled={submitting}
+                className="flex-grow bg-transparent border-none py-[16px] px-[8px] focus:outline-none focus:ring-0 placeholder:text-[rgba(255,255,255,0.28)]"
+                style={{
+                  color: "rgba(255,255,255,0.85)",
+                  fontFamily: "monospace",
+                  fontSize: "14px",
+                }}
+                placeholder="https://github.com/owner/repository"
+              />
+
+              <button
+                type="submit"
+                disabled={submitting || !url.trim()}
+                className="px-[24px] py-[16px] flex items-center gap-[8px] transition-all disabled:opacity-50 disabled:cursor-not-allowed hover:opacity-90"
+                style={{
+                  backgroundColor: "#D4855A",
+                  color: "#141414",
+                  fontWeight: "bold",
+                  fontSize: "14px",
+                  flexShrink: 0,
+                }}
+              >
+                <span>{submitting ? "Analyzing..." : "Analyze"}</span>
+                <span className="material-symbols-outlined text-[16px]">
+                  arrow_forward
+                </span>
+              </button>
             </div>
 
-            {/* Cards Container */}
-            <div className="w-full">
-              {repos.length === 0 ? (
-                <div className="p-10 bg-surface-container-lowest border border-outline-variant/50 rounded-lg text-center">
-                  <span className="material-symbols-outlined text-[48px] text-surface-container-highest mb-4 block">history</span>
-                  <p className="text-on-surface-variant font-code text-sm">No repositories analyzed yet.</p>
-                </div>
-              ) : (
-                <div className="w-full bg-surface-container-lowest/30 backdrop-blur-sm border border-outline-variant/40 rounded-lg overflow-hidden flex flex-col divide-y divide-outline-variant/40 max-h-[500px] overflow-y-auto scrollbar-thin">
-                  {repos.map((r) => {
+            {error && (
+              <div className="absolute top-full mt-[8px] w-full text-center text-red-400 text-[12px]">
+                {error}
+              </div>
+            )}
+          </form>
+        </div>
+
+        {/* ── Recent Analysis ── */}
+        <div className="mt-[64px] w-full max-w-[640px] flex flex-col items-center">
+
+          {/* Section heading — faint gradient lines + amber dots + amber title */}
+          <div className="flex items-center w-full mb-[24px]">
+            <div
+              className="flex-grow h-[1px]"
+              style={{
+                background:
+                  "linear-gradient(to right, transparent, rgba(212,133,90,0.3))",
+              }}
+            />
+            <div
+              className="w-[5px] h-[5px] rounded-full mx-[12px] flex-shrink-0"
+              style={{ backgroundColor: "#D4855A" }}
+            />
+            <h2
+              style={{
+                color: "#D4855A",
+                fontSize: "16px",
+                fontWeight: "bold",
+                whiteSpace: "nowrap",
+              }}
+            >
+              Recent Analysis
+            </h2>
+            <div
+              className="w-[5px] h-[5px] rounded-full mx-[12px] flex-shrink-0"
+              style={{ backgroundColor: "#D4855A" }}
+            />
+            <div
+              className="flex-grow h-[1px]"
+              style={{
+                background:
+                  "linear-gradient(to left, transparent, rgba(212,133,90,0.3))",
+              }}
+            />
+          </div>
+
+          {/* Repo list */}
+          <div
+            className="w-full relative overflow-hidden"
+            style={{
+              border: "1px solid rgba(255,255,255,0.07)",
+              borderRadius: "8px",
+              backgroundColor: "transparent",
+            }}
+          >
+            {repos.length === 0 ? (
+              <div
+                className="p-[32px] text-center"
+                style={{ color: "rgba(255,255,255,0.35)", fontSize: "14px" }}
+              >
+                No repositories analyzed yet.
+              </div>
+            ) : (
+              <div
+                className="flex flex-col w-full overflow-y-auto"
+                style={{
+                  maxHeight: "228px",
+                  scrollbarWidth: "none",
+                  msOverflowStyle: "none",
+                }}
+              >
+                <style>{`
+                  .hide-scroll::-webkit-scrollbar { display: none; }
+                `}</style>
+                <div className="flex flex-col w-full hide-scroll">
+                  {repos.map((r, i) => {
                     const hotspotTime = r.hotspots?.generated_at || null;
                     const qualityTime = r.commit_quality?.generated_at || null;
                     const lastActive = hotspotTime || qualityTime;
@@ -167,27 +305,78 @@ export default function Home() {
                           e.preventDefault();
                           navigate(`/dashboard?repo=${r.repo}`);
                         }}
-                        className="group flex flex-col sm:flex-row sm:items-center justify-between p-4 sm:p-5 hover:bg-surface-container-high transition-colors duration-200 cursor-pointer"
+                        className="flex items-center justify-between p-[16px] cursor-pointer hover:bg-white/5 transition-colors flex-shrink-0"
+                        style={{
+                          borderBottom:
+                            i !== repos.length - 1
+                              ? "1px solid rgba(255,255,255,0.06)"
+                              : "none",
+                          height: "76px",
+                        }}
                       >
-                        <div className="flex flex-col gap-1.5">
-                          <span className="font-code text-[15px] text-on-surface font-semibold tracking-tight group-hover:text-primary transition-colors">
+                        <div className="flex flex-col gap-[4px]">
+                          <span
+                            style={{
+                              color: "rgba(255,255,255,0.85)",
+                              fontFamily: "monospace",
+                              fontWeight: "bold",
+                              fontSize: "14px",
+                            }}
+                          >
                             {r.repo}
                           </span>
-                          <div className="flex flex-wrap items-center gap-2 text-[12px] text-on-surface-variant font-code">
-                            <span>{r.commits} commits</span>
+                          <div className="flex items-center gap-[8px]">
+                            <span
+                              style={{
+                                color: "rgba(255,255,255,0.35)",
+                                fontSize: "12px",
+                              }}
+                            >
+                              {r.commits} commits
+                            </span>
                             {(r.hotspots || r.commit_quality) && (
-                              <div className="flex items-center gap-2">
-                                {r.hotspots && <span className="flex items-center gap-1.5 text-primary/80"><span className="w-1 h-1 rounded-full bg-primary/80"></span>hotspots</span>}
-                                {r.commit_quality && <span className="flex items-center gap-1.5 text-tertiary/80"><span className="w-1 h-1 rounded-full bg-tertiary/80"></span>quality</span>}
+                              <div className="flex items-center gap-[8px]">
+                                {r.hotspots && (
+                                  <span
+                                    style={{
+                                      color: "#D4855A",
+                                      fontSize: "12px",
+                                    }}
+                                  >
+                                    • hotspots
+                                  </span>
+                                )}
+                                {r.commit_quality && (
+                                  <span
+                                    style={{
+                                      color: "#D4855A",
+                                      fontSize: "12px",
+                                    }}
+                                  >
+                                    • quality
+                                  </span>
+                                )}
                               </div>
                             )}
                           </div>
                         </div>
-                        <div className="flex items-center justify-between sm:justify-end gap-5 mt-4 sm:mt-0">
-                          <span className="font-code text-[12px] text-on-surface-variant/80">
+
+                        <div className="flex flex-col items-end gap-[4px]">
+                          <span
+                            style={{
+                              color: "rgba(255,255,255,0.3)",
+                              fontSize: "11px",
+                            }}
+                          >
                             {lastActive ? timeAgo(lastActive) : "analyzed"}
                           </span>
-                          <span className="material-symbols-outlined text-on-surface-variant group-hover:text-primary transition-colors duration-200 text-[20px]">
+                          <span
+                            className="material-symbols-outlined"
+                            style={{
+                              color: "rgba(255,255,255,0.3)",
+                              fontSize: "16px",
+                            }}
+                          >
                             arrow_forward
                           </span>
                         </div>
@@ -195,18 +384,44 @@ export default function Home() {
                     );
                   })}
                 </div>
-              )}
-            </div>
+              </div>
+            )}
+
+            {repos.length > 3 && (
+              <div
+                className="absolute bottom-0 left-0 w-full h-[48px] pointer-events-none"
+                style={{
+                  background:
+                    "linear-gradient(to bottom, transparent, #141414)",
+                  borderBottomLeftRadius: "8px",
+                  borderBottomRightRadius: "8px",
+                }}
+              />
+            )}
           </div>
         </div>
       </main>
 
-      {/* Footer */}
-      <footer className="h-[40px] border-t border-outline-variant bg-surface flex items-center px-gutter overflow-hidden">
-        <div className="max-w-container-max mx-auto w-full flex justify-between font-code text-[10px] text-on-surface-variant uppercase tracking-tighter">
+      {/* ── Footer (unchanged) ── */}
+      <footer
+        className="h-[40px] border-t border-outline-variant flex items-center px-4 overflow-hidden"
+        style={{
+          backgroundColor: "#141414",
+          borderColor: "rgba(255,255,255,0.07)",
+        }}
+      >
+        <div
+          className="max-w-[640px] mx-auto w-full flex justify-between font-code text-[10px] uppercase tracking-tighter"
+          style={{ color: "rgba(255,255,255,0.35)" }}
+        >
           <div className="flex items-center gap-4">
             <span className="flex items-center gap-1.5">
-              <span className={`w-2 h-2 rounded-full ${health?.status === "ok" ? "bg-green-500 animate-pulse" : "bg-red-500"}`}></span>
+              <span
+                className={`w-2 h-2 rounded-full ${health?.status === "ok"
+                  ? "bg-green-500 animate-pulse"
+                  : "bg-red-500"
+                  }`}
+              />
               {health?.status === "ok" ? "SYSTEM_READY" : "SYSTEM_OFFLINE"}
             </span>
             <span className="hidden sm:inline">
@@ -214,7 +429,9 @@ export default function Home() {
             </span>
           </div>
           <div className="flex items-center gap-4">
-            <span className="hidden md:inline">API VERSION: {health?.version || "0.4"}</span>
+            <span className="hidden md:inline">
+              API VERSION: {health?.version || "0.4"}
+            </span>
             <span>Uptime: 99.99%</span>
           </div>
         </div>

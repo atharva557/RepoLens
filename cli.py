@@ -356,7 +356,7 @@ def run_commit_quality(repo: str, env: str = ".env", top: int = 15,
 
     settings = Settings.load(env)
     store = open_store_announced(settings)
-    report = run_commit_qual5ity_report(
+    report = run_commit_quality_report(
         repo, settings, store,
         max_commits=max_commits or None, suggest=suggest, top=top,
     )

@@ -11,7 +11,24 @@ function formatNumber(num) {
 
 export default function DeveloperProfile() {
   const navigate = useNavigate();
-  const user = new URLSearchParams(window.location.search).get("user");
+  const searchParams = new URLSearchParams(window.location.search);
+  const repoParam = searchParams.get("repo");
+  let userParam = searchParams.get("user");
+
+  if (!userParam && repoParam) {
+    let cleaned = repoParam.trim();
+    if (cleaned.includes("github.com/")) {
+      const parts = cleaned.split("github.com/");
+      if (parts.length > 1) {
+        const pathParts = parts[1].split("/");
+        if (pathParts.length >= 1) userParam = pathParts[0];
+      }
+    } else {
+      const parts = cleaned.split("/");
+      if (parts.length > 0) userParam = parts[0];
+    }
+  }
+  const user = userParam;
 
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
@@ -19,6 +36,7 @@ export default function DeveloperProfile() {
   const [triggeringBuild, setTriggeringBuild] = useState(false);
   const [tokenError, setTokenError] = useState(false);
   const [gaugeAnimated, setGaugeAnimated] = useState(false);
+  const [selectedYear, setSelectedYear] = useState(() => new Date().getFullYear());
 
   const loadProfile = useCallback(() => {
     setLoading(true);
@@ -61,6 +79,17 @@ export default function DeveloperProfile() {
     }
   }, [loadProfile, user]);
 
+  useEffect(() => {
+    if (data?.heatmap && data.heatmap.length > 0) {
+      const years = data.heatmap
+        .map(h => parseInt(h.date.split("-")[0], 10))
+        .filter(yr => !isNaN(yr));
+      if (years.length > 0) {
+        setSelectedYear(Math.max(...years));
+      }
+    }
+  }, [data]);
+
   const handleBuildProfile = async () => {
     setTriggeringBuild(true);
     setTokenError(false);
@@ -87,14 +116,14 @@ export default function DeveloperProfile() {
           <div className="w-20 h-20 rounded-full bg-primary/10 flex items-center justify-center border border-primary/20 shadow-inner">
             <span className="material-symbols-outlined text-primary text-[40px]">link_off</span>
           </div>
-          
+
           <div className="space-y-3">
             <h2 className="font-display-lg text-3xl text-on-surface font-bold tracking-tight">Missing Link</h2>
             <p className="text-sm text-on-surface-variant leading-relaxed px-2 font-body">
               We need a valid GitHub username to analyze the profile. Please return to the home page to enter one.
             </p>
           </div>
-          
+
           <Link
             to="/"
             className="w-full bg-primary hover:bg-primary-container text-on-primary font-code font-bold py-3.5 rounded-xl transition-all duration-300 active:scale-95 text-center flex items-center justify-center gap-2 mt-2 shadow-lg shadow-primary/20 hover:shadow-primary/40"
@@ -180,9 +209,23 @@ export default function DeveloperProfile() {
   const lquality = data.commit_message_quality || 0;
   const lqualityPct = Math.round(lquality * 10);
 
+  const availableYears = (() => {
+    const heatmapData = data?.heatmap || [];
+    const yearsSet = new Set();
+    heatmapData.forEach(h => {
+      if (h.date) {
+        const yr = parseInt(h.date.split("-")[0], 10);
+        if (!isNaN(yr)) yearsSet.add(yr);
+      }
+    });
+    yearsSet.add(new Date().getFullYear());
+    return Array.from(yearsSet).sort((a, b) => b - a);
+  })();
+
+  const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
   // Heatmap generation
   const generateHeatmapGrid = () => {
-    const today = new Date();
     const cells = [];
     const heatmapLookup = {};
     if (data.heatmap) {
@@ -190,21 +233,83 @@ export default function DeveloperProfile() {
         heatmapLookup[h.date] = h.count;
       });
     }
-    const startDate = new Date();
-    startDate.setDate(today.getDate() - 364);
-    const dayOfWeek = startDate.getDay();
-    startDate.setDate(startDate.getDate() - dayOfWeek);
 
-    for (let i = 0; i < 52 * 7; i++) {
-      const d = new Date(startDate);
-      d.setDate(startDate.getDate() + i);
-      const dateStr = d.toISOString().split("T")[0];
-      const count = heatmapLookup[dateStr] || 0;
-      cells.push({ date: dateStr, count });
+    const jan1 = new Date(Date.UTC(selectedYear, 0, 1));
+    const startPadding = jan1.getUTCDay();
+
+    // Start padding
+    for (let i = 0; i < startPadding; i++) {
+      cells.push({
+        isPadding: true,
+        row: i,
+        column: 0
+      });
     }
+
+    // Days of the year
+    let current = new Date(Date.UTC(selectedYear, 0, 1));
+    while (current.getUTCFullYear() === selectedYear) {
+      const dateStr = current.toISOString().split("T")[0];
+      const count = heatmapLookup[dateStr] || 0;
+      const dayOfWeek = current.getUTCDay();
+      const cellIndex = cells.length;
+      const col = Math.floor(cellIndex / 7);
+
+      cells.push({
+        date: dateStr,
+        count,
+        dayOfWeek,
+        row: dayOfWeek,
+        column: col,
+        isPadding: false,
+        title: `${dateStr} (${WEEKDAYS[dayOfWeek]}): ${count} commit${count === 1 ? "" : "s"}`
+      });
+
+      current.setUTCDate(current.getUTCDate() + 1);
+    }
+
+    // End padding
+    const lastCell = cells[cells.length - 1];
+    const lastDayOfWeek = lastCell ? lastCell.dayOfWeek : 6;
+    const endPadding = 6 - lastDayOfWeek;
+    for (let i = 0; i < endPadding; i++) {
+      const cellIndex = cells.length;
+      const col = Math.floor(cellIndex / 7);
+      cells.push({
+        isPadding: true,
+        row: (lastDayOfWeek + 1 + i) % 7,
+        column: col
+      });
+    }
+
     return cells;
   };
+
   const heatmapCells = generateHeatmapGrid();
+  const totalColumns = Math.ceil(heatmapCells.length / 7);
+
+  const getMonthLabels = (cellsList) => {
+    const labels = [];
+    let lastMonth = -1;
+    let lastColIndex = -3;
+    cellsList.forEach((cell, idx) => {
+      if (!cell.isPadding) {
+        const month = parseInt(cell.date.split("-")[1], 10) - 1;
+        if (month !== lastMonth) {
+          const colIndex = Math.floor(idx / 7);
+          if (colIndex - lastColIndex >= 2) {
+            const monthName = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][month];
+            labels.push({ text: monthName, colIndex });
+            lastColIndex = colIndex;
+          }
+          lastMonth = month;
+        }
+      }
+    });
+    return labels;
+  };
+
+  const monthLabels = getMonthLabels(heatmapCells);
 
   const getHeatmapColor = (count) => {
     if (count === 0) return "bg-[#111111]";
@@ -232,9 +337,9 @@ export default function DeveloperProfile() {
         <div className="flex items-center gap-lg">
           <span className="font-display-lg text-display-lg font-bold bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent">RepoLens</span>
           <div className="hidden md:flex gap-md items-center">
-            <a className="font-body-lg text-body-lg text-on-surface-variant font-medium hover:text-primary transition-colors duration-200" href="/dashboard">Dashboard</a>
-            <a className="font-body-lg text-body-lg text-on-surface-variant font-medium hover:text-primary transition-colors duration-200" href="/hotspots">Bug Hotspots</a>
-            <a className="font-body-lg text-body-lg text-primary font-bold border-b-2 border-primary pb-1" href="/profile">Developer Profile</a>
+            <Link className="font-body-lg text-body-lg text-on-surface-variant font-medium hover:text-primary transition-colors duration-200" to={`/dashboard${repoParam ? `?repo=${repoParam}` : ''}`}>Dashboard</Link>
+            <Link className="font-body-lg text-body-lg text-on-surface-variant font-medium hover:text-primary transition-colors duration-200" to={`/hotspots${repoParam ? `?repo=${repoParam}` : ''}`}>Bug Hotspots</Link>
+            <Link className="font-body-lg text-body-lg text-primary font-bold border-b-2 border-primary pb-1" to={`/profile${repoParam ? `?repo=${repoParam}` : ''}`}>Developer Profile</Link>
           </div>
         </div>
         <div className="flex items-center gap-md">
@@ -270,13 +375,13 @@ export default function DeveloperProfile() {
 
           <div className="flex-grow text-center md:text-left">
             <div className="flex flex-col md:flex-row md:items-end gap-sm mb-xs">
-              <h1 className="font-display-lg text-display-lg leading-none">{social.name || data.username}</h1>
+              <h1 className="font-display-lg text-display-lg leading-none">Developer Profile: @{user}</h1>
               <span className="px-3 py-1 rounded-full bg-secondary/10 border border-secondary/20 text-secondary font-label-caps uppercase">
-                {data.primary_type || "Feature Builder"}
+                {data.primary_type || "Not Available"}
               </span>
             </div>
             <p className="font-body-lg text-on-surface-variant mb-md max-w-2xl">
-              {social.bio || `${social.name || data.username} is an elite contributor profiled on RepoLens. Analyzing obsidian-grade software systems and high-density technical solutions.`}
+              {social.bio || `${user} is an elite contributor profiled on RepoLens. Analyzing obsidian-grade software systems and high-density technical solutions.`}
             </p>
             <div className="flex flex-wrap justify-center md:justify-start gap-lg">
               <div className="flex flex-col">
@@ -351,14 +456,74 @@ export default function DeveloperProfile() {
               <span className="font-code-sm text-on-surface-variant">contribution_matrix.sh</span>
             </div>
             <div className="p-md">
-              <h3 className="font-headline-md text-headline-md mb-md">Annual Velocity</h3>
-              <div className="flex flex-wrap gap-1 overflow-x-auto pb-4">
-                <div className="grid grid-flow-col grid-rows-7 gap-1">
-                  {heatmapCells.map((cell, idx) => (
-                    <div key={idx} title={`${cell.date}: ${cell.count}`} className={`contribution-cell ${getHeatmapColor(cell.count)}`}></div>
-                  ))}
+              <div className="flex justify-between items-center mb-md">
+                <h3 className="font-headline-md text-headline-md">Annual Velocity</h3>
+                {availableYears.length > 0 && (
+                  <select
+                    value={selectedYear}
+                    onChange={(e) => setSelectedYear(parseInt(e.target.value, 10))}
+                    className="bg-[#111111] border border-outline-variant/30 text-on-surface text-xs font-code rounded px-2 py-0.5 outline-none cursor-pointer focus:ring-1 focus:ring-primary"
+                  >
+                    {availableYears.map((yr) => (
+                      <option key={yr} value={yr}>
+                        {yr}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
+
+              <div className="flex flex-col overflow-x-auto pb-4">
+                {/* Month labels */}
+                <div className="flex gap-2 mb-1.5 min-w-[700px]">
+                  <div className="w-[20px] shrink-0"></div>
+                  <div className="flex-grow grid grid-flow-col gap-1 text-[8px] text-on-surface-variant/70 font-code select-none">
+                    {Array.from({ length: totalColumns }).map((_, colIdx) => {
+                      const label = monthLabels.find(l => l.colIndex === colIdx);
+                      return (
+                        <span key={colIdx} className="w-[12px] overflow-visible whitespace-nowrap text-left leading-none">
+                          {label ? label.text : ""}
+                        </span>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="flex gap-2 min-w-[700px]">
+                  {/* Days of week labels */}
+                  <div className="w-[20px] grid grid-rows-7 gap-1 text-[8px] text-on-surface-variant/70 font-code select-none h-[108px] items-center text-right pr-1 shrink-0">
+                    <span className="leading-none">Sun</span>
+                    <span className="leading-none">Mon</span>
+                    <span className="leading-none">Tue</span>
+                    <span className="leading-none">Wed</span>
+                    <span className="leading-none">Thu</span>
+                    <span className="leading-none">Fri</span>
+                    <span className="leading-none">Sat</span>
+                  </div>
+
+                  {/* Grid */}
+                  <div className="flex-grow grid grid-flow-col grid-rows-7 gap-1 h-[108px]">
+                    {heatmapCells.map((cell, idx) => {
+                      if (cell.isPadding) {
+                        return (
+                          <div
+                            key={idx}
+                            className="w-[12px] h-[12px] opacity-0 pointer-events-none"
+                          ></div>
+                        );
+                      }
+                      return (
+                        <div
+                          key={idx}
+                          title={cell.title}
+                          className={`contribution-cell ${getHeatmapColor(cell.count)} transition-all duration-200 hover:ring-2 hover:ring-primary/60 cursor-crosshair`}
+                        ></div>
+                      );
+                    })}
+                  </div>
                 </div>
               </div>
+
               <div className="flex justify-between items-center mt-sm text-on-surface-variant font-label-caps">
                 <span>Less Activity</span>
                 <div className="flex gap-1">

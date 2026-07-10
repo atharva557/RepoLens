@@ -20,8 +20,7 @@ def _commit_quality(commits: list[dict]) -> float:
 
 
 def _daily_heatmap(commits: list[dict], days: int = 365) -> list[dict]:
-    """Per-day commit counts over the last `days` — the profile heatmap."""
-    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    """Per-day commit counts over all history — the profile heatmap."""
     daily: Counter = Counter()
     for c in commits:
         dt = c.get("date")
@@ -29,8 +28,7 @@ def _daily_heatmap(commits: list[dict], days: int = 365) -> list[dict]:
             continue
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=timezone.utc)
-        if dt >= cutoff:
-            daily[dt.date().isoformat()] += 1
+        daily[dt.date().isoformat()] += 1
     return [{"date": d, "count": n} for d, n in sorted(daily.items())]
 
 

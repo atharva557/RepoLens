@@ -40,10 +40,10 @@ def build_activity(commits: list[dict], *, days: int = 365, recent: int = 15,
         if dt is None:
             continue
         dated.append((dt, c))
+        daily[dt.date().isoformat()] += 1
         if dt >= cutoff:
             window_total += 1
             window_bugfix += 1 if c.get("is_bugfix") else 0
-            daily[dt.date().isoformat()] += 1
 
     dated.sort(key=lambda t: t[0], reverse=True)
     recent_commits = [{

@@ -11,7 +11,6 @@ export default function Navbar() {
   const [showSettings, setShowSettings] = useState(false);
 
   const path = location.pathname;
-  const isIndigo = path === "/profile";
 
   // Build query string helper
   const getQueryString = (params) => {
@@ -46,15 +45,9 @@ export default function Navbar() {
   ];
 
   // Theme styling declarations
-  const headerBg = isIndigo 
-    ? "bg-[#1a1a1a]/80 border-[rgba(255,255,255,0.05)]" 
-    : "bg-surface border-outline-variant";
-
-  const brandText = isIndigo
-    ? "bg-gradient-to-r from-[#c0c1ff] to-[#ddb7ff] bg-clip-text text-transparent"
-    : "text-primary";
-
-  const brandIcon = isIndigo ? "lens_blur" : "analytics";
+  const headerBg = "bg-surface border-outline-variant";
+  const brandText = "text-primary";
+  const brandIcon = "analytics";
 
   return (
     <header className={`fixed top-0 left-0 right-0 z-50 backdrop-blur-xl border-b h-[52px] transition-colors duration-300 ${headerBg}`}>
@@ -64,7 +57,7 @@ export default function Navbar() {
           to={"/" + getQueryString({ repo, user })}
           className="font-code text-heading-md font-bold flex items-center gap-2"
         >
-          <span className={`material-symbols-outlined text-[20px] ${!isIndigo ? "text-primary" : "text-[c0c1ff]"}`}>
+          <span className="material-symbols-outlined text-[20px] text-primary">
             {brandIcon}
           </span>
           <span className={`font-bold transition-all duration-300 ${brandText}`}>
@@ -78,15 +71,9 @@ export default function Navbar() {
             const isActive = path === item.path;
             
             let linkClass = "font-label text-label transition-colors duration-200 py-1 px-2 rounded-sm ";
-            if (isIndigo) {
-              linkClass += isActive
-                ? "text-[#c0c1ff] font-bold border-b-2 border-[#c0c1ff] pb-0.5 rounded-none"
-                : "text-[#c7c4d7] hover:text-[#c0c1ff] hover:bg-surface-container-high";
-            } else {
-              linkClass += isActive
-                ? "text-primary font-bold border-b-2 border-primary pb-0.5 rounded-none"
-                : "text-on-surface-variant hover:text-primary hover:bg-surface-container-high";
-            }
+            linkClass += isActive
+              ? "text-primary font-bold border-b-2 border-primary pb-0.5 rounded-none"
+              : "text-on-surface-variant hover:text-primary hover:bg-surface-container-high";
 
             return (
               <Link key={item.label} to={item.to} className={linkClass}>
