@@ -332,29 +332,7 @@ export default function DeveloperProfile() {
 
   return (
     <div className="min-h-screen overflow-x-hidden">
-      {/* TopNavBar */}
-      <nav className="fixed top-0 left-0 w-full z-50 flex justify-between items-center px-margin-desktop py-4 bg-[#1a1a1a]/80 backdrop-blur-xl border-b border-outline-variant/20 shadow-sm">
-        <div className="flex items-center gap-lg">
-          <span className="font-display-lg text-display-lg font-bold bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent">RepoLens</span>
-          <div className="hidden md:flex gap-md items-center">
-            <Link className="font-body-lg text-body-lg text-on-surface-variant font-medium hover:text-primary transition-colors duration-200" to={`/dashboard${repoParam ? `?repo=${repoParam}` : ''}`}>Dashboard</Link>
-            <Link className="font-body-lg text-body-lg text-on-surface-variant font-medium hover:text-primary transition-colors duration-200" to={`/hotspots${repoParam ? `?repo=${repoParam}` : ''}`}>Bug Hotspots</Link>
-            <Link className="font-body-lg text-body-lg text-primary font-bold border-b-2 border-primary pb-1" to={`/profile${repoParam ? `?repo=${repoParam}` : ''}`}>Developer Profile</Link>
-          </div>
-        </div>
-        <div className="flex items-center gap-md">
-          <button className="text-on-surface-variant hover:text-primary transition-colors">
-            <span className="material-symbols-outlined">notifications</span>
-          </button>
-          <div className="w-10 h-10 rounded-full overflow-hidden border border-outline-variant/20">
-            {hasSocial && social.avatar_url ? (
-              <img className="w-full h-full object-cover" src={social.avatar_url} alt="Profile" />
-            ) : (
-              <div className="w-full h-full flex items-center justify-center bg-primary/20 text-primary font-bold">{data.username.slice(0, 2).toUpperCase()}</div>
-            )}
-          </div>
-        </div>
-      </nav>
+
 
       <main className="mt-xl pt-lg pb-xl px-margin-mobile md:px-margin-desktop max-w-[1440px] mx-auto">
         {/* Profile Header */}
@@ -376,9 +354,6 @@ export default function DeveloperProfile() {
           <div className="flex-grow text-center md:text-left">
             <div className="flex flex-col md:flex-row md:items-end gap-sm mb-xs">
               <h1 className="font-display-lg text-display-lg leading-none">Developer Profile: @{user}</h1>
-              <span className="px-3 py-1 rounded-full bg-secondary/10 border border-secondary/20 text-secondary font-label-caps uppercase">
-                {data.primary_type || "Not Available"}
-              </span>
             </div>
             <p className="font-body-lg text-on-surface-variant mb-md max-w-2xl">
               {social.bio || `${user} is an elite contributor profiled on RepoLens. Analyzing obsidian-grade software systems and high-density technical solutions.`}
@@ -399,18 +374,7 @@ export default function DeveloperProfile() {
             </div>
           </div>
 
-          <div className="flex gap-sm">
-            <button
-              onClick={handleBuildProfile}
-              disabled={triggeringBuild}
-              className="bg-gradient-to-r from-primary to-secondary text-on-primary font-label-caps px-lg py-sm rounded-lg hover:shadow-[0_0_15px_rgba(99,102,241,0.5)] transition-all disabled:opacity-50"
-            >
-              {triggeringBuild ? "SYNCING..." : "SYNC INDEX"}
-            </button>
-            <button className="border border-outline-variant hover:bg-surface-container-low transition-colors p-sm rounded-lg">
-              <span className="material-symbols-outlined">mail</span>
-            </button>
-          </div>
+
         </section>
 
         {/* Bento Grid Section */}
@@ -473,53 +437,53 @@ export default function DeveloperProfile() {
                 )}
               </div>
 
-              <div className="flex flex-col overflow-x-auto pb-4">
-                {/* Month labels */}
-                <div className="flex gap-2 mb-1.5 min-w-[700px]">
-                  <div className="w-[20px] shrink-0"></div>
-                  <div className="flex-grow grid grid-flow-col gap-1 text-[8px] text-on-surface-variant/70 font-code select-none">
-                    {Array.from({ length: totalColumns }).map((_, colIdx) => {
-                      const label = monthLabels.find(l => l.colIndex === colIdx);
-                      return (
-                        <span key={colIdx} className="w-[12px] overflow-visible whitespace-nowrap text-left leading-none">
-                          {label ? label.text : ""}
-                        </span>
-                      );
-                    })}
-                  </div>
+              <div className="flex">
+                {/* Fixed Days of week labels */}
+                <div className="w-[28px] shrink-0 grid grid-rows-7 gap-1 text-[10px] text-on-surface-variant/70 font-code select-none h-[108px] items-center text-right pr-2 mt-[16px]">
+                  <span className="leading-none">Sun</span>
+                  <span className="leading-none">Mon</span>
+                  <span className="leading-none">Tue</span>
+                  <span className="leading-none">Wed</span>
+                  <span className="leading-none">Thu</span>
+                  <span className="leading-none">Fri</span>
+                  <span className="leading-none">Sat</span>
                 </div>
 
-                <div className="flex gap-2 min-w-[700px]">
-                  {/* Days of week labels */}
-                  <div className="w-[20px] grid grid-rows-7 gap-1 text-[8px] text-on-surface-variant/70 font-code select-none h-[108px] items-center text-right pr-1 shrink-0">
-                    <span className="leading-none">Sun</span>
-                    <span className="leading-none">Mon</span>
-                    <span className="leading-none">Tue</span>
-                    <span className="leading-none">Wed</span>
-                    <span className="leading-none">Thu</span>
-                    <span className="leading-none">Fri</span>
-                    <span className="leading-none">Sat</span>
-                  </div>
+                {/* Scrollable Area */}
+                <div className="flex-grow overflow-x-auto pb-4 scrollbar-thin scrollbar-thumb-outline-variant/30 scrollbar-track-transparent">
+                  <div className="flex flex-col w-max">
+                    {/* Month labels */}
+                    <div className="grid grid-flow-col gap-1 mb-1.5 text-[10px] text-on-surface-variant/70 font-code select-none w-max">
+                      {Array.from({ length: totalColumns }).map((_, colIdx) => {
+                        const label = monthLabels.find(l => l.colIndex === colIdx);
+                        return (
+                          <div key={colIdx} className="w-[12px] overflow-visible whitespace-nowrap text-left leading-none">
+                            {label ? label.text : ""}
+                          </div>
+                        );
+                      })}
+                    </div>
 
-                  {/* Grid */}
-                  <div className="flex-grow grid grid-flow-col grid-rows-7 gap-1 h-[108px]">
-                    {heatmapCells.map((cell, idx) => {
-                      if (cell.isPadding) {
+                    {/* Grid */}
+                    <div className="grid grid-flow-col grid-rows-7 gap-1 h-[108px] w-max">
+                      {heatmapCells.map((cell, idx) => {
+                        if (cell.isPadding) {
+                          return (
+                            <div
+                              key={idx}
+                              className="w-[12px] h-[12px] opacity-0 pointer-events-none"
+                            ></div>
+                          );
+                        }
                         return (
                           <div
                             key={idx}
-                            className="w-[12px] h-[12px] opacity-0 pointer-events-none"
+                            title={cell.title}
+                            className={`contribution-cell ${getHeatmapColor(cell.count)} transition-all duration-200 hover:ring-2 hover:ring-primary/60 cursor-crosshair`}
                           ></div>
                         );
-                      }
-                      return (
-                        <div
-                          key={idx}
-                          title={cell.title}
-                          className={`contribution-cell ${getHeatmapColor(cell.count)} transition-all duration-200 hover:ring-2 hover:ring-primary/60 cursor-crosshair`}
-                        ></div>
-                      );
-                    })}
+                      })}
+                    </div>
                   </div>
                 </div>
               </div>
