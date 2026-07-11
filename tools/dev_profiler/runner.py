@@ -51,7 +51,14 @@ def run_developer_profile(username: str, settings, store, *,
     api = GitHubAPI(settings.github_token)
     activity = fetch_user_activity(api, username, settings, progress=progress)
     if not activity["commits"]:
-        print(f"  [warn] no public commits found for @{username}")
+        # Refuse to persist an all-zeros "Unknown" profile: it would be cached
+        # and listed as if it were real analysis. The usual cause is profiling
+        # an *organization* (orgs never author commits) or an empty account.
+        raise SystemExit(
+            f"@{username} has no authored commits in their recent public "
+            f"repositories, so a developer profile cannot be built. If this is "
+            f"an organization account, profile one of its members instead."
+        )
 
     report("building profile (processing + LLM summary)")
     profile = build_profile(activity, settings, llm=get_llm(settings))

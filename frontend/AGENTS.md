@@ -250,7 +250,9 @@ a product principle here.
  "languages": [{"name", "pct"}],
  "commit_message_quality": 6.8,                                // 0..10
  "authored_prs": 120, "prs_merged": 98, "issues_resolved": 41,
- "reviews": 87, "review_participation": 0.42,
+ "reviews": 87,
+ "review_ratio": 0.42,                     // numeric — safe for UI math
+ "review_participation": "Active (87 PRs reviewed)",  // display label, NOT a number
  "user": {"name", "avatar_url", "bio", "followers", "following",
            "public_repos", "created_at", "years_active", "url"},   // may be {}
  "heatmap": [{"date", "count"}],

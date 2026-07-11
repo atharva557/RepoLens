@@ -13,12 +13,43 @@ from core.llm import LLMUnavailable, get_llm
 _SYSTEM = ("You are a senior engineer summarizing repository analytics. "
            "Be concrete and neutral; every claim must come from the digest.")
 
+# Small local models happily parrot the digest back ("the total number of
+# commits cached is 46993") or drift into tool advice ("use git log"), so the
+# prompt bans both and demands that every bullet RELATE facts, not restate one.
 _PROMPT = """From this repository analytics digest, write exactly 3 short insight
-bullets (one sentence each) a maintainer would find useful. Start each line
-with "- ". No preamble, no headings.
+bullets (one sentence each) for the repository's maintainer.
+
+Rules:
+- Each bullet must COMBINE at least two facts from the digest into an
+  observation (a comparison, a share, a concentration, or a mismatch) —
+  never restate a single number on its own.
+- Observations only: no advice, no instructions, no tool suggestions,
+  no questions.
+- Every number you mention must appear in the digest.
+- Start each line with "- ". No preamble, no headings.
+
+Example of a good bullet (for a different repo):
+- Nearly half of recent changes (44 of 96 commits) were bug fixes, and three
+  of the five riskiest files sit in the same auth/ directory.
 
 {digest}
 """
+
+
+def keep_bullet(line: str) -> bool:
+    """Cheap guard against the two failure modes the prompt bans.
+
+    A real insight derived from a *statistics digest* always carries at least
+    one number; advice starts with or contains an instruction verb. This
+    cannot catch digest-parroting (those bullets contain numbers too) — the
+    prompt handles that — but it reliably drops "use git log to ..." bullets.
+    """
+    text = (line or "").strip().lower()
+    if not any(ch.isdigit() for ch in text):
+        return False
+    advice_markers = ("you can", "you should", "maintainers can", "consider ",
+                      "use the ", "try ", "we recommend", "should be")
+    return not any(m in text for m in advice_markers)
 
 
 def _digest(repo_key: str, activity: dict, quality: dict | None,
@@ -73,8 +104,9 @@ def run_repo_insights(repo_key: str, settings, store, progress=None) -> dict:
                                                       hotspots)),
                         system=_SYSTEM,
                         max_tokens=max(1536, getattr(settings, "llm_max_tokens", 512)))
-    bullets = [ln.lstrip("-•* ").strip() for ln in text.splitlines()
-               if ln.strip().lstrip("-•* ").strip()]
+    lines = [ln.lstrip("-•* ").strip() for ln in text.splitlines()
+             if ln.strip().lstrip("-•* ").strip()]
+    bullets = [ln for ln in lines if keep_bullet(ln)]
     if not bullets:
         raise LLMUnavailable("LLM returned no usable insight text "
                              "(if this persists, raise LLM_MAX_TOKENS)")

@@ -359,12 +359,12 @@ export default function DeveloperProfile() {
           <div className="flex-grow text-center md:text-left">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-sm mb-xs">
               <h1 className="font-display-lg text-display-lg leading-none">
-                @{user} <span className="text-on-surface-variant/50 mx-2">•</span> <span className="text-primary">{data.classification?.primary_type || "Contributor"}</span>
+                @{user} <span className="text-on-surface-variant/50 mx-2">•</span> <span className="text-primary">{data.primary_type || "Contributor"}</span>
               </h1>
               <SyncBadge ageHours={data.age_hours} stale={data.stale} onRefresh={handleBuildProfile} />
             </div>
             <p className="font-body-lg text-on-surface-variant mb-md max-w-2xl">
-              {data.classification?.label || social.bio || `${user} is an elite contributor profiled on RepoLens. Analyzing obsidian-grade software systems and high-density technical solutions.`}
+              {data.label || social.bio || ""}
             </p>
             <div className="flex flex-wrap justify-center md:justify-start gap-lg">
               <div className="flex flex-col">
@@ -606,7 +606,9 @@ export default function DeveloperProfile() {
               </div>
               <div className="text-center">
                 <span className="font-headline-md block">
-                  {data.review_participation !== undefined ? `${Math.round(data.review_participation * 100)}%` : "N/A"}
+                  {typeof data.review_ratio === "number"
+                    ? `${Math.round(data.review_ratio * 100)}%`
+                    : (data.review_participation || "N/A")}
                 </span>
                 <span className="font-label-caps text-on-surface-variant">Participation</span>
               </div>

@@ -11,11 +11,27 @@ from __future__ import annotations
 from collections import Counter
 from datetime import datetime, timedelta, timezone
 
+from core.paths import is_code_file
+
 
 def _aware(dt) -> datetime | None:
     if not isinstance(dt, datetime):
         return None
     return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+
+def _is_display_bugfix(c: dict) -> bool:
+    """The hotspot scorer's code-files-only gate, applied at the display
+    layer: a keyword "fix" that only touched docs/config (a changelog typo)
+    must not wear a BUGFIX badge or count toward the health score's bug-fix
+    ratio. Commits cached without per-file info can't be checked — trust
+    their flag."""
+    if not c.get("is_bugfix"):
+        return False
+    files = c.get("files")
+    if not files:
+        return True
+    return any(is_code_file(f.get("path", "")) for f in files)
 
 
 def build_activity(commits: list[dict], *, days: int = 365, recent: int = 15,
@@ -43,7 +59,7 @@ def build_activity(commits: list[dict], *, days: int = 365, recent: int = 15,
         daily[dt.date().isoformat()] += 1
         if dt >= cutoff:
             window_total += 1
-            window_bugfix += 1 if c.get("is_bugfix") else 0
+            window_bugfix += 1 if _is_display_bugfix(c) else 0
 
     dated.sort(key=lambda t: t[0], reverse=True)
     recent_commits = [{
@@ -51,7 +67,7 @@ def build_activity(commits: list[dict], *, days: int = 365, recent: int = 15,
         "subject": (c.get("message") or "").strip().split("\n", 1)[0][:120],
         "author": c.get("author") or "unknown",
         "date": dt.isoformat(),
-        "is_bugfix": bool(c.get("is_bugfix")),
+        "is_bugfix": _is_display_bugfix(c),
     } for dt, c in dated[:recent]]
 
     total = len(commits) or 1

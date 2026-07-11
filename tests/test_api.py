@@ -89,7 +89,19 @@ def test_health_root_and_config():
         cfg = c.get("/config").json()
         assert cfg["github_token"] == "***"          # masked, never leaked
         assert cfg["llm_provider"] == "local"
-    print("  ok: health / root / masked config")
+    # multiuser secrets must be masked too (fernet_key leaked here once), and
+    # a DATABASE_URL with embedded credentials must have them redacted
+    s2 = Settings(github_token="t", fernet_key="fk", session_secret="ss",
+                  github_oauth_client_secret="cs",
+                  database_url="postgresql://admin:hunter2@db:5432/gitpulse")
+    with _client(settings=s2) as c:
+        cfg = c.get("/config").json()
+        assert cfg["fernet_key"] == "***"
+        assert cfg["session_secret"] == "***"
+        assert cfg["github_oauth_client_secret"] == "***"
+        assert "hunter2" not in cfg["database_url"]
+        assert cfg["database_url"] == "postgresql://***@db:5432/gitpulse"
+    print("  ok: health / root / masked config (incl. multiuser secrets)")
 
 
 def test_read_endpoints_404_then_hit():
@@ -110,6 +122,8 @@ def test_read_endpoints_404_then_hit():
         assert c.get("/repos/owner/repo/hotspots").json()["rows"][0]["path"] == "a.py"
         assert c.get("/repos/localrepo/hotspots").json()["rows"][0]["path"] == "b.py"
         assert c.get("/repos/owner/repo/hotspots?top=0").json()["rows"] == []
+        # negative top used to hit Python negative slicing ("all but last 5")
+        assert c.get("/repos/owner/repo/hotspots?top=-5").status_code == 422
         assert c.get("/repos/owner/repo/commit-quality").json()["avg_score"] == 6.5
         assert c.get("/repos/owner/repo/pr-reviews/7").json()["level"] == "LOW"
         assert c.get("/profiles/alice").json()["username"] == "alice"
@@ -324,24 +338,53 @@ def test_activity_endpoint():
          "message": "Add feature", "is_bugfix": False},
         {"sha": "cccc3333", "author": "bob", "date": now - timedelta(days=400),
          "message": "ancient commit", "is_bugfix": False},
+        # keyword "fix" that only touched docs: must NOT wear a BUGFIX badge
+        # or count toward the bug-fix ratio (display gate = scorer's gate)
+        {"sha": "dddd4444", "author": "bob",
+         "date": now - timedelta(days=1, hours=1),
+         "message": "Fix typo in the changelog", "is_bugfix": True,
+         "files": [{"path": "CHANGES.rst", "insertions": 1, "deletions": 1}]},
     ])
     store.save_report("commit_quality", "owner/repo", {"avg_score": 8.0})
     with _client(store=store) as c:
         assert c.get("/repos/nope/activity").status_code == 404
         body = c.get("/repos/owner/repo/activity").json()
-        assert body["total_commits"] == 3
-        assert body["window_commits"] == 2          # 400-day-old commit excluded
-        assert body["window_bugfix_ratio"] == 0.5
+        assert body["total_commits"] == 4
+        assert body["window_commits"] == 3          # 400-day-old commit excluded
+        # only the code fix counts: docs-only "fix" is gated out -> 1 of 3
+        assert body["window_bugfix_ratio"] == 0.333
         assert body["contributors"][0] == {"author": "alice", "commits": 2,
-                                           "share": 0.667}
+                                           "share": 0.5}
         assert body["recent_commits"][0]["sha"] == "aaaa111"   # newest first, 7 chars
         assert body["recent_commits"][0]["subject"] == "Fix crash in parser"
+        badges = {r["sha"]: r["is_bugfix"] for r in body["recent_commits"]}
+        assert badges["aaaa111"] is True    # no file info cached -> trust flag
+        assert badges["dddd444"] is False   # docs-only fix -> no badge
         # heatmap spans all history (incl. the 400-day-old commit), unlike
         # the windowed stats above
-        assert sum(d["count"] for d in body["heatmap"]) == 3
-        # health composite: 0.6*8.0 + 0.4*(1-0.5)*10 = 6.8
-        assert body["health"]["score"] == 6.8
-    print("  ok: activity endpoint (window, contributors, heatmap, health)")
+        assert sum(d["count"] for d in body["heatmap"]) == 4
+        # health composite: 0.6*8.0 + 0.4*(1 - 0.333)*10 = 7.5 (rounded)
+        assert body["health"]["score"] == 7.5
+        # param validation: negative/zero values are rejected, not sliced
+        assert c.get("/repos/owner/repo/activity?days=0").status_code == 422
+        assert c.get("/repos/owner/repo/activity?recent=-1").status_code == 422
+    print("  ok: activity endpoint (window, gate, contributors, heatmap, health)")
+
+
+def test_insights_bullet_filter():
+    """keep_bullet drops the local-model failure mode we saw live: tool
+    advice with no numbers ("use git log to view history")."""
+    from core.insights import keep_bullet
+
+    assert keep_bullet("44 of 96 recent commits were bug fixes, concentrated "
+                       "in 3 of the top 5 hotspot files")
+    # no digits -> not derived from the stats digest
+    assert not keep_bullet("Maintainers can use the `git log` command to view history")
+    assert not keep_bullet("The codebase appears healthy overall")
+    # advice phrasing is rejected even when it carries a number
+    assert not keep_bullet("Consider reviewing the 5 riskiest files")
+    assert not keep_bullet("You can inspect the 46993 cached commits")
+    print("  ok: insights bullet filter (digits required, advice rejected)")
 
 
 def test_meta_endpoint():

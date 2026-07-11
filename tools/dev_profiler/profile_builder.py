@@ -44,7 +44,11 @@ def build_profile(activity: dict, settings, llm=None) -> dict:
                        for lang, n in languages.most_common()]
 
     reviews = activity.get("reviews_count", 0)
-    # review participation, judged relative to how much the user commits
+    # review participation, judged relative to how much the user commits.
+    # `review_ratio` is the numeric form (reviews per authored commit) — the
+    # UI does math on it; the label is display-only. Serving only the label
+    # once produced a literal "NaN%" on the profile page.
+    review_ratio = round(reviews / max(1, len(commits)), 3)
     if reviews == 0:
         participation = "Low"
     elif reviews >= max(1, len(commits)) * 0.2:
@@ -67,6 +71,7 @@ def build_profile(activity: dict, settings, llm=None) -> dict:
         "prs_merged": activity.get("merged_prs", 0),
         "issues_resolved": activity.get("issues_resolved", 0),
         "reviews": reviews,
+        "review_ratio": review_ratio,
         "review_participation": participation,
         "user": activity.get("user") or {},
         "heatmap": _daily_heatmap(commits),

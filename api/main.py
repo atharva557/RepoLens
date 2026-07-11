@@ -24,7 +24,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
-from fastapi import BackgroundTasks, FastAPI, HTTPException, Request
+from fastapi import BackgroundTasks, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
@@ -199,11 +199,16 @@ def create_app(settings: Settings | None = None, store=None, identity=None) -> F
     def config(request: Request):
         from dataclasses import fields
 
+        import re
+
         s = request.app.state.settings
         masked = {f.name: getattr(s, f.name) for f in fields(s)}
         for secret in ("github_token", "github_webhook_secret",
-                       "anthropic_api_key", "openai_api_key", "gemini_api_key"):
+                       "anthropic_api_key", "openai_api_key", "gemini_api_key",
+                       "fernet_key", "session_secret", "github_oauth_client_secret"):
             masked[secret] = "***" if getattr(s, secret) else ""
+        # a DATABASE_URL may embed credentials (postgresql://user:pass@host/db)
+        masked["database_url"] = re.sub(r"//[^/@]+@", "//***@", s.database_url)
         return masked
 
     @app.get("/test")
@@ -345,7 +350,8 @@ def create_app(settings: Settings | None = None, store=None, identity=None) -> F
 
     # ------------------------------------------------- dashboard read layer
     @app.get("/repos/{repo_key:path}/activity")
-    def activity(repo_key: str, request: Request, days: int = 365, recent: int = 15):
+    def activity(repo_key: str, request: Request,
+                 days: int = Query(365, ge=1), recent: int = Query(15, ge=0)):
         """Contributors, recent commits, daily heatmap and health score —
         aggregated from the cached commit history."""
         st = request.app.state
@@ -389,7 +395,7 @@ def create_app(settings: Settings | None = None, store=None, identity=None) -> F
     # ------------------------------------------------------------ read layer
     # `:path` keys accept both "owner/repo" and bare local-clone names.
     @app.get("/repos/{repo_key:path}/hotspots")
-    def hotspots(repo_key: str, request: Request, top: int = 50):
+    def hotspots(repo_key: str, request: Request, top: int = Query(50, ge=0)):
         doc = request.app.state.store.load_hotspots(repo_key)
         if doc is None:
             raise HTTPException(404, f"no hotspot report for '{repo_key}' — POST /analyze first")

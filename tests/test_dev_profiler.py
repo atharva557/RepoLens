@@ -99,6 +99,10 @@ def test_profile_assembly_with_fake_llm():
     assert profile["prs_merged"] == 9 and profile["issues_resolved"] == 4
     assert profile["user"]["followers"] == 10
     assert sum(d["count"] for d in profile["heatmap"]) == 2
+    # review participation ships BOTH forms: a numeric ratio the UI can do
+    # math on (serving only the label once rendered "NaN%") and the label
+    assert profile["review_ratio"] == 2.5          # 5 reviews / 2 commits
+    assert isinstance(profile["review_participation"], str)
     # without an LLM, summary is simply None; missing socials stay safe defaults
     bare = build_profile({"username": "bob", "commits": []}, _settings(), llm=None)
     assert bare["llm_summary"] is None
@@ -120,6 +124,32 @@ class _FakeStore:
 
     def save_report(self, kind, key, doc):
         self.saved = (kind, key, doc)
+
+
+def test_runner_refuses_zero_commit_profiles():
+    """Profiling an organization (or an empty account) finds zero authored
+    commits; persisting the resulting all-zeros 'Unknown' profile made junk
+    look like analysis on the dashboard."""
+    import core.github_client as ghc
+    import pipeline.fetch_user_activity as fua
+
+    orig_api, orig_fetch = ghc.GitHubAPI, fua.fetch_user_activity
+    ghc.GitHubAPI = lambda token: None
+    fua.fetch_user_activity = lambda api, username, settings, progress=None: {
+        "username": username, "commits": [], "languages": {}, "repos": ["a/b"],
+    }
+    store = _FakeStore(None)
+    try:
+        try:
+            run_developer_profile("pallets", _settings(github_token="tok"), store)
+        except SystemExit as exc:
+            assert "organization" in str(exc)
+        else:
+            raise AssertionError("expected SystemExit for a zero-commit account")
+        assert store.saved is None  # nothing junk was cached
+    finally:
+        ghc.GitHubAPI, fua.fetch_user_activity = orig_api, orig_fetch
+    print("  ok: zero-commit accounts are refused, not cached")
 
 
 def test_runner_reuses_fresh_cached_profile():
