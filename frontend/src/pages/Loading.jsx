@@ -17,7 +17,6 @@ export default function Loading() {
 
   const pollIntervalRef = useRef(null);
 
-  const displayTarget = repo || username || "Repository";
 
   const handleRetry = async () => {
     setError(null);

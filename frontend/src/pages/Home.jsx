@@ -1,8 +1,15 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useContext } from "react";
 import { useNavigate } from "react-router-dom";
 import { getJSON, postJSON } from "../lib/api";
 import { loadRepoSettings, saveRepoSettings } from "../lib/settings";
+import { ThemeContext } from "../lib/theme";
 import SyncBadge from "../components/SyncBadge";
+
+// full GitHub URL or bare owner/repo shorthand (the backend accepts both)
+function looksLikeRepo(text) {
+  const t = (text || "").trim();
+  return /github\.com\/[\w.-]+\/[\w.-]+/.test(t) || /^[\w.-]+\/[\w.-]+$/.test(t);
+}
 
 function getRepoKey(repoUrl) {
   let cleaned = repoUrl.trim();
@@ -18,24 +25,10 @@ function getRepoKey(repoUrl) {
   return cleaned;
 }
 
-function timeAgo(dateString) {
-  if (!dateString) return "unknown";
-  const date = new Date(dateString);
-  const now = new Date();
-  const diffMs = now - date;
-  if (isNaN(diffMs)) return "some time ago";
-  const seconds = Math.floor(diffMs / 1000);
-  if (seconds < 60) return "just now";
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  return `${days}d ago`;
-}
 
 export default function Home() {
   const navigate = useNavigate();
+  const { settings: globalSettings } = useContext(ThemeContext);
   const [url, setUrl] = useState("");
   const [repos, setRepos] = useState([]);
   const [profiles, setProfiles] = useState([]);
@@ -110,7 +103,7 @@ export default function Home() {
 
   if (loading) {
     return (
-      <div className="min-h-[calc(100vh-52px)] flex items-center justify-center bg-[#0e0e0e] text-on-surface">
+      <div className="min-h-[calc(100vh-52px)] flex items-center justify-center bg-background text-on-surface">
         <div className="text-center space-y-4">
           <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full motion-safe:animate-spin mx-auto"></div>
           <p className="font-code text-label text-on-surface-variant uppercase tracking-widest animate-pulse">
@@ -122,17 +115,14 @@ export default function Home() {
   }
 
   return (
-    <div
-      className="min-h-[calc(100vh-52px)] flex flex-col justify-between"
-      style={{ backgroundColor: "#141414" }}
-    >
+    <div className="min-h-[calc(100vh-52px)] flex flex-col justify-between bg-background">
       <main className="flex-grow flex flex-col items-center pt-[80px] pb-[80px] px-4 w-full">
 
         {/* ── Hero ── */}
         <div className="text-center flex flex-col items-center w-full">
           <h1
+            className="text-primary glow-text"
             style={{
-              color: "#D4855A",
               fontSize: "72px",
               fontWeight: "bold",
               letterSpacing: "-1px",
@@ -142,8 +132,8 @@ export default function Home() {
             RepoLens
           </h1>
           <p
+            className="text-on-surface-variant"
             style={{
-              color: "rgba(255,255,255,0.55)",
               fontSize: "16px",
               maxWidth: "480px",
               margin: "24px auto 0",
@@ -164,12 +154,12 @@ export default function Home() {
               className="flex-grow h-[1px]"
               style={{
                 background:
-                  "linear-gradient(to right, transparent, rgba(212,133,90,0.55))",
+                  "linear-gradient(to right, transparent, color-mix(in srgb, var(--color-primary) 55%, transparent))",
               }}
             />
             <div
-              className="flex items-center gap-[8px] px-[14px]"
-              style={{ color: "#D4855A", flexShrink: 0 }}
+              className="flex items-center gap-[8px] px-[14px] text-primary"
+              style={{ flexShrink: 0 }}
             >
               <span
                 style={{
@@ -187,7 +177,7 @@ export default function Home() {
               className="flex-grow h-[1px]"
               style={{
                 background:
-                  "linear-gradient(to left, transparent, rgba(212,133,90,0.55))",
+                  "linear-gradient(to left, transparent, color-mix(in srgb, var(--color-primary) 55%, transparent))",
               }}
             />
           </div>
@@ -197,15 +187,12 @@ export default function Home() {
             <div
               className="flex items-center w-full rounded-[4px] overflow-hidden transition-shadow"
               style={{
-                border: "1.5px solid rgba(212,133,90,0.75)",
-                backgroundColor: "rgba(212,133,90,0.04)",
-                boxShadow: "0 0 20px rgba(212,133,90,0.12)",
+                border: "1.5px solid color-mix(in srgb, var(--color-primary) 75%, transparent)",
+                backgroundColor: "color-mix(in srgb, var(--color-primary) 5%, transparent)",
+                boxShadow: "0 0 20px color-mix(in srgb, var(--color-primary) 14%, transparent)",
               }}
             >
-              <div
-                className="pl-[16px] pr-[8px] flex items-center"
-                style={{ color: "rgba(255,255,255,0.3)" }}
-              >
+              <div className="pl-[16px] pr-[8px] flex items-center text-on-surface-variant/50">
                 <span className="material-symbols-outlined text-[20px]">
                   content_paste
                 </span>
@@ -216,11 +203,20 @@ export default function Home() {
                 type="text"
                 value={url}
                 onChange={(e) => setUrl(e.target.value)}
+                onPaste={(e) => {
+                  // settings drawer: "Auto-analyze on paste"
+                  if (!globalSettings?.autoAnalyze || submitting) return;
+                  const pasted = e.clipboardData.getData("text").trim();
+                  if (looksLikeRepo(pasted)) {
+                    e.preventDefault();
+                    setUrl(pasted);
+                    handleAnalyze(pasted);
+                  }
+                }}
                 disabled={submitting}
                 aria-label="GitHub Repository URL"
-                className="flex-grow bg-transparent border-none py-[16px] px-[8px] focus:outline-none focus:ring-0 placeholder:text-[rgba(255,255,255,0.28)]"
+                className="flex-grow bg-transparent border-none py-[16px] px-[8px] focus:outline-none focus:ring-0 text-on-surface placeholder:text-on-surface-variant/40"
                 style={{
-                  color: "rgba(255,255,255,0.85)",
                   fontFamily: "monospace",
                   fontSize: "14px",
                 }}
@@ -231,10 +227,8 @@ export default function Home() {
                 type="submit"
                 disabled={submitting || !url.trim()}
                 aria-label="Analyze Repository"
-                className="px-[24px] py-[16px] flex items-center gap-[8px] transition-all disabled:opacity-50 disabled:cursor-not-allowed hover:opacity-90 active:scale-95"
+                className="px-[24px] py-[16px] flex items-center gap-[8px] transition-all disabled:opacity-50 disabled:cursor-not-allowed hover:opacity-90 active:scale-95 bg-primary text-on-primary glow-primary"
                 style={{
-                  backgroundColor: "#D4855A",
-                  color: "#141414",
                   fontWeight: "bold",
                   fontSize: "14px",
                   flexShrink: 0,
@@ -258,22 +252,22 @@ export default function Home() {
           <div className="w-full mt-4 flex flex-col items-end">
             <button
               onClick={() => setShowAdvanced(!showAdvanced)}
-              className="text-[11px] text-[rgba(255,255,255,0.4)] hover:text-[#D4855A] font-bold uppercase tracking-wider flex items-center gap-1 transition-colors"
+              className="text-[11px] text-on-surface-variant/60 hover:text-primary font-bold uppercase tracking-wider flex items-center gap-1 transition-colors"
             >
               <span className="material-symbols-outlined text-[14px]">settings</span>
               Advanced Options
             </button>
             {showAdvanced && (
               <div className="mt-2 w-full flex justify-end">
-                <div className="flex items-center gap-3 bg-[rgba(212,133,90,0.04)] border border-[rgba(212,133,90,0.3)] rounded p-2">
-                  <label className="text-[11px] text-[rgba(255,255,255,0.5)] uppercase tracking-wider font-bold">Max Commits:</label>
+                <div className="flex items-center gap-3 bg-primary/5 border border-primary/30 rounded p-2">
+                  <label className="text-[11px] text-on-surface-variant/70 uppercase tracking-wider font-bold">Max Commits:</label>
                   <input
                     type="number"
                     value={maxCommits}
                     onChange={(e) => setMaxCommits(e.target.value)}
                     disabled={submitting}
                     placeholder="Full history"
-                    className="bg-[#141414] border border-[rgba(212,133,90,0.3)] rounded px-2 py-1 text-sm text-[rgba(255,255,255,0.85)] w-32 focus:outline-none focus:border-[#D4855A]"
+                    className="bg-surface-container-high border border-primary/30 rounded px-2 py-1 text-sm text-on-surface w-32 focus:outline-none focus:border-primary"
                   />
                 </div>
               </div>
@@ -287,16 +281,16 @@ export default function Home() {
             <div
               className="flex-grow h-[1px]"
               style={{
-                background: "linear-gradient(to right, transparent, rgba(212,133,90,0.3))",
+                background: "linear-gradient(to right, transparent, color-mix(in srgb, var(--color-primary) 30%, transparent))",
               }}
             />
             <div
               className="w-[5px] h-[5px] rounded-full mx-[12px] flex-shrink-0"
-              style={{ backgroundColor: "#D4855A" }}
+              style={{ backgroundColor: "var(--color-primary)" }}
             />
             <h2
               style={{
-                color: "#D4855A",
+                color: "var(--color-primary)",
                 fontSize: "16px",
                 fontWeight: "bold",
                 whiteSpace: "nowrap",
@@ -306,12 +300,12 @@ export default function Home() {
             </h2>
             <div
               className="w-[5px] h-[5px] rounded-full mx-[12px] flex-shrink-0"
-              style={{ backgroundColor: "#D4855A" }}
+              style={{ backgroundColor: "var(--color-primary)" }}
             />
             <div
               className="flex-grow h-[1px]"
               style={{
-                background: "linear-gradient(to left, transparent, rgba(212,133,90,0.3))",
+                background: "linear-gradient(to left, transparent, color-mix(in srgb, var(--color-primary) 30%, transparent))",
               }}
             />
           </div>
@@ -326,7 +320,7 @@ export default function Home() {
             
             {profiles.length === 0 ? (
               <div
-                className="w-full p-[32px] text-center border border-[rgba(255,255,255,0.07)] rounded-[8px]"
+                className="w-full p-[32px] text-center border border-outline-variant/30 rounded-[8px]"
                 style={{ color: "rgba(255,255,255,0.35)", fontSize: "14px" }}
               >
                 No profiles built yet — analyze a developer above.
@@ -337,22 +331,22 @@ export default function Home() {
                   <div
                     key={p.username}
                     onClick={() => navigate(`/profile?user=${p.username}`)}
-                    className="flex flex-col items-center gap-3 p-4 border border-[rgba(255,255,255,0.07)] rounded-[8px] bg-[rgba(255,255,255,0.02)] hover:bg-[rgba(255,255,255,0.05)] cursor-pointer transition-colors min-w-[140px] shrink-0"
+                    className="flex flex-col items-center gap-3 p-4 border border-outline-variant/30 rounded-[8px] bg-[rgba(255,255,255,0.02)] hover:bg-[rgba(255,255,255,0.05)] cursor-pointer transition-colors min-w-[140px] shrink-0"
                   >
-                    <div className="w-14 h-14 rounded-full bg-[#D4855A]/20 flex items-center justify-center border border-[#D4855A]/30 overflow-hidden">
+                    <div className="w-14 h-14 rounded-full bg-primary/20 flex items-center justify-center border border-primary/30 overflow-hidden">
                       {p.avatar_url ? (
                         <img src={p.avatar_url} alt={p.username} className="w-full h-full object-cover" />
                       ) : (
-                        <span className="font-display-lg text-lg text-[#D4855A] font-bold">
+                        <span className="font-display-lg text-lg text-primary font-bold">
                           {p.username.slice(0, 2).toUpperCase()}
                         </span>
                       )}
                     </div>
                     <div className="flex flex-col items-center">
-                      <span className="font-code font-bold text-[13px] text-[rgba(255,255,255,0.85)] truncate max-w-[120px]">
+                      <span className="font-code font-bold text-[13px] text-on-surface truncate max-w-[120px]">
                         @{p.username}
                       </span>
-                      <span className="font-code text-[9px] text-[#D4855A] uppercase mt-1 px-1.5 py-0.5 border border-[#D4855A]/30 bg-[#D4855A]/10 rounded-sm">
+                      <span className="font-code text-[9px] text-primary uppercase mt-1 px-1.5 py-0.5 border border-primary/30 bg-primary/10 rounded-sm">
                         {p.primary_type || "Contributor"}
                       </span>
                     </div>
@@ -372,16 +366,16 @@ export default function Home() {
               className="flex-grow h-[1px]"
               style={{
                 background:
-                  "linear-gradient(to right, transparent, rgba(212,133,90,0.3))",
+                  "linear-gradient(to right, transparent, color-mix(in srgb, var(--color-primary) 30%, transparent))",
               }}
             />
             <div
               className="w-[5px] h-[5px] rounded-full mx-[12px] flex-shrink-0"
-              style={{ backgroundColor: "#D4855A" }}
+              style={{ backgroundColor: "var(--color-primary)" }}
             />
             <h2
               style={{
-                color: "#D4855A",
+                color: "var(--color-primary)",
                 fontSize: "16px",
                 fontWeight: "bold",
                 whiteSpace: "nowrap",
@@ -391,13 +385,13 @@ export default function Home() {
             </h2>
             <div
               className="w-[5px] h-[5px] rounded-full mx-[12px] flex-shrink-0"
-              style={{ backgroundColor: "#D4855A" }}
+              style={{ backgroundColor: "var(--color-primary)" }}
             />
             <div
               className="flex-grow h-[1px]"
               style={{
                 background:
-                  "linear-gradient(to left, transparent, rgba(212,133,90,0.3))",
+                  "linear-gradient(to left, transparent, color-mix(in srgb, var(--color-primary) 30%, transparent))",
               }}
             />
           </div>
@@ -478,7 +472,7 @@ export default function Home() {
                                 {r.hotspots && (
                                   <span
                                     style={{
-                                      color: "#D4855A",
+                                      color: "var(--color-primary)",
                                       fontSize: "12px",
                                     }}
                                   >
@@ -488,7 +482,7 @@ export default function Home() {
                                 {r.commit_quality && (
                                   <span
                                     style={{
-                                      color: "#D4855A",
+                                      color: "var(--color-primary)",
                                       fontSize: "12px",
                                     }}
                                   >
@@ -508,7 +502,7 @@ export default function Home() {
                                     e.stopPropagation();
                                     navigate(`/pr-review?repo=${r.repo}&pr=${prNum}`);
                                   }}
-                                  className="px-1.5 py-0.5 bg-[#D4855A]/10 hover:bg-[#D4855A]/20 text-[#D4855A] border border-[#D4855A]/30 rounded text-[9px] font-bold font-code transition-colors"
+                                  className="px-1.5 py-0.5 bg-primary/10 hover:bg-primary/20 text-primary border border-primary/30 rounded text-[9px] font-bold font-code transition-colors"
                                 >
                                   #{prNum}
                                 </button>

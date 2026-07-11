@@ -47,7 +47,7 @@ export default function Status() {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
         {/* /test Endpoint */}
         <section className="bg-surface-container border border-outline-variant rounded-xl overflow-hidden">
-          <div className="bg-[#141414] px-4 py-3 border-b border-outline-variant/50">
+          <div className="bg-surface-container-high px-4 py-3 border-b border-outline-variant/50">
             <h2 className="font-code text-sm font-bold uppercase tracking-wider text-primary">GET /test</h2>
           </div>
           <div className="p-4 overflow-x-auto">
@@ -59,7 +59,7 @@ export default function Status() {
 
         {/* /config Endpoint */}
         <section className="bg-surface-container border border-outline-variant rounded-xl overflow-hidden">
-          <div className="bg-[#141414] px-4 py-3 border-b border-outline-variant/50">
+          <div className="bg-surface-container-high px-4 py-3 border-b border-outline-variant/50">
             <h2 className="font-code text-sm font-bold uppercase tracking-wider text-primary">GET /config</h2>
           </div>
           <div className="p-4 overflow-x-auto">

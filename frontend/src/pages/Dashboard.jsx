@@ -4,7 +4,7 @@ import { getJSON, postJSON } from "../lib/api";
 import { loadRepoSettings, saveRepoSettings, getHeatmapColorStyle } from "../lib/settings";
 import SyncBadge from "../components/SyncBadge";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar } from "recharts";
-import { ThemeContext } from "../App";
+import { ThemeContext } from "../lib/theme";
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -66,11 +66,11 @@ function CommitQualityModal({ quality, activity, onClose, onRerun, triggeringQua
     >
       <div
         ref={modalRef}
-        className="bg-[#141414] border border-outline-variant w-full max-w-2xl max-h-[85vh] flex flex-col rounded-xl shadow-2xl overflow-hidden"
+        className="bg-surface-container-high border border-outline-variant w-full max-w-2xl max-h-[85vh] flex flex-col rounded-xl shadow-2xl overflow-hidden"
         style={{ animation: "modalIn 0.18s ease-out" }}
       >
         {/* Sticky header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-outline-variant bg-[#141414] shrink-0">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-outline-variant bg-surface-container-high shrink-0">
           <div className="space-y-0.5">
             <h2 className="font-code text-sm font-bold text-on-surface uppercase tracking-wider flex items-center gap-2">
               <span className="material-symbols-outlined text-[18px] text-primary">verified_user</span>
@@ -91,7 +91,7 @@ function CommitQualityModal({ quality, activity, onClose, onRerun, triggeringQua
         </div>
 
         {/* Tabs */}
-        <div className="px-6 pt-2 border-b border-outline-variant bg-[#141414] shrink-0 flex gap-6">
+        <div className="px-6 pt-2 border-b border-outline-variant bg-surface-container-high shrink-0 flex gap-6">
           {[
             { id: "overview", label: "Overview" },
             { id: "contributors", label: "Contributors" },
@@ -117,7 +117,7 @@ function CommitQualityModal({ quality, activity, onClose, onRerun, triggeringQua
                 <div
                   className="relative w-48 h-48 rounded-full flex items-center justify-center shadow-xl"
                   style={{
-                    background: `radial-gradient(closest-side, #141414 79%, transparent 80% 100%), conic-gradient(#D4855A ${
+                    background: `radial-gradient(closest-side, var(--color-surface-container) 79%, transparent 80% 100%), conic-gradient(var(--color-primary) ${
                       ((quality?.avg_score || 0) / 10) * 100
                     }%, #222222 0)`
                   }}
@@ -144,7 +144,7 @@ function CommitQualityModal({ quality, activity, onClose, onRerun, triggeringQua
                     <PolarGrid stroke="rgba(255,255,255,0.1)" />
                     <PolarAngleAxis dataKey="subject" tick={{ fill: 'rgba(255,255,255,0.5)', fontSize: 10, fontFamily: 'monospace' }} />
                     <PolarRadiusAxis angle={30} domain={[0, 100]} tick={false} axisLine={false} />
-                    <Radar name="Quality" dataKey="A" stroke="#D4855A" fill="#D4855A" fillOpacity={0.3} />
+                    <Radar name="Quality" dataKey="A" stroke="var(--color-primary)" fill="var(--color-primary)" fillOpacity={0.3} />
                   </RadarChart>
                 </ResponsiveContainer>
               </div>
@@ -173,7 +173,7 @@ function CommitQualityModal({ quality, activity, onClose, onRerun, triggeringQua
         {activeTab === "worst" && (
           <div className="flex flex-col flex-1 min-h-0">
             {/* Search bar */}
-            <div className="px-6 py-3 border-b border-outline-variant/50 bg-[#141414] shrink-0">
+            <div className="px-6 py-3 border-b border-outline-variant/50 bg-surface-container-high shrink-0">
               <div className="relative">
                 <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-[16px] text-on-surface-variant/60">
                   search
@@ -252,7 +252,7 @@ function CommitQualityModal({ quality, activity, onClose, onRerun, triggeringQua
         )}
 
         {/* Footer */}
-        <div className="px-6 py-3 border-t border-outline-variant/50 flex items-center justify-between bg-[#141414] shrink-0">
+        <div className="px-6 py-3 border-t border-outline-variant/50 flex items-center justify-between bg-surface-container-high shrink-0">
           <span className="text-[10px] font-code text-on-surface-variant/50">
             CALCULATED: {timeAgo(quality?.generated_at)}
           </span>
@@ -296,7 +296,7 @@ function SettingsModal({ settingsForm, setSettingsForm, onSave, onClose }) {
       onClick={handleBackdrop}
     >
       <div
-        className="bg-[#141414] border border-outline-variant w-full max-w-xl rounded-xl shadow-2xl overflow-hidden"
+        className="bg-surface-container-high border border-outline-variant w-full max-w-[36rem] rounded-xl shadow-2xl overflow-hidden"
         style={{ animation: "modalIn 0.18s ease-out" }}
       >
         {/* Header */}
@@ -328,10 +328,10 @@ function SettingsModal({ settingsForm, setSettingsForm, onSave, onClose }) {
               type="number"
               value={settingsForm.max_commits || ""}
               onChange={(e) => setSettingsForm({ ...settingsForm, max_commits: e.target.value })}
-              className="w-full max-w-md bg-surface-container border border-outline-variant rounded-lg px-4 py-2.5 text-sm font-code text-on-surface placeholder-on-surface-variant/40 focus:outline-none focus:border-primary transition-colors"
+              className="w-full max-w-[28rem] bg-surface-container border border-outline-variant rounded-lg px-4 py-2.5 text-sm font-code text-on-surface placeholder-on-surface-variant/40 focus:outline-none focus:border-primary transition-colors"
               placeholder="e.g. 250"
             />
-            <p className="text-xs text-on-surface-variant/60 font-code leading-normal max-w-md">
+            <p className="text-xs text-on-surface-variant/60 font-code leading-normal max-w-[28rem]">
               Higher values are more accurate but take longer to process.
             </p>
           </div>
@@ -344,10 +344,10 @@ function SettingsModal({ settingsForm, setSettingsForm, onSave, onClose }) {
               type="number"
               value={settingsForm.top || ""}
               onChange={(e) => setSettingsForm({ ...settingsForm, top: e.target.value })}
-              className="w-full max-w-md bg-surface-container border border-outline-variant rounded-lg px-4 py-2.5 text-sm font-code text-on-surface placeholder-on-surface-variant/40 focus:outline-none focus:border-primary transition-colors"
+              className="w-full max-w-[28rem] bg-surface-container border border-outline-variant rounded-lg px-4 py-2.5 text-sm font-code text-on-surface placeholder-on-surface-variant/40 focus:outline-none focus:border-primary transition-colors"
               placeholder="e.g. 15"
             />
-            <p className="text-xs text-on-surface-variant/60 font-code leading-normal max-w-md">
+            <p className="text-xs text-on-surface-variant/60 font-code leading-normal max-w-[28rem]">
               Number of hotspot files ranked by churn + fix frequency.
             </p>
           </div>
@@ -401,7 +401,9 @@ export default function Dashboard() {
 
   const { settings } = useContext(ThemeContext);
   const getHeatmapStyle = (count) => {
-    return { backgroundColor: getHeatmapColorStyle(count, settings.contributionColor, settings.theme) };
+    const c = getHeatmapColorStyle(count, settings.accentColor, settings.theme);
+    // reference-design bloom: busy days glow
+    return count > 5 ? { backgroundColor: c, boxShadow: `0 0 6px ${c}` } : { backgroundColor: c };
   };
 
   const [settingsForm, setSettingsForm] = useState(() => loadRepoSettings(repo));
@@ -470,7 +472,7 @@ export default function Dashboard() {
     try {
       let activityData;
       try {
-        activityData = await getJSON(`/repos/${repo}/activity?days=365&recent=15`);
+        activityData = await getJSON(`/repos/${repo}/activity?days=${settings.timeRange || 365}&recent=15`);
       } catch (e) {
         if (e.message.includes("404") || e.message.includes("no cached commits") || e.message.includes("POST /analyze first")) {
           const parsed = getParsedSettings();
@@ -517,7 +519,8 @@ export default function Dashboard() {
       setError(e.message);
       setLoading(false);
     }
-  }, [repo, navigate, getParsedSettings, pollBackgroundInsights, pollBackgroundQuality]);
+  }, [repo, navigate, getParsedSettings, pollBackgroundInsights, pollBackgroundQuality,
+      settings.timeRange]);
 
   useEffect(() => {
     if (repo) loadData();
@@ -616,7 +619,7 @@ export default function Dashboard() {
 
   if (loading) {
     return (
-      <div className="min-h-[calc(100vh-52px)] flex items-center justify-center bg-[#0e0e0e] text-on-surface">
+      <div className="min-h-[calc(100vh-52px)] flex items-center justify-center bg-background text-on-surface">
         <div className="text-center space-y-4">
           <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full motion-safe:animate-spin mx-auto" />
           <p className="font-code text-label text-on-surface-variant uppercase tracking-widest animate-pulse">
@@ -629,8 +632,8 @@ export default function Dashboard() {
 
   if (error) {
     return (
-      <div className="min-h-[calc(100vh-52px)] flex items-center justify-center bg-[#0e0e0e] text-on-surface p-6">
-        <div className="max-w-md w-full bg-surface border border-outline-variant p-6 space-y-4 text-center shadow-lg rounded-xl">
+      <div className="min-h-[calc(100vh-52px)] flex items-center justify-center bg-background text-on-surface p-6">
+        <div className="max-w-[28rem] w-full bg-surface border border-outline-variant p-6 space-y-4 text-center shadow-lg rounded-xl">
           <span className="material-symbols-outlined text-error text-[48px]">warning</span>
           <h2 className="font-code text-heading-lg text-primary">Failed to load dashboard</h2>
           <p className="text-xs text-on-surface-variant leading-relaxed break-words">{error}</p>
@@ -728,7 +731,7 @@ export default function Dashboard() {
   // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
-    <div className="min-h-screen bg-[#0e0e0e] text-on-surface font-body">
+    <div className="min-h-screen bg-background text-on-surface font-body">
 
       {/* Modals */}
       {showSettings && (

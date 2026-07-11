@@ -1,6 +1,6 @@
 import { Link, useLocation } from "react-router-dom";
 import { useState } from "react";
-import GlobalSettingsModal from "./GlobalSettingsModal";
+import SettingsDrawer from "./SettingsDrawer";
 
 export default function Navbar() {
   const location = useLocation();
@@ -46,6 +46,8 @@ export default function Navbar() {
       path: "/pr-review",
       to: "/pr-review" + getQueryString({ repo, user }),
     },
+    // /status stays routable but deliberately unlisted — an admin view,
+    // reached by typing the URL.
   ];
 
   // Theme styling declarations
@@ -64,7 +66,7 @@ export default function Navbar() {
           <span className="material-symbols-outlined text-[20px] text-primary">
             {brandIcon}
           </span>
-          <span className={`font-bold transition-all duration-300 ${brandText}`}>
+          <span className={`font-bold transition-all duration-300 glow-text ${brandText}`}>
             RepoLens
           </span>
         </Link>
@@ -87,19 +89,22 @@ export default function Navbar() {
           })}
         </nav>
 
-        {/* Settings Button */}
+        {/* Settings Button (prototype: labeled, bordered, active while open) */}
         <div className="flex items-center gap-4">
-          <button 
+          <button
             onClick={() => setShowSettings(true)}
-            className="p-1 rounded-full hover:bg-surface-container-high transition-colors text-on-surface-variant flex items-center justify-center cursor-pointer"
+            className={`bg-surface-container-high border h-9 px-3 rounded-[4px] flex items-center gap-2 text-label font-bold text-on-surface-variant hover:bg-surface-container-highest hover:border-primary transition-all group cursor-pointer ${
+              showSettings ? "bg-primary/10 border-primary" : "border-outline-variant"
+            }`}
             aria-label="Settings"
           >
-            <span className="material-symbols-outlined text-[20px]">settings</span>
+            <span className="material-symbols-outlined text-[18px] group-hover:text-primary transition-colors">
+              settings
+            </span>
+            <span className="hidden sm:inline">Settings</span>
           </button>
-          
-          {showSettings && (
-            <GlobalSettingsModal onClose={() => setShowSettings(false)} />
-          )}
+
+          <SettingsDrawer open={showSettings} onClose={() => setShowSettings(false)} />
         </div>
       </div>
     </header>

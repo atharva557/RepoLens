@@ -1,3 +1,5 @@
+// Per-repo analysis settings + global UI settings, both localStorage-backed.
+
 export const DEFAULT_SETTINGS = {
   max_commits: undefined,
   top: 50,
@@ -11,7 +13,7 @@ export function loadRepoSettings(repo) {
       const parsed = JSON.parse(saved);
       return { ...DEFAULT_SETTINGS, ...parsed };
     }
-  } catch (e) {
+  } catch {
     // ignore
   }
   return { ...DEFAULT_SETTINGS };
@@ -21,23 +23,48 @@ export function saveRepoSettings(repo, settings) {
   if (!repo) return;
   try {
     localStorage.setItem(`repolens.settings.${repo}`, JSON.stringify(settings));
-  } catch (e) {
+  } catch {
     // ignore
   }
 }
 
+/* ------------------------------------------------------------------ */
+/* Global UI settings (settings drawer)                                */
+/* ------------------------------------------------------------------ */
+
+// Accent palette from the design prototype. "amber" is the app's default
+// primary token, so choosing it means "no override".
+export const ACCENTS = [
+  { name: "Amber", value: "amber", color: "#f5a524" },
+  { name: "Jade", value: "jade", color: "#34d399" },
+  { name: "Ocean", value: "ocean", color: "#38bdf8" },
+  { name: "Orchid", value: "orchid", color: "#c084fc" },
+];
+
 export const DEFAULT_GLOBAL_SETTINGS = {
-  theme: "dark",
-  contributionColor: "orange",
+  theme: "dark", // dark | light | system
+  accent: "amber",
+  accentColor: "#f5a524",
+  timeRange: "365", // dashboard activity window, in days
+  autoAnalyze: false, // auto-run analysis when a GitHub URL is pasted on Home
 };
+
+// pre-drawer versions stored contributionColor: green|blue|orange|yellow
+const LEGACY_ACCENT = { green: "jade", blue: "ocean", orange: "amber", yellow: "amber" };
 
 export function loadGlobalSettings() {
   try {
     const saved = localStorage.getItem("repolens.global_settings");
     if (saved) {
-      return { ...DEFAULT_GLOBAL_SETTINGS, ...JSON.parse(saved) };
+      const parsed = JSON.parse(saved);
+      if (!parsed.accent && parsed.contributionColor) {
+        parsed.accent = LEGACY_ACCENT[parsed.contributionColor] || "amber";
+      }
+      const known = ACCENTS.find((a) => a.value === parsed.accent);
+      if (known) parsed.accentColor = known.color;
+      return { ...DEFAULT_GLOBAL_SETTINGS, ...parsed };
     }
-  } catch (e) {
+  } catch {
     // ignore
   }
   return { ...DEFAULT_GLOBAL_SETTINGS };
@@ -46,43 +73,28 @@ export function loadGlobalSettings() {
 export function saveGlobalSettings(settings) {
   try {
     localStorage.setItem("repolens.global_settings", JSON.stringify(settings));
-  } catch (e) {
+  } catch {
     // ignore
   }
 }
 
-export function getHeatmapColorStyle(count, colorName, theme) {
-  const isLight = theme === "light";
-  
-  if (count === 0) {
-    return isLight ? "#e5e7eb" : "#2a2a2a";
+export function hexToRgba(hex, opacity) {
+  let r = 0, g = 0, b = 0;
+  if (hex && hex.length === 7) {
+    r = parseInt(hex.substring(1, 3), 16);
+    g = parseInt(hex.substring(3, 5), 16);
+    b = parseInt(hex.substring(5, 7), 16);
   }
-
-  const colorMap = {
-    green: {
-      light: ["#bbf7d0", "#86efac", "#22c55e", "#15803d"],
-      dark: ["#14532d", "#166534", "#15803d", "#22c55e"]
-    },
-    blue: {
-      light: ["#bfdbfe", "#93c5fd", "#3b82f6", "#1d4ed8"],
-      dark: ["#1e3a8a", "#1e40af", "#1d4ed8", "#3b82f6"]
-    },
-    orange: {
-      light: ["#fed7aa", "#fdba74", "#f97316", "#c2410c"],
-      dark: ["#7c2d12", "#9a3412", "#c2410c", "#f97316"]
-    },
-    yellow: {
-      light: ["#fef08a", "#fde047", "#eab308", "#a16207"],
-      dark: ["#713f12", "#854d0e", "#a16207", "#eab308"]
-    }
-  };
-
-  const palette = colorMap[colorName] || colorMap.orange;
-  const shades = isLight ? palette.light : palette.dark;
-
-  if (count <= 2) return shades[0];
-  if (count <= 5) return shades[1];
-  if (count <= 9) return shades[2];
-  return shades[3];
+  return `rgba(${r}, ${g}, ${b}, ${opacity})`;
 }
 
+/** Heatmap cell color: intensity steps of the accent color (prototype style). */
+export function getHeatmapColorStyle(count, accentColor, theme) {
+  const isLight = theme === "light";
+  if (!count) return isLight ? "#e5e7eb" : "#1e1e1c";
+  const accent = accentColor || DEFAULT_GLOBAL_SETTINGS.accentColor;
+  if (count <= 2) return hexToRgba(accent, 0.3);
+  if (count <= 5) return hexToRgba(accent, 0.55);
+  if (count <= 9) return hexToRgba(accent, 0.8);
+  return accent;
+}

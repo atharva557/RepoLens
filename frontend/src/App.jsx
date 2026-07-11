@@ -1,5 +1,5 @@
 import { BrowserRouter, Route, Routes } from "react-router-dom";
-import { useState, useEffect, createContext } from "react";
+import { useState, useEffect } from "react";
 import Home from "./pages/Home";
 import Loading from "./pages/Loading";
 import Dashboard from "./pages/Dashboard";
@@ -9,21 +9,52 @@ import PRReview from "./pages/PRReview";
 import Status from "./pages/Status";
 import Navbar from "./components/Navbar";
 import { loadGlobalSettings, saveGlobalSettings } from "./lib/settings";
-
-export const ThemeContext = createContext();
+import { ThemeContext, accentThemeCss } from "./lib/theme";
 
 // Smoke-test shell wired to the real UI pages.
 export default function App() {
   const [settings, setSettings] = useState(() => loadGlobalSettings());
 
+  // theme: dark | light | system. "system" resolves against the OS preference
+  // and re-resolves live when it changes.
   useEffect(() => {
-    const { theme } = settings;
-    if (theme === "dark") {
-      delete document.documentElement.dataset.theme;
-    } else {
-      document.documentElement.dataset.theme = theme;
+    const apply = () => {
+      const { theme } = settings;
+      const resolved =
+        theme === "system"
+          ? (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light")
+          : theme;
+      if (resolved === "dark") {
+        delete document.documentElement.dataset.theme;
+      } else {
+        document.documentElement.dataset.theme = resolved;
+      }
+    };
+    apply();
+    if (settings.theme === "system") {
+      const mq = window.matchMedia("(prefers-color-scheme: dark)");
+      mq.addEventListener("change", apply);
+      return () => mq.removeEventListener("change", apply);
     }
   }, [settings.theme]);
+
+  // accent recolors the whole app — primary, borders, muted text, glows — via
+  // an injected per-theme palette (see accentThemeCss). Amber = no override,
+  // keeping the hand-tuned default theme exactly as designed.
+  useEffect(() => {
+    let tag = document.getElementById("accent-theme");
+    const css = accentThemeCss(settings.accent, settings.accentColor);
+    if (!css) {
+      if (tag) tag.remove();
+      return;
+    }
+    if (!tag) {
+      tag = document.createElement("style");
+      tag.id = "accent-theme";
+      document.head.appendChild(tag);
+    }
+    tag.textContent = css;
+  }, [settings.accent, settings.accentColor]);
 
   const saveSettings = (newSettings) => {
     setSettings(newSettings);
@@ -54,3 +85,4 @@ export default function App() {
     </ThemeContext.Provider>
   );
 }
+

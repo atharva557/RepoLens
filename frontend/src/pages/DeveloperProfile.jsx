@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback, useMemo, useContext } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { getJSON, postJSON } from "../lib/api";
 import SyncBadge from "../components/SyncBadge";
-import { ThemeContext } from "../App";
+import { ThemeContext } from "../lib/theme";
 import { getHeatmapColorStyle } from "../lib/settings";
 import Card from "../components/Card";
 
@@ -44,7 +44,9 @@ export default function DeveloperProfile() {
   const [selectedYear, setSelectedYear] = useState(() => new Date().getFullYear());
 
   const getHeatmapStyle = (count) => {
-    return { backgroundColor: getHeatmapColorStyle(count, settings.contributionColor, settings.theme) };
+    const c = getHeatmapColorStyle(count, settings.accentColor, settings.theme);
+    // reference-design bloom: busy days glow
+    return count > 5 ? { backgroundColor: c, boxShadow: `0 0 6px ${c}` } : { backgroundColor: c };
   };
 
   const loadProfile = useCallback(() => {
@@ -265,7 +267,7 @@ export default function DeveloperProfile() {
   if (error && (error.includes("404") || error.includes("not found"))) {
     return (
       <div className="min-h-screen flex items-center justify-center p-6">
-        <Card className="p-8 text-center space-y-6 max-w-md w-full">
+        <Card className="p-8 text-center space-y-6 max-w-[28rem] w-full">
           <span className="material-symbols-outlined text-primary text-[64px]">person_off</span>
           <div className="space-y-2">
             <h2 className="text-[var(--font-size-heading)] text-primary font-bold">Profile Not Found</h2>
@@ -303,7 +305,7 @@ export default function DeveloperProfile() {
   if (error) {
     return (
       <div className="min-h-screen flex items-center justify-center p-6">
-        <Card className="p-8 text-center space-y-4 max-w-md w-full">
+        <Card className="p-8 text-center space-y-4 max-w-[28rem] w-full">
           <span className="material-symbols-outlined text-error text-[54px]">warning</span>
           <h2 className="text-[var(--font-size-heading)] text-error font-bold">Error loading profile</h2>
           <p className="text-[var(--font-size-body)] text-on-surface-variant leading-relaxed break-words">{error}</p>
@@ -450,7 +452,7 @@ export default function DeveloperProfile() {
                     <select
                       value={selectedYear}
                       onChange={(e) => setSelectedYear(parseInt(e.target.value, 10))}
-                      className="bg-[#111111] border border-outline-variant/30 text-on-surface text-xs font-code rounded px-2 py-0.5 outline-none cursor-pointer focus:ring-1 focus:ring-primary"
+                      className="bg-surface-container border border-outline-variant/30 text-on-surface text-xs font-code rounded px-2 py-0.5 outline-none cursor-pointer focus:ring-1 focus:ring-primary"
                     >
                       {availableYears.map((yr) => (
                         <option key={yr} value={yr}>
@@ -627,7 +629,7 @@ export default function DeveloperProfile() {
                 <span className="material-symbols-outlined text-sm text-primary">auto_awesome</span>
                 AI Developer Summary
               </h3>
-              <p className="text-[var(--font-size-body)] text-on-surface-variant font-code-sm leading-relaxed bg-[#0a0a0a] border border-[#222222] p-4 rounded-md">
+              <p className="text-[var(--font-size-body)] text-on-surface-variant font-code-sm leading-relaxed bg-background border border-outline-variant/40 p-4 rounded-md">
                 {data.llm_summary}
               </p>
             </Card>

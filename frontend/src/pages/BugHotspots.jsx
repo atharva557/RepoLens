@@ -117,7 +117,7 @@ export default function BugHotspots() {
 
   if (loading) {
     return (
-      <div className="min-h-[calc(100vh-52px)] flex items-center justify-center bg-[#000000] text-on-surface">
+      <div className="min-h-[calc(100vh-52px)] flex items-center justify-center bg-background text-on-surface">
         <div className="text-center space-y-4">
           <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full motion-safe:animate-spin mx-auto"></div>
           <p className="font-code text-label text-on-surface-variant uppercase tracking-widest animate-pulse">
@@ -130,8 +130,8 @@ export default function BugHotspots() {
 
   if (error && (error.includes("404") || error.includes("not found") || error.includes("not analyzed"))) {
     return (
-      <div className="min-h-[calc(100vh-52px)] flex items-center justify-center bg-[#000000] text-on-surface p-6">
-        <div className="max-w-md w-full bg-[#111111] border border-outline-variant/30 p-8 text-center space-y-6 rounded-lg">
+      <div className="min-h-[calc(100vh-52px)] flex items-center justify-center bg-background text-on-surface p-6">
+        <div className="max-w-[28rem] w-full bg-surface-container border border-outline-variant/30 p-8 text-center space-y-6 rounded-lg">
           <span className="material-symbols-outlined text-primary text-[64px]">explore_off</span>
           <div className="space-y-2">
             <h2 className="font-code text-heading-lg text-primary font-bold">No Hotspot Data</h2>
@@ -153,8 +153,8 @@ export default function BugHotspots() {
 
   if (error) {
     return (
-      <div className="min-h-[calc(100vh-52px)] flex items-center justify-center bg-[#000000] text-on-surface p-6">
-        <div className="max-w-md w-full bg-[#111111] border border-error/30 p-8 text-center space-y-4 rounded-lg">
+      <div className="min-h-[calc(100vh-52px)] flex items-center justify-center bg-background text-on-surface p-6">
+        <div className="max-w-[28rem] w-full bg-surface-container border border-error/30 p-8 text-center space-y-4 rounded-lg">
           <span className="material-symbols-outlined text-error text-[54px]">warning</span>
           <h2 className="font-code text-heading-lg text-error font-bold">Error loading hotspots</h2>
           <p className="text-xs text-on-surface-variant leading-relaxed break-words">{error}</p>
@@ -216,7 +216,7 @@ export default function BugHotspots() {
   // (do NOT deselect — requirement says "maintain selected file if it still exists")
 
   return (
-    <div className="min-h-screen bg-[#000000] text-on-surface pb-12 font-body selection:bg-primary selection:text-on-primary">
+    <div className="min-h-screen bg-background text-on-surface pb-12 font-body selection:bg-primary selection:text-on-primary">
       <main className="pt-8 px-margin-mobile md:px-margin-desktop grid grid-cols-12 gap-gutter max-w-[1920px] mx-auto space-y-6">
 
         {/* Header */}
@@ -231,7 +231,7 @@ export default function BugHotspots() {
 
         {/* Key Risk Metrics */}
         <div className="col-span-12 grid grid-cols-1 sm:grid-cols-3 gap-gutter">
-          <div className="bg-[#111111] border border-[#3A322D] border-t-[#7A5A44] p-4 rounded-xl hover:border-[#333333] hover:border-t-[#7A5A44] transition-all">
+          <div className="bg-surface-container border border-outline-variant/40 border-t-primary/40 p-4 rounded-xl hover:border-outline-variant/60 hover:border-t-primary/40 transition-all">
             <p className="font-label-caps text-[10px] text-on-surface-variant uppercase tracking-widest">Total High Risk Files</p>
             <h2 className="font-display-lg text-4xl font-bold mt-2 text-error">{totalHighRisk}</h2>
             <div className="flex items-center gap-1 mt-2 text-error text-xs">
@@ -239,7 +239,7 @@ export default function BugHotspots() {
               <span>score threshold &gt;= 0.70</span>
             </div>
           </div>
-          <div className="bg-[#111111] border border-[#3A322D] border-t-[#7A5A44] p-4 rounded-xl hover:border-[#333333] hover:border-t-[#7A5A44] transition-all">
+          <div className="bg-surface-container border border-outline-variant/40 border-t-primary/40 p-4 rounded-xl hover:border-outline-variant/60 hover:border-t-primary/40 transition-all">
             <p className="font-label-caps text-[10px] text-on-surface-variant uppercase tracking-widest">Average Risk Score</p>
             <h2 className="font-display-lg text-4xl font-bold mt-2 text-on-surface">{avgRiskScore.toFixed(1)}</h2>
             <div className="flex items-center gap-1 mt-2 text-primary text-xs">
@@ -247,7 +247,7 @@ export default function BugHotspots() {
               <span>Across {rows.length} scored files</span>
             </div>
           </div>
-          <div className="bg-[#111111] border border-[#3A322D] border-t-[#7A5A44] p-4 rounded-xl hover:border-[#333333] hover:border-t-[#7A5A44] transition-all">
+          <div className="bg-surface-container border border-outline-variant/40 border-t-primary/40 p-4 rounded-xl hover:border-outline-variant/60 hover:border-t-primary/40 transition-all">
             <p className="font-label-caps text-[10px] text-on-surface-variant uppercase tracking-widest">Repository Analyzed</p>
             <h2 className="font-display-lg text-2xl font-code truncate font-bold mt-3.5 text-secondary">{repo}</h2>
             <div className="flex items-center gap-1 mt-2.5 text-on-surface-variant/60 text-xs">
@@ -261,10 +261,10 @@ export default function BugHotspots() {
         <div className="col-span-12 grid grid-cols-1 lg:grid-cols-12 gap-gutter items-start">
 
           {/* ── Table ── */}
-          <div className="lg:col-span-8 bg-[#111111] border border-[#3A322D] border-t-[#7A5A44] rounded-xl overflow-hidden flex flex-col">
+          <div className="lg:col-span-8 bg-surface-container border border-outline-variant/40 border-t-primary/40 rounded-xl overflow-hidden flex flex-col">
 
             {/* Filters bar */}
-            <div ref={tableTopRef} className="bg-[#050505] px-4 py-3 border-b border-[#222222] flex flex-col sm:flex-row justify-between items-center gap-3">
+            <div ref={tableTopRef} className="bg-background px-4 py-3 border-b border-outline-variant/40 flex flex-col sm:flex-row justify-between items-center gap-3">
               <div className="flex items-center gap-2">
                 <span className="w-2.5 h-2.5 rounded-full bg-primary"></span>
                 <span className="font-code text-xs text-on-surface-variant font-bold">hotspot_matrix.log</span>
@@ -277,13 +277,13 @@ export default function BugHotspots() {
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
                     placeholder="Search file paths..."
-                    className="bg-[#0a0a0a] border border-[#222222] rounded px-8 py-1 font-code text-xs focus:outline-none focus:border-primary w-full sm:w-56 text-on-surface placeholder:text-on-surface-variant/40"
+                    className="bg-background border border-outline-variant/40 rounded px-8 py-1 font-code text-xs focus:outline-none focus:border-primary w-full sm:w-56 text-on-surface placeholder:text-on-surface-variant/40"
                   />
                 </div>
                 <select
                   value={filterLevel}
                   onChange={(e) => setFilterLevel(e.target.value)}
-                  className="bg-[#0a0a0a] border border-[#222222] rounded px-3 py-1 font-code text-xs focus:outline-none focus:border-primary text-on-surface"
+                  className="bg-background border border-outline-variant/40 rounded px-3 py-1 font-code text-xs focus:outline-none focus:border-primary text-on-surface"
                 >
                   <option value="ALL">ALL LEVELS</option>
                   <option value="CRITICAL">CRITICAL</option>
@@ -297,7 +297,7 @@ export default function BugHotspots() {
             <div className="overflow-x-auto">
               <table className="w-full text-left border-collapse">
                 <thead>
-                  <tr className="bg-surface-container-low border-b border-[#222222] text-[10px] text-on-surface-variant font-code font-bold uppercase select-none">
+                  <tr className="bg-surface-container-low border-b border-outline-variant/40 text-[10px] text-on-surface-variant font-code font-bold uppercase select-none">
                     <th className="px-4 py-3 w-16">Rank</th>
                     <th className="px-4 py-3">File path</th>
                     <th className="px-4 py-3 w-28">Risk Level</th>
@@ -330,7 +330,7 @@ export default function BugHotspots() {
                         <tr
                           key={row.path}
                           onClick={() => handleRowClick(row)}
-                          className={`border-b border-[#222222]/40 transition-all duration-200 cursor-pointer ${isSelected
+                          className={`border-b border-outline-variant/40/40 transition-all duration-200 cursor-pointer ${isSelected
                             ? "bg-primary/[0.08] border-l-[3px] border-l-primary shadow-inner"
                             : "hover:bg-white/[0.03] border-l-[3px] border-l-transparent"
                             }`}
@@ -341,7 +341,7 @@ export default function BugHotspots() {
                           </td>
                           <td className="px-4 py-3.5 pr-2">
                             <div className="flex flex-col">
-                              <span className="text-on-surface font-medium truncate max-w-xs md:max-w-md" title={row.path}>
+                              <span className="text-on-surface font-medium truncate max-w-[20rem] md:max-w-[28rem]" title={row.path}>
                                 {row.path}
                               </span>
                               {row.components && (
@@ -364,7 +364,7 @@ export default function BugHotspots() {
                           </td>
                           <td className="px-4 py-3.5">
                             <div className="flex items-center gap-3">
-                              <div className="w-16 h-1 bg-[#222222] rounded-full overflow-hidden shrink-0">
+                              <div className="w-16 h-1 bg-surface-container-highest rounded-full overflow-hidden shrink-0">
                                 <div className={`h-full ${risk.barColor} rounded-full`} style={{ width: `${row.score * 100}%` }}></div>
                               </div>
                               <span className="text-on-surface font-bold font-code">{Math.round(row.score * 100)}</span>
@@ -393,7 +393,7 @@ export default function BugHotspots() {
             </div>
 
             {/* ── Pagination footer ── */}
-            <div className="border-t border-[#222222] bg-[#0a0a0a]">
+            <div className="border-t border-outline-variant/40 bg-background">
               {/* Row count summary */}
               <div className="px-4 pt-3 pb-1 flex justify-between items-center text-[10px] font-code text-on-surface-variant select-none">
                 <span>
@@ -415,8 +415,8 @@ export default function BugHotspots() {
                       flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-code text-[11px] font-bold
                       border transition-all duration-150 select-none
                       ${safePage <= 1
-                        ? "border-[#222222] text-on-surface-variant/30 cursor-not-allowed"
-                        : "border-[#333333] text-on-surface hover:bg-white/[0.05] hover:border-primary/40 active:scale-95 cursor-pointer"}
+                        ? "border-outline-variant/40 text-on-surface-variant/30 cursor-not-allowed"
+                        : "border-outline-variant/60 text-on-surface hover:bg-white/[0.05] hover:border-primary/40 active:scale-95 cursor-pointer"}
                     `}
                   >
                     <span className="material-symbols-outlined text-[14px]">chevron_left</span>
@@ -430,7 +430,7 @@ export default function BugHotspots() {
                       <>
                         <button
                           onClick={() => goToPage(1)}
-                          className="w-7 h-7 rounded-md border border-[#333333] text-on-surface-variant hover:border-primary/40 hover:text-on-surface transition-all text-[10px]"
+                          className="w-7 h-7 rounded-md border border-outline-variant/60 text-on-surface-variant hover:border-primary/40 hover:text-on-surface transition-all text-[10px]"
                         >
                           1
                         </button>
@@ -451,7 +451,7 @@ export default function BugHotspots() {
                             w-7 h-7 rounded-md border text-[10px] font-bold transition-all active:scale-95
                             ${p === safePage
                               ? "bg-primary border-primary text-on-primary shadow-sm shadow-primary/30"
-                              : "border-[#333333] text-on-surface-variant hover:border-primary/40 hover:text-on-surface"}
+                              : "border-outline-variant/60 text-on-surface-variant hover:border-primary/40 hover:text-on-surface"}
                           `}
                         >
                           {p}
@@ -466,7 +466,7 @@ export default function BugHotspots() {
                         )}
                         <button
                           onClick={() => goToPage(totalPages)}
-                          className="w-7 h-7 rounded-md border border-[#333333] text-on-surface-variant hover:border-primary/40 hover:text-on-surface transition-all text-[10px]"
+                          className="w-7 h-7 rounded-md border border-outline-variant/60 text-on-surface-variant hover:border-primary/40 hover:text-on-surface transition-all text-[10px]"
                         >
                           {totalPages}
                         </button>
@@ -482,8 +482,8 @@ export default function BugHotspots() {
                       flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-code text-[11px] font-bold
                       border transition-all duration-150 select-none
                       ${safePage >= totalPages
-                        ? "border-[#222222] text-on-surface-variant/30 cursor-not-allowed"
-                        : "border-[#333333] text-on-surface hover:bg-white/[0.05] hover:border-primary/40 active:scale-95 cursor-pointer"}
+                        ? "border-outline-variant/40 text-on-surface-variant/30 cursor-not-allowed"
+                        : "border-outline-variant/60 text-on-surface hover:bg-white/[0.05] hover:border-primary/40 active:scale-95 cursor-pointer"}
                     `}
                   >
                     Next
@@ -502,8 +502,8 @@ export default function BugHotspots() {
           {/* ── Side Panel ── */}
           <aside ref={asideRef} className="lg:col-span-4 lg:sticky lg:top-24 transition-all duration-300 self-start w-full">
             {selectedRow ? (
-              <div className="bg-[#111111] border border-[#3A322D] border-t-[#7A5A44] rounded-xl flex flex-col overflow-hidden max-h-[calc(100vh-120px)]">
-                <div className="bg-[#050505] px-4 py-3 border-b border-[#222222] flex items-center justify-between shrink-0">
+              <div className="bg-surface-container border border-outline-variant/40 border-t-primary/40 rounded-xl flex flex-col overflow-hidden max-h-[calc(100vh-120px)]">
+                <div className="bg-background px-4 py-3 border-b border-outline-variant/40 flex items-center justify-between shrink-0">
                   <span className="font-code text-xs text-primary font-bold">Deep File Analysis</span>
                   <span
                     className="material-symbols-outlined text-on-surface-variant text-[16px] cursor-pointer hover:text-on-surface"
@@ -516,13 +516,13 @@ export default function BugHotspots() {
                 <div className="p-4 space-y-6 overflow-y-auto scrollbar-thin">
                   <div className="space-y-1">
                     <p className="font-code text-[9px] text-on-surface-variant uppercase tracking-wider font-bold">PATH</p>
-                    <h4 className="font-code text-xs text-on-surface break-all bg-black/40 border border-[#222222] p-2.5 rounded-sm select-all">
+                    <h4 className="font-code text-xs text-on-surface break-all bg-black/40 border border-outline-variant/40 p-2.5 rounded-sm select-all">
                       {selectedRow.path}
                     </h4>
                   </div>
 
                   <div className="grid grid-cols-2 gap-3">
-                    <div className="bg-[#181818] border border-[#3A322D] border-t-[#7A5A44] p-3 rounded-lg space-y-1">
+                    <div className="bg-surface-container-high border border-outline-variant/40 border-t-primary/40 p-3 rounded-lg space-y-1">
                       <p className="text-[9px] font-code font-bold text-on-surface-variant uppercase">
                         {selectedRow.raw.cyclomatic != null ? "Cyclomatic Code" : "Lines of Code"}
                       </p>
@@ -533,7 +533,7 @@ export default function BugHotspots() {
                         {selectedRow.raw.cyclomatic != null ? "Cyclomatic rating" : "Size proxy"}
                       </p>
                     </div>
-                    <div className="bg-[#181818] border border-[#3A322D] border-t-[#7A5A44] p-3 rounded-lg space-y-1">
+                    <div className="bg-surface-container-high border border-outline-variant/40 border-t-primary/40 p-3 rounded-lg space-y-1">
                       <p className="text-[9px] font-code font-bold text-on-surface-variant uppercase">Change Commits</p>
                       <p className="text-xl font-bold font-code text-on-surface">{selectedRow.raw.commits || "N/A"}</p>
                       <p className="text-[9px] font-code text-on-surface-variant/50 leading-tight">
@@ -582,7 +582,7 @@ export default function BugHotspots() {
                 </div>
               </div>
             ) : (
-              <div className="bg-[#111111] border border-[#3A322D] border-t-[#7A5A44] rounded-xl p-8 text-center space-y-3">
+              <div className="bg-surface-container border border-outline-variant/40 border-t-primary/40 rounded-xl p-8 text-center space-y-3">
                 <span className="material-symbols-outlined text-on-surface-variant opacity-30 text-[48px]">input</span>
                 <p className="text-xs text-on-surface-variant font-code leading-relaxed">
                   Select a hotspot file row in the matrix list to profile structural code complexity metrics and reasons.

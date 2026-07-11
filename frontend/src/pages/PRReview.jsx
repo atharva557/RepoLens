@@ -102,7 +102,7 @@ export default function PRReview() {
     try {
       const res = await getJSON(`/repos/${targetRepo}/pr-reviews`);
       setHistory(res.pr_reviews || []);
-    } catch (e) {
+    } catch {
       // ignore
     }
   }, []);
@@ -200,7 +200,7 @@ export default function PRReview() {
               <button
                 type="submit"
                 disabled={!inputVal.trim()}
-                className="px-6 py-4 bg-primary text-[#141414] font-bold text-[14px] transition-all disabled:opacity-50 hover:bg-primary-container shrink-0"
+                className="px-6 py-4 bg-primary text-on-primary font-bold text-[14px] transition-all disabled:opacity-50 hover:bg-primary-container shrink-0"
               >
                 Review
               </button>
@@ -218,7 +218,7 @@ export default function PRReview() {
 
   if (loading || pollingJobId) {
     return (
-      <div className="min-h-[calc(100vh-52px)] flex items-center justify-center bg-[#0e0e0e] text-on-surface">
+      <div className="min-h-[calc(100vh-52px)] flex items-center justify-center bg-background text-on-surface">
         <div className="text-center space-y-4">
           <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full motion-safe:animate-spin mx-auto"></div>
           <p className="font-code text-label text-on-surface-variant uppercase tracking-widest animate-pulse">
@@ -231,8 +231,8 @@ export default function PRReview() {
 
   if (tokenError) {
     return (
-      <div className="min-h-[calc(100vh-52px)] flex items-center justify-center bg-[#0e0e0e] text-on-surface p-6">
-        <div className="max-w-md w-full bg-surface border border-error p-8 text-center space-y-6 rounded-xl">
+      <div className="min-h-[calc(100vh-52px)] flex items-center justify-center bg-background text-on-surface p-6">
+        <div className="max-w-[28rem] w-full bg-surface border border-error p-8 text-center space-y-6 rounded-xl">
           <span className="material-symbols-outlined text-error text-[64px]">vpn_key_off</span>
           <div className="space-y-2">
             <h2 className="font-code text-heading-lg text-error font-bold">Access Denied</h2>
@@ -253,8 +253,8 @@ export default function PRReview() {
 
   if (error) {
     return (
-      <div className="min-h-[calc(100vh-52px)] flex items-center justify-center bg-[#0e0e0e] text-on-surface p-6">
-        <div className="max-w-md w-full bg-surface border border-outline-variant p-8 text-center space-y-4 rounded-xl">
+      <div className="min-h-[calc(100vh-52px)] flex items-center justify-center bg-background text-on-surface p-6">
+        <div className="max-w-[28rem] w-full bg-surface border border-outline-variant p-8 text-center space-y-4 rounded-xl">
           <span className="material-symbols-outlined text-error text-[54px]">warning</span>
           <h2 className="font-code text-heading-lg text-error font-bold">Review Failed</h2>
           <p className="text-xs text-on-surface-variant leading-relaxed break-words">{error}</p>
@@ -295,7 +295,7 @@ export default function PRReview() {
                  report.level === "MEDIUM" ? "bg-primary" : "bg-green-500";
 
   return (
-    <div className="min-h-screen bg-[#0e0e0e] text-on-surface pb-12">
+    <div className="min-h-screen bg-background text-on-surface pb-12">
       <main className="pt-8 px-gutter max-w-container-max mx-auto space-y-8">
         
         {/* Header */}
@@ -362,7 +362,7 @@ export default function PRReview() {
                 </div>
                 
                 {/* Formula Text */}
-                <div className="font-code text-[11px] bg-[#0a0a0a] border border-[#222222] p-2.5 rounded-sm overflow-x-auto whitespace-nowrap text-on-surface/90">
+                <div className="font-code text-[11px] bg-background border border-outline-variant/40 p-2.5 rounded-sm overflow-x-auto whitespace-nowrap text-on-surface/90">
                   {breakdownText || `Score = ${totalScore.toFixed(2)} → ${report.level}`}
                 </div>
               </div>
@@ -451,7 +451,7 @@ export default function PRReview() {
                   </span>
                 </button>
                 {showMarkdown && (
-                  <div className="p-6 border-t border-outline-variant bg-[#0a0a0a]">
+                  <div className="p-6 border-t border-outline-variant bg-background">
                     <SimpleMarkdown text={report.markdown} />
                   </div>
                 )}
@@ -470,7 +470,7 @@ export default function PRReview() {
                     <Link
                       key={h.number}
                       to={`/pr-review?repo=${repo}&pr=${h.number}`}
-                      className={`block p-3 border rounded-lg transition-colors ${h.number.toString() === pr ? "bg-primary/10 border-primary text-primary font-bold" : "bg-[#111111] border-outline-variant hover:border-primary/50 text-on-surface"}`}
+                      className={`block p-3 border rounded-lg transition-colors ${h.number.toString() === pr ? "bg-primary/10 border-primary text-primary font-bold" : "bg-surface-container border-outline-variant hover:border-primary/50 text-on-surface"}`}
                     >
                       <div className="flex justify-between items-center mb-1">
                         <span className="font-code text-sm">#{h.number}</span>
@@ -489,7 +489,7 @@ export default function PRReview() {
                   ))}
                 </div>
               ) : (
-                <p className="text-xs text-on-surface-variant font-code p-4 text-center bg-[#111111] border border-outline-variant/30 rounded-lg">
+                <p className="text-xs text-on-surface-variant font-code p-4 text-center bg-surface-container border border-outline-variant/30 rounded-lg">
                   No other PRs reviewed for this repository yet.
                 </p>
               )}
