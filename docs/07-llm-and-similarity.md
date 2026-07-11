@@ -42,6 +42,20 @@ Two availability semantics on purpose: cloud providers just check for a key
 `LLMUnavailable`, which callers catch to skip the feature with a clear
 message. CLI option 7 (`test-llm`) and `GET /test` surface all of this.
 
+**A reachable server is not a usable one.** LM Studio answers `/models` happily
+with nothing loaded, and then every `generate()` dies with *"No models loaded"*.
+So `LocalProvider.available()` additionally verifies that a chat model is
+actually loaded and that `LLM_MODEL` names a model that exists — otherwise it
+reports unavailable and prints exactly what is wrong. Two traps it catches:
+
+- `LLM_MODEL` must be LM Studio's **exact id, publisher prefix included**
+  (`google/gemma-4-e4b`, not `gemma-4-e4b`). A near-miss id would otherwise let
+  autoload silently load a *different* model.
+- A downloaded-but-not-loaded model is not usable unless `LOCAL_LLM_AUTOLOAD=true`.
+
+Servers that are not LM Studio (no `/api/v0` endpoint — Ollama, llama.cpp) skip
+this check and simply trust the ping.
+
 ### LM Studio model autoload (opt-in)
 
 With `LOCAL_LLM_AUTOLOAD=true`, the local provider fixes the most common

@@ -130,6 +130,44 @@ def test_bug_credit_only_for_code_files():
     print("  ok: bug credit only for code files")
 
 
+def test_clone_failure_message_names_the_real_cause():
+    """A repo that cannot be cloned must say *why*. Swallowing the exception
+    turned "GitPython isn't installed" into a baffling "no cached commits",
+    which only ever surfaces on a repo that was never analyzed before."""
+    from types import SimpleNamespace
+
+    from core.analysis import _clone_hint, run_hotspot_analysis
+
+    assert _clone_hint(None) == ""
+
+    hint = _clone_hint(ModuleNotFoundError("No module named 'git'", name="git"))
+    assert "GitPython is not installed" in hint and "pip install GitPython" in hint
+
+    assert "ValueError: bad url" in _clone_hint(ValueError("bad url"))
+
+    # end-to-end: an unclonable target with nothing cached surfaces the reason
+    class _EmptyStore:
+        backend = "fake"
+
+        def load_commits(self, key):
+            return []
+
+    settings = SimpleNamespace(cache_dir="data/cache", bug_keywords=["fix"],
+                               churn_window_days=30,
+                               hotspot_recency_halflife_days=30,
+                               ml_model_path="does-not-exist.json",
+                               github_token="")
+    try:
+        run_hotspot_analysis("not-a-repo-or-url", settings, _EmptyStore())
+    except SystemExit as exc:
+        msg = str(exc)
+        assert "Cannot analyze" in msg and "could not be opened" in msg
+        assert "ValueError" in msg          # the real cause, not a generic line
+    else:
+        raise AssertionError("expected SystemExit for an unclonable repo")
+    print("  ok: clone failure explains the real cause")
+
+
 def _run_all():
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     print(f"running {len(fns)} test(s)...")

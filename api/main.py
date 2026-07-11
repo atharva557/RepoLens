@@ -34,7 +34,7 @@ from api.webhook import REVIEW_ACTIONS, review_pr_from_payload, verify_signature
 from config.settings import Settings
 from core.activity import build_activity
 from core.analysis import run_hotspot_analysis
-from core.db import open_store
+from core.db import open_store, report_age_hours
 from core.identity import open_identity
 from core.github_client import get_repo_meta
 from core.insights import run_repo_insights
@@ -413,40 +413,25 @@ def create_app(settings: Settings | None = None, store=None, identity=None) -> F
 
     @app.get("/profiles/{username}")
     def profile(username: str, request: Request):
+        # Pure read: 404 when not built yet (its detail names the POST to run).
+        # Building is the async trigger POST /profiles/{username} — a GET must
+        # never block on a multi-minute live build (browsers/proxies time out),
+        # and the dashboard already turns this 404 into that POST + job poll.
         st = request.app.state
         try:
             doc = st.store.load_report("developer_profile", username)
         except Exception as e:
             raise HTTPException(500, f"Database read failure: {e}")
-
         if doc is None:
-            _require_token(st.settings)
-            try:
-                doc = run_developer_profile(username, st.settings, st.store)
-            except Exception as e:
-                # Map specific GitHub exceptions if raised
-                try:
-                    # pyrefly: ignore [missing-import]
-                    from github import GithubException, UnknownObjectException, RateLimitExceededException
-                    if isinstance(e, UnknownObjectException):
-                        raise HTTPException(404, f"GitHub user '{username}' not found. Please verify the URL.")
-                    elif isinstance(e, RateLimitExceededException):
-                        raise HTTPException(429, "GitHub API rate limit exceeded. Please wait a few minutes and try again.")
-                    elif isinstance(e, GithubException):
-                        raise HTTPException(502, f"GitHub API error: {e.data.get('message', str(e)) if hasattr(e, 'data') else str(e)}")
-                except ImportError:
-                    pass
+            raise HTTPException(404, f"no profile for '{username}' — POST /profiles/{username} first")
 
-                # Fallback check by name string
-                etype = type(e).__name__
-                if "UnknownObjectException" in etype:
-                    raise HTTPException(404, f"GitHub user '{username}' not found. Please verify the URL.")
-                elif "RateLimitExceededException" in etype:
-                    raise HTTPException(429, "GitHub API rate limit exceeded. Please wait a few minutes and try again.")
-                elif "GithubException" in etype:
-                    raise HTTPException(502, f"GitHub API error: {e}")
-                else:
-                    raise HTTPException(500, f"Failed to build developer profile: {e}")
+        # Freshness is computed on read, never stored — a persisted "stale"
+        # flag would itself go stale. Lets the UI offer "synced 3d ago — refresh"
+        # (POST /profiles/{username}) instead of silently showing old data.
+        age = report_age_hours(doc)
+        max_age = getattr(st.settings, "profile_cache_hours", 24)
+        doc["age_hours"] = round(age, 1) if age is not None else None
+        doc["stale"] = bool(age is not None and age > max_age)
         return doc
 
     # ------------------------------------------------- auth & account (v2)

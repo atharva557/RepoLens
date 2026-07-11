@@ -7,7 +7,7 @@ optional LLM summary. Pure stdlib aside from the optional LLM call.
 from __future__ import annotations
 
 from collections import Counter
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 from tools.commit_quality.scorer import score_message
 from tools.dev_profiler.classifier import classify
@@ -19,7 +19,7 @@ def _commit_quality(commits: list[dict]) -> float:
     return round(sum(scores) / len(scores), 1) if scores else 0.0
 
 
-def _daily_heatmap(commits: list[dict], days: int = 365) -> list[dict]:
+def _daily_heatmap(commits: list[dict]) -> list[dict]:
     """Per-day commit counts over all history — the profile heatmap."""
     daily: Counter = Counter()
     for c in commits:

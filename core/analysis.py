@@ -24,6 +24,25 @@ from tools.bug_hotspot.ml_scorer import load_model
 from tools.bug_hotspot.scorer import score_files
 
 
+def _clone_hint(exc: Exception | None) -> str:
+    """Explain *why* the repository could not be opened, actionably.
+
+    The common cause is an interpreter that lacks GitPython — the server then
+    starts happily (FastAPI is installed), serves already-cached repos, and
+    fails only on new ones, which is a maddening way to learn about it.
+    """
+    if exc is None:
+        return ""
+    if isinstance(exc, ModuleNotFoundError) and getattr(exc, "name", "") == "git":
+        import sys as _sys
+
+        return (" GitPython is not installed in the interpreter running this "
+                f"server ({_sys.executable}) - install it with "
+                f"'{_sys.executable} -m pip install GitPython', or start the "
+                "server with the interpreter that has the project's requirements.")
+    return f" Reason: {type(exc).__name__}: {exc}"
+
+
 def run_hotspot_analysis(
     target: str,
     settings,
@@ -48,6 +67,7 @@ def run_hotspot_analysis(
     report = reporter_or_print(progress)
 
     local_path = None
+    clone_error: Exception | None = None
     try:
         # an explicit refresh also pulls the cached clone, so "refresh" truly
         # means "go back to GitHub", not "re-read the same stale history"
@@ -58,6 +78,7 @@ def run_hotspot_analysis(
         # derived key. Complexity metrics will be unavailable in this mode.
         from core.github_client import repo_key as _rk
 
+        clone_error = exc
         key = _rk(target)
         print(f"  [warn] {exc}; using cached data only for '{key}'")
 
@@ -65,8 +86,12 @@ def run_hotspot_analysis(
     commits = [] if refresh else store.load_commits(key)
     if not commits:
         if local_path is None:
+            # Carry the real reason. Swallowing it here turned "GitPython isn't
+            # installed" / "clone failed" into a baffling "no cached commits",
+            # which is only ever hit on a repo we have never analyzed.
             raise SystemExit(
-                f"No cached commits for '{key}' and no local repo to pull from."
+                f"Cannot analyze '{key}': it has no cached commits and the "
+                f"repository could not be opened.{_clone_hint(clone_error)}"
             )
         commits = fetch_and_store_commits(
             local_path, key, store,
@@ -121,6 +146,20 @@ def run_hotspot_analysis(
             ml_used = True
         except Exception as exc:
             print(f"  [warn] ML second opinion skipped: {type(exc).__name__}: {exc}")
+
+    # 7. an explicit refresh means "go back to GitHub" for everything about
+    # this repo, not just its commits — otherwise the dashboard header keeps
+    # showing the stars/forks/description captured on the very first analysis.
+    # Best-effort: metadata needs a token, and a public repo analyzes fine
+    # without one.
+    if refresh and "/" in key and settings.github_token:
+        try:
+            from core.github_client import get_repo_meta
+
+            report("refreshing repo metadata (GitHub)")
+            get_repo_meta(key, settings, store, refresh=True)
+        except Exception as exc:
+            print(f"  [warn] repo metadata refresh skipped: {type(exc).__name__}: {exc}")
 
     # persist the report
     report("saving report (database)", pct=100)

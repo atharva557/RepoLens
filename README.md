@@ -5,6 +5,13 @@ See [CHANGELOG.md](CHANGELOG.md) for the per-version breakdown, and
 [docs/](docs/README.md) for the technical documentation (architecture, data
 model, per-tool internals, API, configuration, testing).
 
+Two capstone documents:
+- **[PITCH.md](PITCH.md)** — the non-technical guide: explain, demo, and
+  defend the project without programming knowledge.
+- **[TECHNICAL_DEEP_DIVE.md](TECHNICAL_DEEP_DIVE.md)** — the engineering
+  "why": every major decision with its alternatives, the live-demo slowdown
+  map, security posture, limitations.
+
 It follows the *revised* architecture (see `../GitPulse_Revised_Sections.md`):
 
 - **MongoDB** as the primary datastore (with a transparent JSON-file fallback so
@@ -93,9 +100,32 @@ Each component is min-max normalized across the repo, so the result is a
 *relative* ranking within that repository. Every score ships with plain-English
 reasons.
 
+## Troubleshooting
+
+**"Cannot analyze 'owner/repo': it has no cached commits and the repository
+could not be opened."** — the interpreter running the server does not have
+**GitPython**. This is easy to hit when `python` on your PATH resolves to an
+unrelated virtualenv that happens to have FastAPI: the server starts, serves
+repos that are already cached, and fails on every *new* one. The error now
+prints the offending interpreter path. Fix it with
+`python -m pip install -r requirements.txt`, or launch via `run.bat`, which
+refuses any interpreter lacking GitPython.
+
+**AI features do nothing (`local` provider).** LM Studio can be running with
+*no model loaded*, and `LLM_MODEL` must be its **exact id including the
+publisher prefix** (`google/gemma-4-e4b`, not `gemma-4-e4b`). Set
+`LOCAL_LLM_AUTOLOAD=true` to have RepoLens load a model for you. Check with
+CLI option 7 (`test-llm`) or `GET /test`.
+
+**Dashboard shows old/empty data.** If `pymongo` is missing from the running
+interpreter, the API silently falls back to the JSON cache in `data/cache/`
+instead of MongoDB. `GET /health` reports which store is active.
+
 ## Quick start
 
 ```bash
+# 0. easiest: double-click run.bat  (starts API + dashboard, checks deps)
+
 # 1. (optional) create a virtualenv
 python -m venv venv
 venv\Scripts\activate          # Windows  (source venv/bin/activate on *nix)

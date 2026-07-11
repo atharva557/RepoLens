@@ -159,7 +159,10 @@ def test_runner_reuses_fresh_cached_profile():
     print("  ok: runner cache (fresh hit, stale hit, refresh bypass, token-less)")
 
 
-def test_repo_meta_is_database_first():
+def test_repo_meta_is_cached_with_a_ttl():
+    """Repo metadata is cheap to refetch, so it is cached *with a TTL* rather
+    than forever: a fresh copy is free, a stale one refreshes itself. Caching
+    it forever froze the dashboard's stars/description at the first analysis."""
     import core.github_client as ghc
 
     class Sentinel(Exception):
@@ -175,17 +178,26 @@ def test_repo_meta_is_database_first():
     orig = ghc.GitHubAPI
     ghc.GitHubAPI = _NoNetAPI
     try:
+        now = datetime.now(timezone.utc)
+        fresh = {"full_name": "o/r", "stars": 5,
+                 "generated_at": now - timedelta(hours=1)}
         month_old = {"full_name": "o/r", "stars": 5,
-                     "generated_at": datetime.now(timezone.utc) - timedelta(days=30)}
+                     "generated_at": now - timedelta(days=30)}
         settings = _settings(github_token="tok", profile_cache_hours=24)
 
-        # database-first: even a month-old cached doc is served, GitHub untouched
-        assert ghc.get_repo_meta("o/r", settings, _FakeStore(month_old)) is month_old
+        # within the TTL: served from the store, GitHub untouched
+        assert ghc.get_repo_meta("o/r", settings, _FakeStore(fresh)) is fresh
         assert calls == []
 
-        # refresh=True attempts GitHub; on failure the stale copy still wins
-        assert ghc.get_repo_meta("o/r", settings, _FakeStore(month_old),
-                                 refresh=True) is month_old
+        # past the TTL: refetch is attempted; when GitHub fails the stale copy
+        # still wins (a broken refresh must never blank the dashboard)
+        assert ghc.get_repo_meta("o/r", settings, _FakeStore(month_old)) is month_old
+        assert calls == ["fetch"]
+
+        # refresh=True refetches even a cache that is still fresh
+        calls.clear()
+        assert ghc.get_repo_meta("o/r", settings, _FakeStore(fresh),
+                                 refresh=True) is fresh
         assert calls == ["fetch"]
 
         # nothing cached -> the first fetch must go to GitHub
@@ -202,7 +214,7 @@ def test_repo_meta_is_database_first():
         assert calls == []
     finally:
         ghc.GitHubAPI = orig
-    print("  ok: repo meta is database-first (stale hit, refresh path, first fetch)")
+    print("  ok: repo meta cached with a TTL (fresh hit, stale refetch, forced refresh)")
 
 
 def _run_all():

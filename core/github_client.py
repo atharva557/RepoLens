@@ -277,17 +277,25 @@ class GitHubAPI:
 def get_repo_meta(repo_key: str, settings, store, *, refresh: bool = False) -> dict | None:
     """Store-cached GitHub metadata for the dashboard header.
 
-    Database-first: anything cached is served as-is, whatever its age. GitHub
-    is called only on the *first* fetch or on an explicit `refresh=True` (the
-    dashboard's "sync from GitHub" button). Only 'owner/repo' keys have a
-    GitHub side — bare local-clone keys (and runs without a token) get
-    whatever is cached, or None.
+    Cache-with-TTL, not cache-forever: stars, forks, description and languages
+    all drift upstream, and a refetch is two cheap API calls. A cached copy is
+    served while it is younger than `PROFILE_CACHE_HOURS`; past that it
+    refreshes itself, so the dashboard shows live GitHub data without the user
+    having to ask. `refresh=True` forces a refetch regardless of age.
+
+    Only 'owner/repo' keys have a GitHub side — bare local-clone keys (and runs
+    without a token) get whatever is cached, or None.
     """
+    from core.db import report_age_hours
+
     cached = store.load_report("repo_meta", repo_key)
     if "/" not in repo_key or not settings.github_token:
         return cached
     if cached and not refresh:
-        return cached
+        age = report_age_hours(cached)
+        max_age = getattr(settings, "profile_cache_hours", 24)
+        if age is not None and age <= max_age:
+            return cached
     try:
         meta = GitHubAPI(settings.github_token).repo_meta(repo_key)
     except Exception as exc:

@@ -159,6 +159,58 @@ def test_local_autoload_flow():
     print("  ok: local autoload flow (resolve, load, fallback, degrade)")
 
 
+def test_local_available_is_honest_about_loaded_models():
+    """A reachable LM Studio with nothing loaded must NOT report available:
+    generate() would die with "No models loaded", so a True here is a false
+    green that makes every AI feature look silently broken."""
+    llm = get_llm(_settings())            # autoload off
+    llm._client = lambda: SimpleNamespace(models=SimpleNamespace(list=lambda: None))
+
+    # server up, nothing loaded -> unavailable
+    llm._downloaded_models = lambda: [{"id": "m", "type": "llm", "state": "not-loaded"}]
+    assert llm.available() is False
+
+    # a loaded chat model -> available
+    llm._downloaded_models = lambda: [{"id": "m", "type": "llm", "state": "loaded"}]
+    assert llm.available() is True
+
+    # an embeddings-only server cannot answer chat -> unavailable
+    llm._downloaded_models = lambda: [{"id": "e", "type": "embeddings", "state": "loaded"}]
+    assert llm.available() is False
+
+    # LLM_MODEL naming a model that isn't downloaded (the missing "google/"
+    # prefix case) -> unavailable, instead of failing later inside generate()
+    named = get_llm(_settings(llm_model="gemma-4-e4b"))
+    named._client = llm._client
+    named._downloaded_models = lambda: [
+        {"id": "google/gemma-4-e4b", "type": "vlm", "state": "loaded"}]
+    assert named.available() is False
+
+    # ...and the exact id resolves
+    exact = get_llm(_settings(llm_model="google/gemma-4-e4b"))
+    exact._client = llm._client
+    exact._downloaded_models = named._downloaded_models
+    assert exact.available() is True
+
+    # downloaded but not loaded -> unavailable (autoload would fix it)
+    cold = get_llm(_settings(llm_model="google/gemma-4-e4b"))
+    cold._client = llm._client
+    cold._downloaded_models = lambda: [
+        {"id": "google/gemma-4-e4b", "type": "vlm", "state": "not-loaded"}]
+    assert cold.available() is False
+
+    # a non-LM-Studio OpenAI-compatible server has no /api/v0 -> trust the ping
+    other = get_llm(_settings())
+    other._client = llm._client
+
+    def _no_api_v0():
+        raise OSError("404")
+
+    other._downloaded_models = _no_api_v0
+    assert other.available() is True
+    print("  ok: local available() verifies a model can actually serve")
+
+
 def test_fake_provider():
     fake = FakeProvider(response="hello")
     assert fake.available() is True
