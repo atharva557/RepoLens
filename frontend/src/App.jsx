@@ -5,6 +5,8 @@ import Loading from "./pages/Loading";
 import Dashboard from "./pages/Dashboard";
 import BugHotspots from "./pages/BugHotspots";
 import DeveloperProfile from "./pages/DeveloperProfile";
+import PRReview from "./pages/PRReview";
+import Status from "./pages/Status";
 import Navbar from "./components/Navbar";
 
 export const ThemeContext = createContext();
@@ -33,6 +35,8 @@ export default function App() {
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/hotspots" element={<BugHotspots />} />
           <Route path="/profile" element={<DeveloperProfile />} />
+          <Route path="/pr-review" element={<PRReview />} />
+          <Route path="/status" element={<Status />} />
           </Routes>
         </div>
       </BrowserRouter>

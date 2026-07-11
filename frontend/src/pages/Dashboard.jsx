@@ -1,7 +1,9 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { getJSON, postJSON } from "../lib/api";
-import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
+import { loadRepoSettings, saveRepoSettings } from "../lib/settings";
+import SyncBadge from "../components/SyncBadge";
+import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar } from "recharts";
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -27,7 +29,8 @@ function timeAgo(dateString) {
 
 // ─── Commit Quality Modal ────────────────────────────────────────────────────
 
-function CommitQualityModal({ quality, onClose, onRerun, triggeringQuality }) {
+function CommitQualityModal({ quality, activity, onClose, onRerun, triggeringQuality }) {
+  const [activeTab, setActiveTab] = useState("overview");
   const [search, setSearch] = useState("");
   const modalRef = useRef(null);
 
@@ -86,82 +89,166 @@ function CommitQualityModal({ quality, onClose, onRerun, triggeringQuality }) {
           </button>
         </div>
 
-        {/* Search bar */}
-        <div className="px-6 py-3 border-b border-outline-variant/50 bg-[#141414] shrink-0">
-          <div className="relative">
-            <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-[16px] text-on-surface-variant/60">
-              search
-            </span>
-            <input
-              type="text"
-              placeholder="Search commit message or hash…"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="w-full bg-surface-container border border-outline-variant rounded-lg pl-9 pr-3 py-2 text-[12px] font-code text-on-surface placeholder-on-surface-variant/40 focus:outline-none focus:border-primary transition-colors"
-            />
-          </div>
+        {/* Tabs */}
+        <div className="px-6 pt-2 border-b border-outline-variant bg-[#141414] shrink-0 flex gap-6">
+          {[
+            { id: "overview", label: "Overview" },
+            { id: "contributors", label: "Contributors" },
+            { id: "worst", label: "Worst Commits" },
+          ].map(tab => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={`pb-2 text-[12px] font-code font-bold uppercase tracking-wider transition-colors border-b-2 ${
+                activeTab === tab.id ? "border-primary text-primary" : "border-transparent text-on-surface-variant hover:text-on-surface"
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
         </div>
 
-        {/* Scrollable commit list */}
-        <div className="overflow-y-auto flex-1 px-6 py-4 space-y-3 scrollbar-thin">
-          {filtered.length === 0 && (
-            <div className="text-center py-12 text-on-surface-variant font-code text-xs">
-              No commits match your search.
+        {activeTab === "overview" && (
+          <div className="flex-1 overflow-y-auto p-6 flex flex-col items-center justify-center gap-8">
+            <div className="flex flex-col md:flex-row items-center justify-center gap-12 w-full">
+              {/* Big Dial */}
+              <div className="flex flex-col items-center">
+                <div
+                  className="relative w-48 h-48 rounded-full flex items-center justify-center shadow-xl"
+                  style={{
+                    background: `radial-gradient(closest-side, #141414 79%, transparent 80% 100%), conic-gradient(#D4855A ${
+                      ((quality?.avg_score || 0) / 10) * 100
+                    }%, #222222 0)`
+                  }}
+                >
+                  <div className="flex flex-col items-center">
+                    <span className="font-stat text-5xl font-bold text-primary">{quality?.avg_score?.toFixed(1) || 0}</span>
+                    <span className="font-code text-[10px] text-on-surface-variant uppercase tracking-widest mt-1">Avg Score</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Radar Chart */}
+              <div className="w-[300px] h-[250px]">
+                <ResponsiveContainer width="100%" height="100%">
+                  <RadarChart
+                    cx="50%" cy="50%" outerRadius="70%"
+                    data={[
+                      { subject: "Score", A: (quality?.avg_score || 0) * 10, fullMark: 100 },
+                      { subject: "Imperative", A: quality?.pct_imperative || 0, fullMark: 100 },
+                      { subject: "Referenced", A: quality?.pct_referenced || 0, fullMark: 100 },
+                      { subject: "Clean", A: quality?.commits ? ((quality.commits - (quality.weak || 0)) / quality.commits) * 100 : 0, fullMark: 100 },
+                    ]}
+                  >
+                    <PolarGrid stroke="rgba(255,255,255,0.1)" />
+                    <PolarAngleAxis dataKey="subject" tick={{ fill: 'rgba(255,255,255,0.5)', fontSize: 10, fontFamily: 'monospace' }} />
+                    <PolarRadiusAxis angle={30} domain={[0, 100]} tick={false} axisLine={false} />
+                    <Radar name="Quality" dataKey="A" stroke="#D4855A" fill="#D4855A" fillOpacity={0.3} />
+                  </RadarChart>
+                </ResponsiveContainer>
+              </div>
             </div>
-          )}
-          {filtered.map((wc, idx) => {
-            const colors = scoreColor(wc.score);
-            return (
-              <div
-                key={wc.sha}
-                className="bg-surface-container border border-outline-variant/50 rounded-lg p-4 space-y-3 hover:border-outline-variant transition-colors"
-              >
-                {/* Card header */}
-                <div className="flex items-start justify-between gap-3">
-                  <div className="space-y-1 flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-[10px] font-code text-on-surface-variant/50">#{idx + 1}</span>
-                      <code className="text-[11px] font-code text-primary/70 bg-black/30 px-2 py-0.5 rounded border border-outline-variant/30 select-all">
-                        {wc.sha?.slice(0, 8)}
-                      </code>
+          </div>
+        )}
+
+        {activeTab === "contributors" && (
+          <div className="flex-1 overflow-y-auto p-6 scrollbar-thin">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {activity?.contributors?.map(c => (
+                <div key={c.author} className="flex items-center gap-3 p-3 bg-surface-container border border-outline-variant/50 rounded-lg hover:border-outline-variant transition-colors">
+                  <div className="w-10 h-10 shrink-0 rounded-full bg-primary/10 flex items-center justify-center font-code font-bold text-primary border border-primary/20">
+                    {c.author.slice(0, 2).toUpperCase()}
+                  </div>
+                  <div className="flex flex-col min-w-0">
+                    <span className="font-code font-bold text-[13px] text-on-surface truncate">{c.author}</span>
+                    <span className="font-code text-[10px] text-on-surface-variant">{c.commits} commits</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {activeTab === "worst" && (
+          <div className="flex flex-col flex-1 min-h-0">
+            {/* Search bar */}
+            <div className="px-6 py-3 border-b border-outline-variant/50 bg-[#141414] shrink-0">
+              <div className="relative">
+                <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-[16px] text-on-surface-variant/60">
+                  search
+                </span>
+                <input
+                  type="text"
+                  placeholder="Search commit message or hash…"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="w-full bg-surface-container border border-outline-variant rounded-lg pl-9 pr-3 py-2 text-[12px] font-code text-on-surface placeholder-on-surface-variant/40 focus:outline-none focus:border-primary transition-colors"
+                />
+              </div>
+            </div>
+
+            {/* Scrollable commit list */}
+            <div className="overflow-y-auto flex-1 px-6 py-4 space-y-3 scrollbar-thin">
+              {filtered.length === 0 && (
+                <div className="text-center py-12 text-on-surface-variant font-code text-xs">
+                  No commits match your search.
+                </div>
+              )}
+              {filtered.map((wc, idx) => {
+                const colors = scoreColor(wc.score);
+                return (
+                  <div
+                    key={wc.sha}
+                    className="bg-surface-container border border-outline-variant/50 rounded-lg p-4 space-y-3 hover:border-outline-variant transition-colors"
+                  >
+                    {/* Card header */}
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="space-y-1 flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-[10px] font-code text-on-surface-variant/50">#{idx + 1}</span>
+                          <code className="text-[11px] font-code text-primary/70 bg-black/30 px-2 py-0.5 rounded border border-outline-variant/30 select-all">
+                            {wc.sha?.slice(0, 8)}
+                          </code>
+                        </div>
+                        <p className="text-[13px] font-code text-on-surface font-medium leading-snug">
+                          {wc.subject}
+                        </p>
+                        {wc.author && (
+                          <p className="text-[10px] text-on-surface-variant/50 font-code">
+                            by {wc.author}
+                          </p>
+                        )}
+                      </div>
+                      <span
+                        className={`shrink-0 text-[13px] font-bold font-code px-3 py-1 rounded-full border ${colors.badge}`}
+                      >
+                        {wc.score}/10
+                      </span>
                     </div>
-                    <p className="text-[13px] font-code text-on-surface font-medium leading-snug">
-                      {wc.subject}
-                    </p>
-                    {wc.author && (
-                      <p className="text-[10px] text-on-surface-variant/50 font-code">
-                        by {wc.author}
-                      </p>
+
+                    {/* Issues */}
+                    {wc.issues && wc.issues.length > 0 && (
+                      <div className="space-y-1 pt-1 border-t border-outline-variant/30">
+                        <p className="text-[9px] font-code text-on-surface-variant uppercase tracking-widest font-bold">Issues</p>
+                        <ul className="space-y-1">
+                          {wc.issues.map((issue, i) => (
+                            <li
+                              key={i}
+                              className="flex items-start gap-2 text-[11px] text-on-surface-variant leading-snug"
+                            >
+                              <span className="text-error mt-0.5 shrink-0">•</span>
+                              <span>{issue}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
                     )}
                   </div>
-                  <span
-                    className={`shrink-0 text-[13px] font-bold font-code px-3 py-1 rounded-full border ${colors.badge}`}
-                  >
-                    {wc.score}/10
-                  </span>
-                </div>
-
-                {/* Issues */}
-                {wc.issues && wc.issues.length > 0 && (
-                  <div className="space-y-1 pt-1 border-t border-outline-variant/30">
-                    <p className="text-[9px] font-code text-on-surface-variant uppercase tracking-widest font-bold">Issues</p>
-                    <ul className="space-y-1">
-                      {wc.issues.map((issue, i) => (
-                        <li
-                          key={i}
-                          className="flex items-start gap-2 text-[11px] text-on-surface-variant leading-snug"
-                        >
-                          <span className="text-error mt-0.5 shrink-0">•</span>
-                          <span>{issue}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {/* Footer */}
         <div className="px-6 py-3 border-t border-outline-variant/50 flex items-center justify-between bg-[#141414] shrink-0">
@@ -238,8 +325,8 @@ function SettingsModal({ settingsForm, setSettingsForm, onSave, onClose }) {
             </label>
             <input
               type="number"
-              value={settingsForm.maxCommits}
-              onChange={(e) => setSettingsForm({ ...settingsForm, maxCommits: e.target.value })}
+              value={settingsForm.max_commits || ""}
+              onChange={(e) => setSettingsForm({ ...settingsForm, max_commits: e.target.value })}
               className="w-full bg-surface-container border border-outline-variant rounded-lg px-4 py-3 text-[13px] font-code text-on-surface placeholder-on-surface-variant/40 focus:outline-none focus:border-primary transition-colors"
               placeholder="e.g. 250"
             />
@@ -254,8 +341,8 @@ function SettingsModal({ settingsForm, setSettingsForm, onSave, onClose }) {
             </label>
             <input
               type="number"
-              value={settingsForm.topCount}
-              onChange={(e) => setSettingsForm({ ...settingsForm, topCount: e.target.value })}
+              value={settingsForm.top || ""}
+              onChange={(e) => setSettingsForm({ ...settingsForm, top: e.target.value })}
               className="w-full bg-surface-container border border-outline-variant rounded-lg px-4 py-3 text-[13px] font-code text-on-surface placeholder-on-surface-variant/40 focus:outline-none focus:border-primary transition-colors"
               placeholder="e.g. 15"
             />
@@ -311,24 +398,17 @@ export default function Dashboard() {
   const [showSettings, setShowSettings] = useState(false);
   const [showQualityModal, setShowQualityModal] = useState(false);
 
-  const [settingsForm, setSettingsForm] = useState(() => {
-    try {
-      const saved = localStorage.getItem("repolens_config");
-      return saved ? JSON.parse(saved) : { maxCommits: "250", topCount: "15" };
-    } catch {
-      return { maxCommits: "250", topCount: "15" };
-    }
-  });
+  const [settingsForm, setSettingsForm] = useState(() => loadRepoSettings(repo));
 
   const insightsTimerRef = useRef(null);
   const qualityTimerRef = useRef(null);
 
   const getParsedSettings = useCallback(() => {
-    const maxVal = parseInt(settingsForm.maxCommits, 10);
-    const topVal = parseInt(settingsForm.topCount, 10);
+    const maxVal = parseInt(settingsForm.max_commits, 10);
+    const topVal = parseInt(settingsForm.top, 10);
     return {
       max_commits: isNaN(maxVal) ? undefined : maxVal,
-      top: isNaN(topVal) ? 15 : topVal,
+      top: isNaN(topVal) ? 50 : topVal,
     };
   }, [settingsForm]);
 
@@ -495,7 +575,7 @@ export default function Dashboard() {
   };
 
   const handleSaveSettings = () => {
-    try { localStorage.setItem("repolens_config", JSON.stringify(settingsForm)); } catch { }
+    saveRepoSettings(repo, settingsForm);
     setShowSettings(false);
     handleReAnalyze();
   };
@@ -532,7 +612,7 @@ export default function Dashboard() {
     return (
       <div className="min-h-[calc(100vh-52px)] flex items-center justify-center bg-[#0e0e0e] text-on-surface">
         <div className="text-center space-y-4">
-          <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto" />
+          <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full motion-safe:animate-spin mx-auto" />
           <p className="font-code text-label text-on-surface-variant uppercase tracking-widest animate-pulse">
             Loading dashboard…
           </p>
@@ -663,6 +743,7 @@ export default function Dashboard() {
       {showQualityModal && hasQuality && (
         <CommitQualityModal
           quality={quality}
+          activity={activity}
           onClose={() => setShowQualityModal(false)}
           onRerun={handleTriggerQuality}
           triggeringQuality={triggeringQuality}
@@ -679,6 +760,7 @@ export default function Dashboard() {
                 <h1 className="text-heading-lg text-3xl font-bold leading-none tracking-tight">
                   {hasMeta ? meta.full_name : repo}
                 </h1>
+                <SyncBadge timestamp={hasMeta ? meta.generated_at : undefined} onRefresh={handleReAnalyze} />
                 {hasMeta && (
                   <div className="flex items-center gap-1.5 px-2.5 py-1 bg-surface-container-high border border-outline-variant/50 rounded-full">
                     <span
@@ -1039,7 +1121,7 @@ export default function Dashboard() {
                 <div className="text-center py-6 space-y-3 font-code">
                   {data.quality?.generating ? (
                     <>
-                      <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin mx-auto" />
+                      <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full motion-safe:animate-spin mx-auto" />
                       <p className="text-xs text-on-surface-variant animate-pulse">Running quality analysis…</p>
                     </>
                   ) : (

@@ -254,9 +254,9 @@ body {
 }
 
 .contribution-cell {
-  width: 12px;
-  height: 12px;
-  border-radius: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
 }
 .terminal-header {
   background: #050505;

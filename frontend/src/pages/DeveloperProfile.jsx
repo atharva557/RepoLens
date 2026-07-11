@@ -1,6 +1,7 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { getJSON, postJSON } from "../lib/api";
+import SyncBadge from "../components/SyncBadge";
 
 
 function formatNumber(num) {
@@ -106,6 +107,111 @@ export default function DeveloperProfile() {
     }
   };
 
+  const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
+  const availableYears = useMemo(() => {
+    const heatmapData = data?.heatmap || [];
+    const yearsSet = new Set();
+    heatmapData.forEach(h => {
+      if (h.date) {
+        const yr = parseInt(h.date.split("-")[0], 10);
+        if (!isNaN(yr)) yearsSet.add(yr);
+      }
+    });
+    if (yearsSet.size === 0) {
+      yearsSet.add(new Date().getFullYear());
+    }
+    return Array.from(yearsSet).sort((a, b) => b - a);
+  }, [data]);
+
+  const heatmapCells = useMemo(() => {
+    if (!data?.heatmap) return null;
+
+    const hasContributions = data.heatmap.some(h => {
+      if (!h.date) return false;
+      const yr = parseInt(h.date.split("-")[0], 10);
+      return yr === selectedYear && h.count > 0;
+    });
+
+    if (!hasContributions) return null;
+
+    const cells = [];
+    const heatmapLookup = {};
+    data.heatmap.forEach((h) => {
+      heatmapLookup[h.date] = h.count;
+    });
+
+    const jan1 = new Date(Date.UTC(selectedYear, 0, 1));
+    const startPadding = jan1.getUTCDay();
+
+    for (let i = 0; i < startPadding; i++) {
+      cells.push({ isPadding: true, row: i, column: 0 });
+    }
+
+    let current = new Date(Date.UTC(selectedYear, 0, 1));
+    while (current.getUTCFullYear() === selectedYear) {
+      const dateStr = current.toISOString().split("T")[0];
+      const count = heatmapLookup[dateStr] || 0;
+      const dayOfWeek = current.getUTCDay();
+      const cellIndex = cells.length;
+      const col = Math.floor(cellIndex / 7);
+
+      const formattedDate = current.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric", timeZone: "UTC" });
+      const contributionsText = count > 0 ? `${count} Contribution${count === 1 ? "" : "s"}` : "No Contributions";
+
+      cells.push({
+        date: dateStr,
+        count,
+        dayOfWeek,
+        row: dayOfWeek,
+        column: col,
+        isPadding: false,
+        title: `${formattedDate}\n${contributionsText}`
+      });
+      current.setUTCDate(current.getUTCDate() + 1);
+    }
+
+    const lastCell = cells[cells.length - 1];
+    const lastDayOfWeek = lastCell ? lastCell.dayOfWeek : 6;
+    const endPadding = 6 - lastDayOfWeek;
+    for (let i = 0; i < endPadding; i++) {
+      const cellIndex = cells.length;
+      const col = Math.floor(cellIndex / 7);
+      cells.push({
+        isPadding: true,
+        row: (lastDayOfWeek + 1 + i) % 7,
+        column: col
+      });
+    }
+
+    return cells;
+  }, [data, selectedYear]);
+
+  const totalColumns = heatmapCells ? Math.ceil(heatmapCells.length / 7) : 0;
+
+  const getMonthLabels = (cellsList) => {
+    const labels = [];
+    let lastMonth = -1;
+    let lastColIndex = -3;
+    cellsList.forEach((cell, idx) => {
+      if (!cell.isPadding) {
+        const month = parseInt(cell.date.split("-")[1], 10) - 1;
+        if (month !== lastMonth) {
+          const colIndex = Math.floor(idx / 7);
+          if (colIndex - lastColIndex >= 2) {
+            const monthName = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][month];
+            labels.push({ text: monthName, colIndex });
+            lastColIndex = colIndex;
+          }
+          lastMonth = month;
+        }
+      }
+    });
+    return labels;
+  };
+
+  const monthLabels = useMemo(() => getMonthLabels(heatmapCells || []), [heatmapCells]);
+
   if (!user) {
     return (
       <div className="min-h-[calc(100vh-52px)] flex items-center justify-center bg-background text-on-surface p-6 relative overflow-hidden">
@@ -140,7 +246,7 @@ export default function DeveloperProfile() {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center space-y-4">
-          <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto"></div>
+          <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full motion-safe:animate-spin mx-auto"></div>
           <p className="font-code-sm text-on-surface-variant uppercase tracking-widest animate-pulse">
             Retrieving developer profile...
           </p>
@@ -170,13 +276,14 @@ export default function DeveloperProfile() {
             <button
               onClick={handleBuildProfile}
               disabled={triggeringBuild}
-              className="w-full bg-primary text-on-primary font-label-caps py-sm rounded-lg hover:shadow-[0_0_15px_rgba(99,102,241,0.5)] transition-all disabled:opacity-50"
+              aria-live="polite"
+              className="w-full bg-primary text-on-primary font-label-caps py-sm rounded-lg hover:shadow-[0_0_15px_rgba(99,102,241,0.5)] transition-all disabled:opacity-50 active:scale-95"
             >
               {triggeringBuild ? "BUILDING PIPELINE..." : `BUILD @${user} PROFILE`}
             </button>
             <button
               onClick={() => navigate("/")}
-              className="w-full border border-outline-variant hover:bg-surface-container-low text-on-surface-variant font-label-caps py-sm rounded-lg transition-colors"
+              className="w-full border border-outline-variant hover:bg-surface-container-low text-on-surface-variant font-label-caps py-sm rounded-lg transition-colors active:scale-95"
             >
               RETURN HOME
             </button>
@@ -195,7 +302,7 @@ export default function DeveloperProfile() {
           <p className="font-body-sm text-on-surface-variant leading-relaxed break-words">{error}</p>
           <button
             onClick={loadProfile}
-            className="w-full bg-primary text-on-primary font-label-caps py-sm rounded-lg"
+            className="w-full bg-primary text-on-primary font-label-caps py-sm rounded-lg active:scale-95 transition-all"
           >
             RETRY
           </button>
@@ -209,110 +316,8 @@ export default function DeveloperProfile() {
   const lquality = data.commit_message_quality || 0;
   const lqualityPct = Math.round(lquality * 10);
 
-  const availableYears = (() => {
-    const heatmapData = data?.heatmap || [];
-    const yearsSet = new Set();
-    heatmapData.forEach(h => {
-      if (h.date) {
-        const yr = parseInt(h.date.split("-")[0], 10);
-        if (!isNaN(yr)) yearsSet.add(yr);
-      }
-    });
-    yearsSet.add(new Date().getFullYear());
-    return Array.from(yearsSet).sort((a, b) => b - a);
-  })();
-
-  const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-
-  // Heatmap generation
-  const generateHeatmapGrid = () => {
-    const cells = [];
-    const heatmapLookup = {};
-    if (data.heatmap) {
-      data.heatmap.forEach((h) => {
-        heatmapLookup[h.date] = h.count;
-      });
-    }
-
-    const jan1 = new Date(Date.UTC(selectedYear, 0, 1));
-    const startPadding = jan1.getUTCDay();
-
-    // Start padding
-    for (let i = 0; i < startPadding; i++) {
-      cells.push({
-        isPadding: true,
-        row: i,
-        column: 0
-      });
-    }
-
-    // Days of the year
-    let current = new Date(Date.UTC(selectedYear, 0, 1));
-    while (current.getUTCFullYear() === selectedYear) {
-      const dateStr = current.toISOString().split("T")[0];
-      const count = heatmapLookup[dateStr] || 0;
-      const dayOfWeek = current.getUTCDay();
-      const cellIndex = cells.length;
-      const col = Math.floor(cellIndex / 7);
-
-      cells.push({
-        date: dateStr,
-        count,
-        dayOfWeek,
-        row: dayOfWeek,
-        column: col,
-        isPadding: false,
-        title: `${dateStr} (${WEEKDAYS[dayOfWeek]}): ${count} commit${count === 1 ? "" : "s"}`
-      });
-
-      current.setUTCDate(current.getUTCDate() + 1);
-    }
-
-    // End padding
-    const lastCell = cells[cells.length - 1];
-    const lastDayOfWeek = lastCell ? lastCell.dayOfWeek : 6;
-    const endPadding = 6 - lastDayOfWeek;
-    for (let i = 0; i < endPadding; i++) {
-      const cellIndex = cells.length;
-      const col = Math.floor(cellIndex / 7);
-      cells.push({
-        isPadding: true,
-        row: (lastDayOfWeek + 1 + i) % 7,
-        column: col
-      });
-    }
-
-    return cells;
-  };
-
-  const heatmapCells = generateHeatmapGrid();
-  const totalColumns = Math.ceil(heatmapCells.length / 7);
-
-  const getMonthLabels = (cellsList) => {
-    const labels = [];
-    let lastMonth = -1;
-    let lastColIndex = -3;
-    cellsList.forEach((cell, idx) => {
-      if (!cell.isPadding) {
-        const month = parseInt(cell.date.split("-")[1], 10) - 1;
-        if (month !== lastMonth) {
-          const colIndex = Math.floor(idx / 7);
-          if (colIndex - lastColIndex >= 2) {
-            const monthName = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][month];
-            labels.push({ text: monthName, colIndex });
-            lastColIndex = colIndex;
-          }
-          lastMonth = month;
-        }
-      }
-    });
-    return labels;
-  };
-
-  const monthLabels = getMonthLabels(heatmapCells);
-
   const getHeatmapColor = (count) => {
-    if (count === 0) return "bg-[#111111]";
+    if (count === 0) return "bg-surface-container-high";
     if (count <= 2) return "bg-primary/20";
     if (count <= 5) return "bg-primary/40";
     if (count <= 9) return "bg-primary/70";
@@ -352,11 +357,14 @@ export default function DeveloperProfile() {
           </div>
 
           <div className="flex-grow text-center md:text-left">
-            <div className="flex flex-col md:flex-row md:items-end gap-sm mb-xs">
-              <h1 className="font-display-lg text-display-lg leading-none">Developer Profile: @{user}</h1>
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-sm mb-xs">
+              <h1 className="font-display-lg text-display-lg leading-none">
+                @{user} <span className="text-on-surface-variant/50 mx-2">•</span> <span className="text-primary">{data.classification?.primary_type || "Contributor"}</span>
+              </h1>
+              <SyncBadge ageHours={data.age_hours} stale={data.stale} onRefresh={handleBuildProfile} />
             </div>
             <p className="font-body-lg text-on-surface-variant mb-md max-w-2xl">
-              {social.bio || `${user} is an elite contributor profiled on RepoLens. Analyzing obsidian-grade software systems and high-density technical solutions.`}
+              {data.classification?.label || social.bio || `${user} is an elite contributor profiled on RepoLens. Analyzing obsidian-grade software systems and high-density technical solutions.`}
             </p>
             <div className="flex flex-wrap justify-center md:justify-start gap-lg">
               <div className="flex flex-col">
@@ -420,85 +428,103 @@ export default function DeveloperProfile() {
               <span className="font-code-sm text-on-surface-variant">contribution_matrix.sh</span>
             </div>
             <div className="p-md">
-              <div className="flex justify-between items-center mb-md">
+              <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-3 mb-md">
                 <h3 className="font-headline-md text-headline-md">Annual Velocity</h3>
-                {availableYears.length > 0 && (
-                  <select
-                    value={selectedYear}
-                    onChange={(e) => setSelectedYear(parseInt(e.target.value, 10))}
-                    className="bg-[#111111] border border-outline-variant/30 text-on-surface text-xs font-code rounded px-2 py-0.5 outline-none cursor-pointer focus:ring-1 focus:ring-primary"
-                  >
-                    {availableYears.map((yr) => (
-                      <option key={yr} value={yr}>
-                        {yr}
-                      </option>
-                    ))}
-                  </select>
-                )}
+                <div className="flex items-center gap-4 justify-between sm:justify-end">
+                  {/* Legend */}
+                  <div className="flex items-center gap-2 text-on-surface-variant font-label-caps text-[10px]">
+                    <span>Less</span>
+                    <div className="flex gap-1">
+                      <div className="contribution-cell bg-surface-container-high"></div>
+                      <div className="contribution-cell bg-primary/20"></div>
+                      <div className="contribution-cell bg-primary/40"></div>
+                      <div className="contribution-cell bg-primary/70"></div>
+                      <div className="contribution-cell bg-primary"></div>
+                    </div>
+                    <span>More</span>
+                  </div>
+                  
+                  {availableYears.length > 0 && (
+                    <select
+                      value={selectedYear}
+                      onChange={(e) => setSelectedYear(parseInt(e.target.value, 10))}
+                      className="bg-[#111111] border border-outline-variant/30 text-on-surface text-xs font-code rounded px-2 py-0.5 outline-none cursor-pointer focus:ring-1 focus:ring-primary"
+                    >
+                      {availableYears.map((yr) => (
+                        <option key={yr} value={yr}>
+                          {yr}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </div>
               </div>
 
-              <div className="flex">
-                {/* Fixed Days of week labels */}
-                <div className="w-[28px] shrink-0 grid grid-rows-7 gap-1 text-[10px] text-on-surface-variant/70 font-code select-none h-[108px] items-center text-right pr-2 mt-[16px]">
-                  <span className="leading-none">Sun</span>
-                  <span className="leading-none">Mon</span>
-                  <span className="leading-none">Tue</span>
-                  <span className="leading-none">Wed</span>
-                  <span className="leading-none">Thu</span>
-                  <span className="leading-none">Fri</span>
-                  <span className="leading-none">Sat</span>
-                </div>
-
-                {/* Scrollable Area */}
-                <div className="flex-grow overflow-x-auto pb-4 scrollbar-thin scrollbar-thumb-outline-variant/30 scrollbar-track-transparent">
-                  <div className="flex flex-col w-max">
-                    {/* Month labels */}
-                    <div className="grid grid-flow-col gap-1 mb-1.5 text-[10px] text-on-surface-variant/70 font-code select-none w-max">
-                      {Array.from({ length: totalColumns }).map((_, colIdx) => {
-                        const label = monthLabels.find(l => l.colIndex === colIdx);
-                        return (
-                          <div key={colIdx} className="w-[12px] overflow-visible whitespace-nowrap text-left leading-none">
-                            {label ? label.text : ""}
-                          </div>
-                        );
-                      })}
+              {heatmapCells ? (
+                <>
+                  <div className="flex">
+                    {/* Fixed Days of week labels */}
+                    <div className="w-[28px] shrink-0 grid grid-rows-7 gap-1 text-[10px] text-on-surface-variant/70 font-code select-none h-[122px] items-center text-right pr-2 mt-[16px]">
+                      <span className="leading-none">Sun</span>
+                      <span className="leading-none">Mon</span>
+                      <span className="leading-none">Tue</span>
+                      <span className="leading-none">Wed</span>
+                      <span className="leading-none">Thu</span>
+                      <span className="leading-none">Fri</span>
+                      <span className="leading-none">Sat</span>
                     </div>
 
-                    {/* Grid */}
-                    <div className="grid grid-flow-col grid-rows-7 gap-1 h-[108px] w-max">
-                      {heatmapCells.map((cell, idx) => {
-                        if (cell.isPadding) {
-                          return (
-                            <div
-                              key={idx}
-                              className="w-[12px] h-[12px] opacity-0 pointer-events-none"
-                            ></div>
-                          );
-                        }
-                        return (
-                          <div
-                            key={idx}
-                            title={cell.title}
-                            className={`contribution-cell ${getHeatmapColor(cell.count)} transition-all duration-200 hover:ring-2 hover:ring-primary/60 cursor-crosshair`}
-                          ></div>
-                        );
-                      })}
+                    {/* Scrollable Area */}
+                    <div className="flex-grow overflow-x-auto pb-4 scrollbar-thin scrollbar-thumb-outline-variant/30 scrollbar-track-transparent">
+                      <div className="flex flex-col w-max">
+                        {/* Month labels */}
+                        <div className="grid grid-flow-col gap-1 mb-1.5 text-[10px] text-on-surface-variant/70 font-code select-none w-max">
+                          {Array.from({ length: totalColumns }).map((_, colIdx) => {
+                            const label = monthLabels.find(l => l.colIndex === colIdx);
+                            return (
+                              <div key={colIdx} className="w-[14px] overflow-visible whitespace-nowrap text-left leading-none">
+                                {label ? label.text : ""}
+                              </div>
+                            );
+                          })}
+                        </div>
+
+                        {/* Grid */}
+                        <div className="grid grid-flow-col grid-rows-7 gap-1 h-[122px] w-max">
+                          {heatmapCells.map((cell, idx) => {
+                            if (cell.isPadding) {
+                              return (
+                                <div
+                                  key={idx}
+                                  className="w-[14px] h-[14px] opacity-0 pointer-events-none"
+                                ></div>
+                              );
+                            }
+                            return (
+                              <div
+                                key={idx}
+                                title={cell.title}
+                                className={`contribution-cell ${getHeatmapColor(cell.count)} transition-all duration-200 hover:ring-2 hover:ring-primary/60 cursor-crosshair`}
+                              ></div>
+                            );
+                          })}
+                        </div>
+                      </div>
                     </div>
                   </div>
-                </div>
-              </div>
 
-              <div className="flex justify-between items-center mt-sm text-on-surface-variant font-label-caps">
-                <span>Less Activity</span>
-                <div className="flex gap-1">
-                  <div className="contribution-cell bg-[#111111]"></div>
-                  <div className="contribution-cell bg-primary/20"></div>
-                  <div className="contribution-cell bg-primary/40"></div>
-                  <div className="contribution-cell bg-primary/70"></div>
-                  <div className="contribution-cell bg-primary"></div>
+                </>
+              ) : (
+                <div className="flex flex-col items-center justify-center py-12 text-center border border-dashed border-outline-variant/30 rounded-xl bg-surface/30">
+                  <span className="material-symbols-outlined text-outline-variant text-4xl mb-3">calendar_month</span>
+                  <p className="font-body-lg text-on-surface-variant mb-1">
+                    No contribution data available for this year.
+                  </p>
+                  <p className="font-body-sm text-outline-variant">
+                    Try selecting another year.
+                  </p>
                 </div>
-                <span>More Activity</span>
-              </div>
+              )}
             </div>
           </div>
 

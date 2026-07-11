@@ -426,6 +426,7 @@ def create_app(settings: Settings | None = None, store=None, identity=None) -> F
             except Exception as e:
                 # Map specific GitHub exceptions if raised
                 try:
+                    # pyrefly: ignore [missing-import]
                     from github import GithubException, UnknownObjectException, RateLimitExceededException
                     if isinstance(e, UnknownObjectException):
                         raise HTTPException(404, f"GitHub user '{username}' not found. Please verify the URL.")

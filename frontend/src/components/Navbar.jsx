@@ -42,6 +42,16 @@ export default function Navbar() {
       path: "/profile",
       to: "/profile" + getQueryString({ repo, user }),
     },
+    {
+      label: "PR Review",
+      path: "/pr-review",
+      to: "/pr-review" + getQueryString({ repo, user }),
+    },
+    {
+      label: "Status",
+      path: "/status",
+      to: "/status",
+    },
   ];
 
   // Theme styling declarations

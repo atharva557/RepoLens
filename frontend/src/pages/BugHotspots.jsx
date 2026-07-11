@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { getJSON, postJSON } from "../lib/api";
+import { loadRepoSettings } from "../lib/settings";
 
 function timeAgo(dateString) {
   if (!dateString) return "";
@@ -49,7 +50,7 @@ export default function BugHotspots() {
     setLoading(true);
     setError(null);
     Promise.all([
-      getJSON(`/repos/${repo}/hotspots?top=100`),
+      getJSON(`/repos/${repo}/hotspots?top=50`),
       getJSON(`/repos/${repo}/activity?recent=10`).catch(() => null),
     ])
       .then(([hotspotsData, activityData]) => {
@@ -79,7 +80,8 @@ export default function BugHotspots() {
   const handleAnalyzeTrigger = async () => {
     setTriggeringAnalyze(true);
     try {
-      const res = await postJSON("/analyze", { repo, refresh: true });
+      const settings = loadRepoSettings(repo);
+      const res = await postJSON("/analyze", { repo, refresh: true, max_commits: settings.max_commits, top: settings.top });
       navigate(`/loading?job=${res.job_id}&repo=${repo}&next=/hotspots`);
     } catch (e) {
       alert(`Analyze trigger failed: ${e.message}`);
@@ -117,7 +119,7 @@ export default function BugHotspots() {
     return (
       <div className="min-h-[calc(100vh-52px)] flex items-center justify-center bg-[#000000] text-on-surface">
         <div className="text-center space-y-4">
-          <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto"></div>
+          <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full motion-safe:animate-spin mx-auto"></div>
           <p className="font-code text-label text-on-surface-variant uppercase tracking-widest animate-pulse">
             Analyzing repository hotspot files...
           </p>
@@ -521,9 +523,15 @@ export default function BugHotspots() {
 
                   <div className="grid grid-cols-2 gap-3">
                     <div className="bg-[#181818] border border-[#3A322D] border-t-[#7A5A44] p-3 rounded-lg space-y-1">
-                      <p className="text-[9px] font-code font-bold text-on-surface-variant uppercase">Complexity Code</p>
-                      <p className="text-xl font-bold font-code text-on-surface">{selectedRow.raw.cyclomatic || selectedRow.raw.complexity || "N/A"}</p>
-                      <p className="text-[9px] font-code text-on-surface-variant/50 leading-tight">Cyclomatic rating</p>
+                      <p className="text-[9px] font-code font-bold text-on-surface-variant uppercase">
+                        {selectedRow.raw.cyclomatic != null ? "Cyclomatic Code" : "Lines of Code"}
+                      </p>
+                      <p className="text-xl font-bold font-code text-on-surface">
+                        {selectedRow.raw.cyclomatic ?? selectedRow.raw.loc ?? "N/A"}
+                      </p>
+                      <p className="text-[9px] font-code text-on-surface-variant/50 leading-tight">
+                        {selectedRow.raw.cyclomatic != null ? "Cyclomatic rating" : "Size proxy"}
+                      </p>
                     </div>
                     <div className="bg-[#181818] border border-[#3A322D] border-t-[#7A5A44] p-3 rounded-lg space-y-1">
                       <p className="text-[9px] font-code font-bold text-on-surface-variant uppercase">Change Commits</p>
