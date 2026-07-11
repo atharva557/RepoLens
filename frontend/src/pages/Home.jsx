@@ -52,21 +52,38 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    Promise.all([
-      getJSON("/repos").catch(() => ({ repos: [] })),
-      getJSON("/profiles").catch(() => ({ profiles: [] })),
-      getJSON("/health").catch(() => null),
-    ])
-      .then(([reposData, profilesData, healthData]) => {
-        setRepos(reposData.repos || []);
-        setProfiles(profilesData.profiles || []);
-        setHealth(healthData);
-        setLoading(false);
-      })
-      .catch((e) => {
-        setError(String(e));
-        setLoading(false);
-      });
+    // the API lists repos alphabetically; "Recent Analysis" must mean it
+    const analyzedAt = (r) =>
+      r.hotspots?.generated_at || r.commit_quality?.generated_at || "";
+    const load = () => {
+      Promise.all([
+        getJSON("/repos").catch(() => ({ repos: [] })),
+        getJSON("/profiles").catch(() => ({ profiles: [] })),
+        getJSON("/health").catch(() => null),
+      ])
+        .then(([reposData, profilesData, healthData]) => {
+          const sorted = [...(reposData.repos || [])].sort((a, b) =>
+            analyzedAt(b).localeCompare(analyzedAt(a))
+          );
+          setRepos(sorted);
+          setProfiles(profilesData.profiles || []);
+          setHealth(healthData);
+          setLoading(false);
+        })
+        .catch((e) => {
+          setError(String(e));
+          setLoading(false);
+        });
+    };
+    load();
+    // coming back from /loading or another tab must show the fresh analysis
+    const onFocus = () => load();
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onFocus);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onFocus);
+    };
   }, []);
 
   const handleAnalyze = async (targetRepo) => {
