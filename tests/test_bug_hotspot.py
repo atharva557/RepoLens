@@ -130,6 +130,29 @@ def test_bug_credit_only_for_code_files():
     print("  ok: bug credit only for code files")
 
 
+def test_github_shorthand_expands():
+    """Bare 'owner/repo' input must work like the full GitHub URL — rejecting
+    it failed the analysis under a wrong cache key (owner dropped)."""
+    from core.github_client import expand_github_shorthand, repo_key
+
+    assert (expand_github_shorthand("anthropics/claude-cookbooks")
+            == "https://github.com/anthropics/claude-cookbooks")
+    assert repo_key("anthropics/claude-cookbooks") == "anthropics/claude-cookbooks"
+
+    # full URLs and non-shorthand strings pass through untouched
+    assert expand_github_shorthand("https://github.com/o/r") == "https://github.com/o/r"
+    assert expand_github_shorthand("not a repo at all") == "not a repo at all"
+    # an actual local directory of the same shape wins over the shorthand
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    cwd = os.getcwd()
+    os.chdir(root)
+    try:
+        assert expand_github_shorthand("tools/bug_hotspot") == "tools/bug_hotspot"
+    finally:
+        os.chdir(cwd)
+    print("  ok: github owner/repo shorthand expands")
+
+
 def test_clone_failure_message_names_the_real_cause():
     """A repo that cannot be cloned must say *why*. Swallowing the exception
     turned "GitPython isn't installed" into a baffling "no cached commits",

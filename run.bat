@@ -111,8 +111,12 @@ if not "%MODE%"=="api" (
 REM --- start the API --------------------------------------------------
 REM  "%~dp0." - the trailing dot keeps the closing quote from being escaped
 REM  by the backslash that %~dp0 always ends with.
+REM  --reload-dir: without it the reloader watches the WHOLE project, so the
+REM  thousands of files a clone drops into data\cache\clones\ restart the
+REM  server MID-ANALYSIS, wiping the in-memory job registry (the dashboard
+REM  then polls a job the server no longer remembers).
 echo  [api] starting on %API_URL%  ^(docs at %API_URL%/docs^)
-start "RepoLens API" /d "%~dp0." cmd /k %PY% -m uvicorn api.main:app --reload
+start "RepoLens API" /d "%~dp0." cmd /k %PY% -m uvicorn api.main:app --reload --reload-dir api --reload-dir core --reload-dir pipeline --reload-dir tools --reload-dir config
 
 REM --- wait for the API to answer /health -----------------------------
 echo  [api] waiting for it to come up...

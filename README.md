@@ -121,6 +121,14 @@ CLI option 7 (`test-llm`) or `GET /test`.
 interpreter, the API silently falls back to the JSON cache in `data/cache/`
 instead of MongoDB. `GET /health` reports which store is active.
 
+**Server restarts itself mid-analysis / jobs vanish while polling.** If you run
+uvicorn with a bare `--reload`, the reloader watches the *whole* project — and
+the thousands of files a clone drops into `data/cache/clones/` trigger a
+restart mid-job, wiping the in-memory job registry (the log shows
+`WatchFiles detected changes in 'data\cache\clones\...' Reloading...`).
+Use `run.bat`, or pass explicit reload dirs:
+`uvicorn api.main:app --reload --reload-dir api --reload-dir core --reload-dir pipeline --reload-dir tools --reload-dir config`.
+
 ## Quick start
 
 ```bash

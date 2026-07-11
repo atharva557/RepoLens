@@ -14,9 +14,23 @@ import re
 from datetime import datetime, timezone
 
 
+def expand_github_shorthand(target: str) -> str:
+    """'owner/repo' -> 'https://github.com/owner/repo'.
+
+    People paste the bare GitHub shorthand constantly; rejecting it produced a
+    baffling "neither an existing git repo nor a recognizable URL" under a
+    *wrong* cache key (just 'repo', owner dropped). An existing local
+    directory of the same shape still wins.
+    """
+    t = (target or "").strip()
+    if re.fullmatch(r"[\w.-]+/[\w.-]+", t) and not os.path.isdir(t):
+        return f"https://github.com/{t}"
+    return target
+
+
 def repo_key(target: str) -> str:
-    """Stable cache key for a repo reference (URL or local path)."""
-    t = target.rstrip("/").replace("\\", "/")
+    """Stable cache key for a repo reference (URL, shorthand, or local path)."""
+    t = expand_github_shorthand(target).rstrip("/").replace("\\", "/")
     m = re.search(r"github\.com[:/]+([^/]+)/([^/]+?)(?:\.git)?$", t)
     if m:
         return f"{m.group(1)}/{m.group(2)}"
@@ -68,11 +82,13 @@ def ensure_local_clone(target: str, cache_dir: str, *, update: bool = False,
     """Return (local_path, repo_key) for a repo reference.
 
     - An existing local git repo is used in place (never touched).
+    - Bare GitHub shorthand ('owner/repo') expands to the https URL.
     - A remote URL is cloned (once) into `<cache_dir>/clones/<name>`.
     - `update=True` (an explicit refresh) additionally pulls the cached clone
       so new upstream commits actually arrive; a failed pull (offline, forced
       push upstream) warns and proceeds with the existing history.
     """
+    target = expand_github_shorthand(target)
     key = repo_key(target)
 
     if os.path.isdir(target):
