@@ -59,6 +59,10 @@
   --font-code: "JetBrains Mono", monospace;
   --font-stat: "JetBrains Mono", monospace;
 
+  --font-size-heading: 1.25rem;
+  --font-size-label: 0.75rem;
+  --font-size-body: 0.875rem;
+
   --text-body: 0.875rem;
   --text-label: 0.75rem;
   --text-code: 0.8125rem;
@@ -135,16 +139,16 @@ body {
 }
 
 :root[data-theme="light"] {
-  --color-background: #fdfdfc;
-  --color-surface: #ffffff;
-  --color-surface-dim: #f3f4f6;
-  --color-surface-bright: #ffffff;
-  --color-surface-container-lowest: #ffffff;
-  --color-surface-container-low: #f9fafb;
-  --color-surface-container: #f3f4f6;
-  --color-surface-container-high: #e5e7eb;
-  --color-surface-container-highest: #d1d5db;
-  --color-surface-variant: #e5e7eb;
+  --color-background: #fafafa;
+  --color-surface: #f5f5f5;
+  --color-surface-dim: #ededed;
+  --color-surface-bright: #fafafa;
+  --color-surface-container-lowest: #f5f5f5;
+  --color-surface-container-low: #ededed;
+  --color-surface-container: #e5e5e5;
+  --color-surface-container-high: #dbdbdb;
+  --color-surface-container-highest: #cccccc;
+  --color-surface-variant: #e5e5e5;
   --color-on-background: #111827;
   --color-on-surface: #111827;
   --color-on-surface-variant: #4b5563;
@@ -165,7 +169,7 @@ body {
   --color-error-container: #fee2e2;
   --color-on-error-container: #991b1b;
   --color-outline: #9ca3af;
-  --color-outline-variant: #d1d5db;
+  --color-outline-variant: #cccccc;
   --color-inverse-surface: #1f2937;
   --color-inverse-on-surface: #f9fafb;
   --color-inverse-primary: #fdba74;
