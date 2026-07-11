@@ -1,0 +1,284 @@
+@import "tailwindcss";
+
+/*
+ * RepoLens theme — tokens lifted from the ui_protoype/*.html tailwind configs
+ * (the amber "Repo Lens" dark theme used by github_url / loading / Dashboard).
+ * They become utilities automatically: bg-primary, text-on-surface,
+ * border-outline-variant, bg-surface-container-high, font-code, text-stat …
+ *
+ * The Bughotspot/Developer_profile prototypes use an indigo variant
+ * (#6366f1 primary, #a855f7 secondary) — swap these values if you go with
+ * that palette instead.
+ */
+@theme {
+  --color-background: #131313;
+  --color-surface: #131313;
+  --color-surface-dim: #131313;
+  --color-surface-bright: #393939;
+  --color-surface-container-lowest: #0e0e0e;
+  --color-surface-container-low: #1c1b1b;
+  --color-surface-container: #201f1f;
+  --color-surface-container-high: #2a2a2a;
+  --color-surface-container-highest: #353534;
+  --color-surface-variant: #353534;
+  --color-on-background: #e5e2e1;
+  --color-on-surface: #e5e2e1;
+  --color-on-surface-variant: #dbc2b0;
+  --color-primary: #ffb77d;
+  --color-on-primary: #4d2600;
+  --color-primary-container: #d97707;
+  --color-on-primary-container: #432100;
+  --color-secondary: #c7c6c6;
+  --color-on-secondary: #303031;
+  --color-secondary-container: #464747;
+  --color-on-secondary-container: #b5b5b5;
+  --color-tertiary: #96ccff;
+  --color-on-tertiary: #003353;
+  --color-tertiary-container: #0297e8;
+  --color-on-tertiary-container: #002c48;
+  --color-error: #ffb4ab;
+  --color-on-error: #690005;
+  --color-error-container: #93000a;
+  --color-on-error-container: #ffdad6;
+  --color-outline: #a38c7c;
+  --color-outline-variant: #554336;
+  --color-inverse-surface: #e5e2e1;
+  --color-inverse-on-surface: #313030;
+  --color-inverse-primary: #904d00;
+
+  /* Indigo theme tokens for BugHotspots and DeveloperProfile */
+  --color-indigo-primary: #c0c1ff;
+  --color-indigo-secondary: #ddb7ff;
+  --color-indigo-tertiary: #ffb783;
+  --color-indigo-outline-variant: #464554;
+  --color-indigo-on-surface-variant: #c7c4d7;
+  --color-indigo-gradient-start: #6366f1;
+  --color-indigo-gradient-end: #a855f7;
+
+  --font-body: "Inter", sans-serif;
+  --font-code: "JetBrains Mono", monospace;
+  --font-stat: "JetBrains Mono", monospace;
+
+  --font-size-heading: 1.25rem;
+  --font-size-label: 0.75rem;
+  --font-size-body: 0.875rem;
+
+  --text-body: 0.875rem;
+  --text-label: 0.75rem;
+  --text-code: 0.8125rem;
+  --text-heading-md: 1rem;
+  --text-heading-lg: 1.25rem;
+  --text-stat: 2.5rem;
+
+  --spacing-gutter: 16px;
+  --spacing-card-padding-x: 24px;
+  --spacing-card-padding-y: 20px;
+  /* Spacing from Prototype */
+  --spacing-xs: 8px;
+  --spacing-sm: 16px;
+  --spacing-md: 24px;
+  --spacing-lg: 48px;
+  --spacing-xl: 80px;
+  --spacing-margin-desktop: 64px;
+  --spacing-margin-mobile: 16px;
+  --spacing-base: 4px;
+
+  /* Typography from Prototype */
+  --font-display-lg: "Geist", sans-serif;
+  --font-body-lg: "Geist", sans-serif;
+  --font-headline-lg: "Geist", sans-serif;
+  --font-headline-lg-mobile: "Geist", sans-serif;
+  --font-body-sm: "Geist", sans-serif;
+  --font-code-sm: "JetBrains Mono", monospace;
+  --font-headline-md: "Geist", sans-serif;
+  --font-label-caps: "Geist", sans-serif;
+
+  --text-display-lg: 48px;
+  --text-display-lg--line-height: 56px;
+  --text-display-lg--letter-spacing: -0.04em;
+  --text-display-lg--font-weight: 700;
+
+  --text-body-lg: 16px;
+  --text-body-lg--line-height: 24px;
+  --text-body-lg--font-weight: 400;
+
+  --text-headline-lg: 32px;
+  --text-headline-lg--line-height: 40px;
+  --text-headline-lg--letter-spacing: -0.02em;
+  --text-headline-lg--font-weight: 600;
+
+  --text-headline-lg-mobile: 24px;
+  --text-headline-lg-mobile--line-height: 32px;
+  --text-headline-lg-mobile--letter-spacing: -0.02em;
+  --text-headline-lg-mobile--font-weight: 600;
+
+  --text-body-sm: 14px;
+  --text-body-sm--line-height: 20px;
+  --text-body-sm--font-weight: 400;
+
+  --text-code-sm: 13px;
+  --text-code-sm--line-height: 18px;
+  --text-code-sm--font-weight: 400;
+
+  --text-headline-md: 24px;
+  --text-headline-md--line-height: 32px;
+  --text-headline-md--letter-spacing: -0.01em;
+  --text-headline-md--font-weight: 500;
+
+  --text-label-caps: 12px;
+  --text-label-caps--line-height: 16px;
+  --text-label-caps--letter-spacing: 0.05em;
+  --text-label-caps--font-weight: 600;
+}
+
+body {
+  background-color: var(--color-background);
+  color: var(--color-on-surface);
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+}
+
+:root[data-theme="light"] {
+  --color-background: #fafafa;
+  --color-surface: #f5f5f5;
+  --color-surface-dim: #ededed;
+  --color-surface-bright: #fafafa;
+  --color-surface-container-lowest: #f5f5f5;
+  --color-surface-container-low: #ededed;
+  --color-surface-container: #e5e5e5;
+  --color-surface-container-high: #dbdbdb;
+  --color-surface-container-highest: #cccccc;
+  --color-surface-variant: #e5e5e5;
+  --color-on-background: #111827;
+  --color-on-surface: #111827;
+  --color-on-surface-variant: #4b5563;
+  --color-primary: #ea580c;
+  --color-on-primary: #ffffff;
+  --color-primary-container: #fed7aa;
+  --color-on-primary-container: #9a3412;
+  --color-secondary: #4b5563;
+  --color-on-secondary: #ffffff;
+  --color-secondary-container: #f3f4f6;
+  --color-on-secondary-container: #1f2937;
+  --color-tertiary: #0284c7;
+  --color-on-tertiary: #ffffff;
+  --color-tertiary-container: #e0f2fe;
+  --color-on-tertiary-container: #0369a1;
+  --color-error: #dc2626;
+  --color-on-error: #ffffff;
+  --color-error-container: #fee2e2;
+  --color-on-error-container: #991b1b;
+  --color-outline: #9ca3af;
+  --color-outline-variant: #cccccc;
+  --color-inverse-surface: #1f2937;
+  --color-inverse-on-surface: #f9fafb;
+  --color-inverse-primary: #fdba74;
+
+  /* Indigo theme tokens for DeveloperProfile */
+  --color-indigo-primary: #4f46e5;
+  --color-indigo-secondary: #7e22ce;
+  --color-indigo-tertiary: #ea580c;
+  --color-indigo-outline-variant: #d1d5db;
+  --color-indigo-on-surface-variant: #4b5563;
+  --color-indigo-gradient-start: #4f46e5;
+  --color-indigo-gradient-end: #7e22ce;
+}
+
+:root[data-theme="grey"] {
+  --color-background: #1f2228;
+  --color-surface: #25282f;
+  --color-surface-dim: #1f2228;
+  --color-surface-bright: #3b3f49;
+  --color-surface-container-lowest: #141519;
+  --color-surface-container-low: #1a1d22;
+  --color-surface-container: #25282f;
+  --color-surface-container-high: #2f333b;
+  --color-surface-container-highest: #3b3f49;
+  --color-surface-variant: #3b3f49;
+  --color-on-background: #e2e4e9;
+  --color-on-surface: #e2e4e9;
+  --color-on-surface-variant: #9ca3af;
+  --color-primary: #94a3b8;
+  --color-on-primary: #0f172a;
+  --color-primary-container: #334155;
+  --color-on-primary-container: #cbd5e1;
+  --color-secondary: #94a3b8;
+  --color-on-secondary: #0f172a;
+  --color-secondary-container: #334155;
+  --color-on-secondary-container: #cbd5e1;
+  --color-tertiary: #94a3b8;
+  --color-on-tertiary: #0f172a;
+  --color-tertiary-container: #334155;
+  --color-on-tertiary-container: #cbd5e1;
+  --color-error: #f87171;
+  --color-on-error: #450a0a;
+  --color-error-container: #7f1d1d;
+  --color-on-error-container: #fecaca;
+  --color-outline: #64748b;
+  --color-outline-variant: #475569;
+  --color-inverse-surface: #e2e4e9;
+  --color-inverse-on-surface: #1f2228;
+  --color-inverse-primary: #cbd5e1;
+
+  /* Indigo theme tokens for DeveloperProfile */
+  --color-indigo-primary: #94a3b8;
+  --color-indigo-secondary: #cbd5e1;
+  --color-indigo-tertiary: #e2e4e9;
+  --color-indigo-outline-variant: #475569;
+  --color-indigo-on-surface-variant: #9ca3af;
+  --color-indigo-gradient-start: #64748b;
+  --color-indigo-gradient-end: #94a3b8;
+}
+
+/* Custom classes for Developer Profile */
+.glass-panel {
+  background: #111111;
+  border: 1px solid #222222;
+  box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
+}
+.glass-panel:hover {
+  border-color: #333333;
+  box-shadow: 0 0 20px -5px rgba(99, 102, 241, 0.1);
+}
+
+:root[data-theme="light"] .glass-panel {
+  background: #ffffff;
+  border-color: #e5e7eb;
+}
+:root[data-theme="light"] .glass-panel:hover {
+  border-color: #d1d5db;
+}
+
+:root[data-theme="grey"] .glass-panel {
+  background: #25282f;
+  border-color: #3b3f49;
+}
+:root[data-theme="grey"] .glass-panel:hover {
+  border-color: #475569;
+}
+
+.contribution-cell {
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+}
+.terminal-header {
+  background: #050505;
+  border-bottom: 1px solid #222222;
+}
+
+:root[data-theme="light"] .terminal-header {
+  background: #f9fafb;
+  border-color: #e5e7eb;
+}
+:root[data-theme="grey"] .terminal-header {
+  background: #1a1d22;
+  border-color: #3b3f49;
+}
+
+.dot {
+  height: 8px;
+  width: 8px;
+  border-radius: 50%;
+  background-color: #333;
+}

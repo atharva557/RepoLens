@@ -1,0 +1,654 @@
+import { useEffect, useState, useCallback, useMemo, useContext } from "react";
+import { useNavigate, Link } from "react-router-dom";
+import { getJSON, postJSON } from "../lib/api";
+import SyncBadge from "../components/SyncBadge";
+import { ThemeContext } from "../App";
+import { getHeatmapColorStyle } from "../lib/settings";
+import Card from "../components/Card";
+
+
+function formatNumber(num) {
+  if (num === undefined || num === null) return "0";
+  if (num >= 1000) return (num / 1000).toFixed(1).replace(/\.0$/, "") + "k";
+  return num.toString();
+}
+
+export default function DeveloperProfile() {
+  const { settings } = useContext(ThemeContext);
+  const navigate = useNavigate();
+  const searchParams = new URLSearchParams(window.location.search);
+  const repoParam = searchParams.get("repo");
+  let userParam = searchParams.get("user");
+
+  if (!userParam && repoParam) {
+    let cleaned = repoParam.trim();
+    if (cleaned.includes("github.com/")) {
+      const parts = cleaned.split("github.com/");
+      if (parts.length > 1) {
+        const pathParts = parts[1].split("/");
+        if (pathParts.length >= 1) userParam = pathParts[0];
+      }
+    } else {
+      const parts = cleaned.split("/");
+      if (parts.length > 0) userParam = parts[0];
+    }
+  }
+  const user = userParam;
+
+  const [data, setData] = useState(null);
+  const [error, setError] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [triggeringBuild, setTriggeringBuild] = useState(false);
+  const [tokenError, setTokenError] = useState(false);
+  const [gaugeAnimated, setGaugeAnimated] = useState(false);
+  const [selectedYear, setSelectedYear] = useState(() => new Date().getFullYear());
+
+  const getHeatmapStyle = (count) => {
+    return { backgroundColor: getHeatmapColorStyle(count, settings.contributionColor, settings.theme) };
+  };
+
+  const loadProfile = useCallback(() => {
+    setLoading(true);
+    setError(null);
+    setTokenError(false);
+    getJSON(`/profiles/${user}`)
+      .then((profileData) => {
+        setData(profileData);
+        setLoading(false);
+        setTimeout(() => setGaugeAnimated(true), 100);
+      })
+      .catch(async (e) => {
+        const msg = String(e);
+        if (msg.includes("404") || msg.includes("no profile") || msg.includes("POST /profiles")) {
+          setTriggeringBuild(true);
+          try {
+            const res = await postJSON(`/profiles/${user}`);
+            navigate(`/loading?job=${res.job_id}&user=${user}&next=/profile`);
+          } catch (postErr) {
+            const pmsg = String(postErr);
+            if (pmsg.includes("400") || pmsg.includes("token") || pmsg.includes("TOKEN")) {
+              setTokenError(true);
+            }
+            setError(pmsg);
+            setTriggeringBuild(false);
+            setLoading(false);
+          }
+        } else {
+          setError(msg);
+          setLoading(false);
+        }
+      });
+  }, [user, navigate]);
+
+  useEffect(() => {
+    if (user) {
+      loadProfile();
+    } else {
+      setLoading(false);
+    }
+  }, [loadProfile, user]);
+
+  useEffect(() => {
+    if (data?.heatmap && data.heatmap.length > 0) {
+      const years = data.heatmap
+        .map(h => parseInt(h.date.split("-")[0], 10))
+        .filter(yr => !isNaN(yr));
+      if (years.length > 0) {
+        setSelectedYear(Math.max(...years));
+      }
+    }
+  }, [data]);
+
+  const handleBuildProfile = async () => {
+    setTriggeringBuild(true);
+    setTokenError(false);
+    try {
+      const res = await postJSON(`/profiles/${user}`);
+      navigate(`/loading?job=${res.job_id}&user=${user}&next=/profile`);
+    } catch (e) {
+      if (e.message.includes("400") || e.message.includes("TOKEN") || e.message.includes("token")) {
+        setTokenError(true);
+      } else {
+        alert(`Failed to trigger profile: ${e.message}`);
+      }
+      setTriggeringBuild(false);
+    }
+  };
+
+
+  const availableYears = useMemo(() => {
+    const heatmapData = data?.heatmap || [];
+    const yearsSet = new Set();
+    heatmapData.forEach(h => {
+      if (h.date) {
+        const yr = parseInt(h.date.split("-")[0], 10);
+        if (!isNaN(yr)) yearsSet.add(yr);
+      }
+    });
+    if (yearsSet.size === 0) {
+      yearsSet.add(new Date().getFullYear());
+    }
+    return Array.from(yearsSet).sort((a, b) => b - a);
+  }, [data]);
+
+  const heatmapCells = useMemo(() => {
+    if (!data?.heatmap) return null;
+
+    const hasContributions = data.heatmap.some(h => {
+      if (!h.date) return false;
+      const yr = parseInt(h.date.split("-")[0], 10);
+      return yr === selectedYear && h.count > 0;
+    });
+
+    if (!hasContributions) return null;
+
+    const cells = [];
+    const heatmapLookup = {};
+    data.heatmap.forEach((h) => {
+      heatmapLookup[h.date] = h.count;
+    });
+
+    const jan1 = new Date(Date.UTC(selectedYear, 0, 1));
+    const startPadding = jan1.getUTCDay();
+
+    for (let i = 0; i < startPadding; i++) {
+      cells.push({ isPadding: true, row: i, column: 0 });
+    }
+
+    let current = new Date(Date.UTC(selectedYear, 0, 1));
+    while (current.getUTCFullYear() === selectedYear) {
+      const dateStr = current.toISOString().split("T")[0];
+      const count = heatmapLookup[dateStr] || 0;
+      const dayOfWeek = current.getUTCDay();
+      const cellIndex = cells.length;
+      const col = Math.floor(cellIndex / 7);
+
+      const formattedDate = current.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric", timeZone: "UTC" });
+      const contributionsText = count > 0 ? `${count} Contribution${count === 1 ? "" : "s"}` : "No Contributions";
+
+      cells.push({
+        date: dateStr,
+        count,
+        dayOfWeek,
+        row: dayOfWeek,
+        column: col,
+        isPadding: false,
+        title: `${formattedDate}\n${contributionsText}`
+      });
+      current.setUTCDate(current.getUTCDate() + 1);
+    }
+
+    const lastCell = cells[cells.length - 1];
+    const lastDayOfWeek = lastCell ? lastCell.dayOfWeek : 6;
+    const endPadding = 6 - lastDayOfWeek;
+    for (let i = 0; i < endPadding; i++) {
+      const cellIndex = cells.length;
+      const col = Math.floor(cellIndex / 7);
+      cells.push({
+        isPadding: true,
+        row: (lastDayOfWeek + 1 + i) % 7,
+        column: col
+      });
+    }
+
+    return cells;
+  }, [data, selectedYear]);
+
+  const totalColumns = heatmapCells ? Math.ceil(heatmapCells.length / 7) : 0;
+
+  const getMonthLabels = (cellsList) => {
+    const labels = [];
+    let lastMonth = -1;
+    let lastColIndex = -3;
+    cellsList.forEach((cell, idx) => {
+      if (!cell.isPadding) {
+        const month = parseInt(cell.date.split("-")[1], 10) - 1;
+        if (month !== lastMonth) {
+          const colIndex = Math.floor(idx / 7);
+          if (colIndex - lastColIndex >= 2) {
+            const monthName = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][month];
+            labels.push({ text: monthName, colIndex });
+            lastColIndex = colIndex;
+          }
+          lastMonth = month;
+        }
+      }
+    });
+    return labels;
+  };
+
+  const monthLabels = useMemo(() => getMonthLabels(heatmapCells || []), [heatmapCells]);
+
+  if (!user) {
+    return (
+      <div className="min-h-[calc(100vh-52px)] flex items-center justify-center bg-background text-on-surface p-6 relative overflow-hidden">
+        {/* Ambient background glow */}
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-primary/5 rounded-full blur-[100px] pointer-events-none"></div>
+
+        <div className="relative w-full max-w-[460px] h-auto p-10 rounded-3xl bg-surface-container-lowest/60 backdrop-blur-xl border border-outline-variant/40 shadow-2xl shadow-primary/10 transition-all duration-300 hover:scale-[1.02] hover:shadow-[0_0_60px_color-mix(in_srgb,var(--color-primary)_20%,transparent)] text-center flex flex-col items-center gap-6">
+          <div className="w-20 h-20 rounded-full bg-primary/10 flex items-center justify-center border border-primary/20 shadow-inner">
+            <span className="material-symbols-outlined text-primary text-[40px]">link_off</span>
+          </div>
+
+          <div className="space-y-3">
+            <h2 className="text-[var(--font-size-heading)] text-on-surface font-bold tracking-tight">Missing Link</h2>
+            <p className="text-[var(--font-size-body)] text-on-surface-variant leading-relaxed px-2 font-body">
+              We need a valid GitHub username to analyze the profile. Please return to the home page to enter one.
+            </p>
+          </div>
+
+          <Link
+            to="/"
+            className="w-full bg-primary hover:bg-primary-container text-on-primary font-code font-bold py-3.5 rounded-xl transition-all duration-300 active:scale-95 text-center flex items-center justify-center gap-2 mt-2 shadow-lg shadow-primary/20 hover:shadow-primary/40"
+          >
+            <span className="material-symbols-outlined text-[20px]">arrow_back</span>
+            <span>Return Home</span>
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center space-y-4">
+          <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full motion-safe:animate-spin mx-auto"></div>
+          <p className="font-code-sm text-on-surface-variant uppercase tracking-widest animate-pulse">
+            Retrieving developer profile...
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error && (error.includes("404") || error.includes("not found"))) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-6">
+        <Card className="p-8 text-center space-y-6 max-w-md w-full">
+          <span className="material-symbols-outlined text-primary text-[64px]">person_off</span>
+          <div className="space-y-2">
+            <h2 className="text-[var(--font-size-heading)] text-primary font-bold">Profile Not Found</h2>
+            <p className="text-[var(--font-size-body)] text-on-surface-variant leading-relaxed">
+              No developer profile index found for <span className="text-on-surface font-bold">@{user}</span>.
+            </p>
+          </div>
+          {tokenError && (
+            <div className="p-sm bg-error-container/20 border border-error-container/50 text-error rounded-lg text-left text-[var(--font-size-body)]">
+              <p className="font-bold flex items-center gap-1 mb-1"><span className="material-symbols-outlined text-sm">warning</span> ACCESS DENIED</p>
+              <p>The server lacks a GitHub API Token. Rebuilding profiles requires GITHUB_TOKEN.</p>
+            </div>
+          )}
+          <div className="space-y-3 pt-2">
+            <button
+              onClick={handleBuildProfile}
+              disabled={triggeringBuild}
+              aria-live="polite"
+              className="w-full bg-primary text-on-primary font-label-caps py-sm rounded-lg hover:shadow-[0_0_15px_rgba(99,102,241,0.5)] transition-all disabled:opacity-50 active:scale-95"
+            >
+              {triggeringBuild ? "BUILDING PIPELINE..." : `BUILD @${user} PROFILE`}
+            </button>
+            <button
+              onClick={() => navigate("/")}
+              className="w-full border border-outline-variant hover:bg-surface-container-low text-on-surface-variant font-label-caps py-sm rounded-lg transition-colors active:scale-95"
+            >
+              RETURN HOME
+            </button>
+          </div>
+        </Card>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-6">
+        <Card className="p-8 text-center space-y-4 max-w-md w-full">
+          <span className="material-symbols-outlined text-error text-[54px]">warning</span>
+          <h2 className="text-[var(--font-size-heading)] text-error font-bold">Error loading profile</h2>
+          <p className="text-[var(--font-size-body)] text-on-surface-variant leading-relaxed break-words">{error}</p>
+          <button
+            onClick={loadProfile}
+            className="w-full bg-primary text-on-primary font-label-caps py-sm rounded-lg active:scale-95 transition-all cursor-pointer"
+          >
+            RETRY
+          </button>
+        </Card>
+      </div>
+    );
+  }
+
+  const social = data.user || {};
+  const hasSocial = Object.keys(social).length > 0;
+  const lquality = data.commit_message_quality || 0;
+  const lqualityPct = Math.round(lquality * 10);
+
+
+  const activityColors = [
+    { text: "text-primary", bg: "bg-primary" },
+    { text: "text-secondary", bg: "bg-secondary" },
+    { text: "text-tertiary", bg: "bg-tertiary" },
+    { text: "text-on-surface", bg: "bg-on-surface" },
+    { text: "text-error", bg: "bg-error" },
+    { text: "text-outline", bg: "bg-outline" },
+  ];
+
+  const topLanguage = data.languages && data.languages.length > 0 ? data.languages[0] : null;
+
+  return (
+    <div className="min-h-screen overflow-x-hidden">
+
+
+      <main className="mt-xl pt-lg pb-xl px-margin-mobile md:px-margin-desktop max-w-[1440px] mx-auto">
+        {/* Profile Header */}
+        <Card className="p-md mb-lg flex flex-col md:flex-row gap-lg items-center md:items-start relative overflow-hidden">
+          <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-primary via-secondary to-tertiary"></div>
+          <div className="relative shrink-0">
+            <div className="w-32 h-32 rounded-xl overflow-hidden border-2 border-primary/20 shadow-xl">
+              {hasSocial && social.avatar_url ? (
+                <img className="w-full h-full object-cover" src={social.avatar_url} alt="Profile" />
+              ) : (
+                <div className="w-full h-full flex items-center justify-center bg-primary/20 text-primary font-display-lg text-4xl font-bold">{data.username.slice(0, 2).toUpperCase()}</div>
+              )}
+            </div>
+            <div className="absolute -bottom-2 -right-2 bg-surface border border-outline-variant p-1 rounded-lg">
+              <span className="material-symbols-outlined text-primary text-sm">verified</span>
+            </div>
+          </div>
+
+          <div className="flex-grow text-center md:text-left">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-sm mb-xs">
+              <h1 className="font-display-lg text-display-lg leading-none">
+                @{user} <span className="text-on-surface-variant/50 mx-2">•</span> <span className="text-primary">{data.primary_type || "Contributor"}</span>
+              </h1>
+              <SyncBadge ageHours={data.age_hours} stale={data.stale} onRefresh={handleBuildProfile} />
+            </div>
+            <p className="font-body-lg text-on-surface-variant mb-md max-w-2xl">
+              {data.label || social.bio || ""}
+            </p>
+            <div className="flex flex-wrap justify-center md:justify-start gap-lg">
+              <div className="flex flex-col">
+                <span className="font-headline-md text-headline-md text-primary">{formatNumber(social.followers)}</span>
+                <span className="font-label-caps text-on-surface-variant">Followers</span>
+              </div>
+              <div className="flex flex-col">
+                <span className="font-headline-md text-headline-md text-primary">{formatNumber(social.following)}</span>
+                <span className="font-label-caps text-on-surface-variant">Following</span>
+              </div>
+              <div className="flex flex-col">
+                <span className="font-headline-md text-headline-md text-primary">{formatNumber(social.public_repos)}</span>
+                <span className="font-label-caps text-on-surface-variant">Repositories</span>
+              </div>
+            </div>
+          </div>
+
+
+        </Card>
+
+        {/* Bento Grid Section */}
+        <div className="grid grid-cols-1 md:grid-cols-12 gap-gutter">
+          {/* Quick Stats */}
+          <div className="md:col-span-12 grid grid-cols-2 lg:grid-cols-4 gap-gutter">
+            <Card className="p-md flex flex-col justify-between">
+              <span className="font-label-caps text-on-surface-variant mb-sm">Analyzed Commits</span>
+              <div className="flex items-end justify-between">
+                <span className="font-display-lg text-display-lg text-primary leading-none">{formatNumber(data.commits_analyzed)}</span>
+                <span className="text-tertiary text-[var(--font-size-label)] flex items-center"><span className="material-symbols-outlined text-sm">trending_up</span> Profiler</span>
+              </div>
+            </Card>
+            <Card className="p-md flex flex-col justify-between">
+              <span className="font-label-caps text-on-surface-variant mb-sm">PRs Merged</span>
+              <div className="flex items-end justify-between">
+                <span className="font-display-lg text-display-lg text-secondary leading-none">{formatNumber(data.prs_merged)}</span>
+                <span className="text-tertiary text-[var(--font-size-label)] flex items-center"><span className="material-symbols-outlined text-sm">trending_up</span> out of {data.authored_prs || 0}</span>
+              </div>
+            </Card>
+            <Card className="p-md flex flex-col justify-between">
+              <span className="font-label-caps text-on-surface-variant mb-sm">Issues Resolved</span>
+              <div className="flex items-end justify-between">
+                <span className="font-display-lg text-display-lg text-tertiary leading-none">{formatNumber(data.issues_resolved)}</span>
+                <span className="text-on-surface-variant text-[var(--font-size-label)]">Verified</span>
+              </div>
+            </Card>
+            <Card className="p-md flex flex-col justify-between">
+              <span className="font-label-caps text-on-surface-variant mb-sm">Years Active</span>
+              <div className="flex items-end justify-between">
+                <span className="font-display-lg text-display-lg text-on-surface leading-none">{social.years_active?.toFixed(1) || "1.0"}</span>
+                <span className="text-on-surface-variant text-[var(--font-size-label)]">Experience</span>
+              </div>
+            </Card>
+          </div>
+
+          {/* Heatmap */}
+          <Card className="md:col-span-8 flex flex-col">
+            <div className="terminal-header px-md py-sm flex items-center justify-between">
+              <div className="flex gap-2">
+                <div className="dot"></div><div className="dot"></div><div className="dot"></div>
+              </div>
+              <span className="font-code-sm text-on-surface-variant">contribution_matrix.sh</span>
+            </div>
+            <div className="p-md">
+              <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-3 mb-md">
+                <h3 className="text-[11px] font-code font-bold text-on-surface-variant uppercase tracking-widest">Annual Velocity</h3>
+                <div className="flex items-center gap-4 justify-between sm:justify-end">
+                  {/* Legend */}
+                  <div className="flex items-center gap-2 text-on-surface-variant font-label-caps text-[10px]">
+                    <span>Less</span>
+                    <div className="flex gap-1">
+                      {[0, 2, 5, 8, 12].map((val) => (
+                        <div
+                          key={val}
+                          className="contribution-cell border border-outline-variant/10"
+                          style={getHeatmapStyle(val)}
+                        />
+                      ))}
+                    </div>
+                    <span>More</span>
+                  </div>
+                  
+                  {availableYears.length > 0 && (
+                    <select
+                      value={selectedYear}
+                      onChange={(e) => setSelectedYear(parseInt(e.target.value, 10))}
+                      className="bg-[#111111] border border-outline-variant/30 text-on-surface text-xs font-code rounded px-2 py-0.5 outline-none cursor-pointer focus:ring-1 focus:ring-primary"
+                    >
+                      {availableYears.map((yr) => (
+                        <option key={yr} value={yr}>
+                          {yr}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+              </div>
+
+              {heatmapCells ? (
+                <>
+                  <div className="flex">
+                    {/* Fixed Days of week labels */}
+                    <div className="w-[28px] shrink-0 grid grid-rows-7 gap-1 text-[10px] text-on-surface-variant/70 font-code select-none h-[122px] items-center text-right pr-2 mt-[16px]">
+                      <span className="leading-none">Sun</span>
+                      <span className="leading-none">Mon</span>
+                      <span className="leading-none">Tue</span>
+                      <span className="leading-none">Wed</span>
+                      <span className="leading-none">Thu</span>
+                      <span className="leading-none">Fri</span>
+                      <span className="leading-none">Sat</span>
+                    </div>
+
+                    {/* Scrollable Area */}
+                    <div className="flex-grow overflow-x-auto pb-4 scrollbar-thin scrollbar-thumb-outline-variant/30 scrollbar-track-transparent">
+                      <div className="flex flex-col w-max">
+                        {/* Month labels */}
+                        <div className="grid grid-flow-col gap-1 mb-1.5 text-[10px] text-on-surface-variant/70 font-code select-none w-max">
+                          {Array.from({ length: totalColumns }).map((_, colIdx) => {
+                            const label = monthLabels.find(l => l.colIndex === colIdx);
+                            return (
+                              <div key={colIdx} className="w-[14px] overflow-visible whitespace-nowrap text-left leading-none">
+                                {label ? label.text : ""}
+                              </div>
+                            );
+                          })}
+                        </div>
+
+                        {/* Grid */}
+                        <div className="grid grid-flow-col grid-rows-7 gap-1 h-[122px] w-max">
+                          {heatmapCells.map((cell, idx) => {
+                            if (cell.isPadding) {
+                              return (
+                                <div
+                                  key={idx}
+                                  className="w-[14px] h-[14px] opacity-0 pointer-events-none"
+                                ></div>
+                              );
+                            }
+                            return (
+                              <div
+                                key={idx}
+                                title={cell.title}
+                                className="contribution-cell transition-all duration-200 hover:ring-2 hover:ring-primary/60 cursor-crosshair border border-outline-variant/10"
+                                style={getHeatmapStyle(cell.count)}
+                              />
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                </>
+              ) : (
+                <div className="flex flex-col items-center justify-center py-12 text-center border border-dashed border-outline-variant/30 rounded-xl bg-surface/30">
+                  <span className="material-symbols-outlined text-outline-variant text-4xl mb-3">calendar_month</span>
+                  <p className="font-body-lg text-on-surface-variant mb-1">
+                    No contribution data available for this year.
+                  </p>
+                  <p className="font-body-sm text-outline-variant">
+                    Try selecting another year.
+                  </p>
+                </div>
+              )}
+            </div>
+          </Card>
+
+          {/* Language Circular Chart */}
+          <Card className="md:col-span-4 p-md flex flex-col items-center justify-center text-center">
+            <h3 className="text-[11px] font-code font-bold text-on-surface-variant uppercase tracking-widest mb-lg">Top Languages</h3>
+            {topLanguage ? (
+              <>
+                <div
+                  className="relative w-40 h-40 radial-progress rounded-full flex items-center justify-center mb-lg"
+                  style={{ background: `radial-gradient(closest-side, #111111 79%, transparent 80% 100%), conic-gradient(#c0c1ff ${Math.round(topLanguage.pct)}%, #222222 0)` }}
+                >
+                  <div className="flex flex-col">
+                    <span className="font-headline-lg text-headline-lg">{topLanguage.name}</span>
+                    <span className="font-label-caps text-on-surface-variant">{Math.round(topLanguage.pct)}% Usage</span>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-md w-full">
+                  {data.languages.slice(0, 4).map((lang, idx) => {
+                    const bgColors = ["bg-primary", "bg-secondary", "bg-tertiary", "bg-outline"];
+                    return (
+                      <div key={lang.name} className="flex items-center gap-sm">
+                        <div className={`w-3 h-3 rounded-full ${bgColors[idx % bgColors.length]}`}></div>
+                        <span className="font-body-sm truncate">{lang.name}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </>
+            ) : (
+              <div className="text-on-surface-variant font-body-sm py-8">No language data</div>
+            )}
+          </Card>
+
+          {/* Activity Split */}
+          <Card className="md:col-span-6 p-md">
+            <h3 className="text-[11px] font-code font-bold text-on-surface-variant uppercase tracking-widest mb-lg">Contribution Mix</h3>
+            <div className="space-y-lg">
+              {Object.entries(data.activity_split || {}).map(([key, value], idx) => {
+                const col = activityColors[idx % activityColors.length];
+                return (
+                  <div key={key}>
+                    <div className="flex justify-between mb-2">
+                      <span className="font-body-lg">{key}</span>
+                      <span className={col.text}>{Math.round(value)}%</span>
+                    </div>
+                    <div className="w-full h-2 bg-surface-container rounded-full overflow-hidden">
+                      <div className={`h-full ${col.bg}`} style={{ width: `${value}%` }}></div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </Card>
+
+          {/* Commit Quality Gauge */}
+          <Card className="md:col-span-6 p-md flex flex-col justify-between">
+            <h3 className="text-[11px] font-code font-bold text-on-surface-variant uppercase tracking-widest mb-xs flex items-center gap-1.5"><span className="material-symbols-outlined text-sm text-primary">verified_user</span>Commit Health</h3>
+            <p className="text-[var(--font-size-body)] text-on-surface-variant mb-lg">Semantic clarity and description depth index.</p>
+            <div className="flex items-center justify-center flex-grow py-md">
+              <div className="relative w-48 h-24 overflow-hidden">
+                <div className="absolute top-0 left-0 w-48 h-48 rounded-full border-[12px] border-surface-container"></div>
+                <div
+                  className="absolute top-0 left-0 w-48 h-48 rounded-full border-[12px] border-primary border-b-transparent border-l-transparent transition-transform duration-1000 ease-out"
+                  style={{ transform: `rotate(${gaugeAnimated ? -45 + (180 * (lqualityPct / 100)) : -45}deg)` }}
+                ></div>
+                <div className="absolute bottom-0 left-1/2 -translate-x-1/2 flex flex-col items-center">
+                  <span className="font-display-lg text-display-lg leading-none">{lqualityPct}</span>
+                  <span className="font-label-caps text-primary">
+                    {lqualityPct >= 85 ? "Elite" : lqualityPct >= 70 ? "Strong" : lqualityPct >= 50 ? "Good" : "Weak"}
+                  </span>
+                </div>
+              </div>
+            </div>
+            <div className="flex gap-md justify-center border-t border-outline-variant/10 pt-md mt-md">
+              <div className="text-center">
+                <span className="font-headline-md block">{lqualityPct}%</span>
+                <span className="font-label-caps text-on-surface-variant">Semantic</span>
+              </div>
+              <div className="text-center">
+                <span className="font-headline-md block">
+                  {typeof data.review_ratio === "number"
+                    ? `${Math.round(data.review_ratio * 100)}%`
+                    : typeof data.review_participation === "number" && !isNaN(data.review_participation)
+                    ? `${Math.round(data.review_participation * 100)}%`
+                    : "0%"}
+                </span>
+                <span className="font-label-caps text-on-surface-variant">Participation</span>
+              </div>
+            </div>
+          </Card>
+
+          {/* AI Developer Summary */}
+          {data.llm_summary && (
+            <Card className="md:col-span-12 p-md space-y-3 mt-4">
+              <h3 className="text-[11px] font-code font-bold text-primary uppercase tracking-widest flex items-center gap-1.5 select-none border-b border-outline-variant/20 pb-2">
+                <span className="material-symbols-outlined text-sm text-primary">auto_awesome</span>
+                AI Developer Summary
+              </h3>
+              <p className="text-[var(--font-size-body)] text-on-surface-variant font-code-sm leading-relaxed bg-[#0a0a0a] border border-[#222222] p-4 rounded-md">
+                {data.llm_summary}
+              </p>
+            </Card>
+          )}
+
+        </div>
+      </main>
+
+      {/* Footer */}
+      <footer className="w-full px-margin-desktop flex flex-col md:flex-row justify-between items-center gap-md py-xl border-t border-outline-variant/10 bg-surface">
+        <div className="flex flex-col items-center md:items-start gap-xs">
+          <span className="font-display-lg text-display-lg font-bold text-primary">RepoLens</span>
+          <span className="font-body-sm text-body-sm text-on-surface-variant">© 2024 RepoLens. All systems operational.</span>
+        </div>
+        <div className="flex gap-lg">
+          <a className="font-body-sm text-body-sm text-on-surface-variant hover:text-primary transition-colors" href="#">GitHub</a>
+          <a className="font-body-sm text-body-sm text-on-surface-variant hover:text-primary transition-colors" href="#">Twitter</a>
+          <a className="font-body-sm text-body-sm text-on-surface-variant hover:text-primary transition-colors" href="#">Documentation</a>
+          <a className="font-body-sm text-body-sm text-on-surface-variant hover:text-primary transition-colors" href="#">Status</a>
+        </div>
+      </footer>
+    </div>
+  );
+}
