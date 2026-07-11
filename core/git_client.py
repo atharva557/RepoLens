@@ -14,6 +14,50 @@ import os
 from datetime import datetime, timezone
 
 
+# record / field separators for the single-pass `git log` read below. Commit
+# messages can contain anything printable, so we delimit with control chars.
+_RS, _FS = "\x1e", "\x1f"
+_LOG_FORMAT = f"{_RS}%H{_FS}%an{_FS}%ae{_FS}%ct{_FS}%B{_FS}"
+
+
+def parse_numstat_log(text: str) -> list[dict]:
+    """Parse `git log --numstat --format=<_LOG_FORMAT>` output into commit dicts.
+
+    One subprocess for the whole history. The previous implementation read
+    `commit.stats` per commit, which spawns one `git diff` process *per
+    commit* — on Windows that made a 400-commit pull take tens of seconds.
+    Binary files report "-" in numstat and count as 0.
+    """
+    commits: list[dict] = []
+    for record in text.split(_RS):
+        if not record.strip():
+            continue
+        try:
+            sha, author, email, ts, message, tail = record.split(_FS, 5)
+        except ValueError:
+            continue  # malformed record — never kill the whole pull for one
+        files = []
+        for line in tail.splitlines():
+            parts = line.split("\t")
+            if len(parts) != 3 or not parts[2]:
+                continue
+            ins, dele, path = parts
+            files.append({
+                "path": path,
+                "insertions": int(ins) if ins.isdigit() else 0,
+                "deletions": int(dele) if dele.isdigit() else 0,
+            })
+        commits.append({
+            "sha": sha,
+            "author": author,
+            "email": email.lower(),
+            "date": datetime.fromtimestamp(int(ts), tz=timezone.utc),
+            "message": message,
+            "files": files,
+        })
+    return commits
+
+
 class GitClient:
     def __init__(self, repo_path: str):
         from git import Repo  # lazy import
@@ -25,27 +69,17 @@ class GitClient:
         """Yield commit dicts (newest first) with per-file insertion/deletion stats.
 
         Merge commits are skipped by default — their diffs are noisy and would
-        over-count churn for the hotspot score.
+        over-count churn for the hotspot score. Implemented as ONE
+        `git log --numstat` invocation (see parse_numstat_log); merges, when
+        included, carry no file stats (numstat omits merge diffs).
         """
-        for c in self.repo.iter_commits(max_count=max_count):
-            if not include_merges and len(c.parents) > 1:
-                continue
-            files = [
-                {
-                    "path": path,
-                    "insertions": int(st.get("insertions", 0)),
-                    "deletions": int(st.get("deletions", 0)),
-                }
-                for path, st in c.stats.files.items()
-            ]
-            yield {
-                "sha": c.hexsha,
-                "author": c.author.name or "",
-                "email": (c.author.email or "").lower(),
-                "date": datetime.fromtimestamp(c.committed_date, tz=timezone.utc),
-                "message": c.message if isinstance(c.message, str) else c.message.decode("utf-8", "ignore"),
-                "files": files,
-            }
+        args = ["--numstat", "--no-color", f"--format={_LOG_FORMAT}"]
+        if not include_merges:
+            args.append("--no-merges")
+        if max_count:
+            args.append(f"-n{max_count}")
+        out = self.repo.git.log(*args)
+        yield from parse_numstat_log(out)
 
     def head_files(self) -> list[str]:
         """All files tracked at HEAD."""

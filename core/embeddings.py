@@ -37,7 +37,9 @@ class LiteIndex:
         self.norms: list[float] = []
         self.idf: dict[str, float] = {}
 
-    def build(self, docs: list[dict]) -> None:
+    def build(self, docs: list[dict], fingerprint: str | None = None) -> None:
+        # Lite rebuilds are cheap (tokenizing a few hundred strings) — the
+        # fingerprint only matters for the persistent Chroma backend.
         self.docs = [{"id": str(d["id"]), "meta": d.get("meta", {})} for d in docs]
         tokenized = [_tokens(d["text"]) for d in docs]
         n = len(tokenized) or 1
@@ -88,14 +90,41 @@ class ChromaIndex:
         self.collection = collection
         self.coll = None
 
-    def build(self, docs: list[dict]) -> None:
+    def try_reuse(self, fingerprint: str) -> bool:
+        """Adopt the persisted collection when its corpus hasn't changed.
+
+        The corpus (a repo's past bug-fix diffs) only moves when new commits
+        arrive, yet every PR review used to re-run git-show + re-embed the
+        whole thing. Worse, all repos shared ONE collection, so two concurrent
+        reviews silently corrupted each other's similarity scores — per-repo
+        collections + this reuse check fix both.
+        """
+        if not fingerprint:
+            return False
+        try:
+            coll = self.client.get_collection(self.collection)
+        except Exception:
+            return False
+        if (coll.metadata or {}).get("fingerprint") != fingerprint:
+            return False
+        self.coll = coll
+        return True
+
+    def count(self) -> int:
+        try:
+            return self.coll.count() if self.coll is not None else 0
+        except Exception:
+            return 0
+
+    def build(self, docs: list[dict], fingerprint: str | None = None) -> None:
         try:
             self.client.delete_collection(self.collection)
         except Exception:
             pass
-        self.coll = self.client.create_collection(
-            self.collection, metadata={"hnsw:space": "cosine"}
-        )
+        meta = {"hnsw:space": "cosine"}
+        if fingerprint:
+            meta["fingerprint"] = fingerprint
+        self.coll = self.client.create_collection(self.collection, metadata=meta)
         if not docs:
             return
         embs = self.model.encode([d["text"] for d in docs]).tolist()
@@ -124,8 +153,12 @@ class ChromaIndex:
         return out
 
 
-def open_similarity_index(settings):
+def open_similarity_index(settings, collection: str = "bug_diffs"):
     """Prefer Chroma; fall back to the stdlib Lite index.
+
+    `collection` should be unique per repo: a shared collection meant two
+    concurrent PR reviews rebuilt over each other and produced plausible but
+    wrong similarity scores.
 
     Always announces which backend was picked (and whether it is the primary
     choice, a configured selection, or a fallback) so every run is explicit
@@ -134,7 +167,8 @@ def open_similarity_index(settings):
     backend = getattr(settings, "similarity_backend", "auto")
     if backend in ("auto", "chroma"):
         try:
-            index = ChromaIndex(settings.embedding_model, settings.chroma_path)
+            index = ChromaIndex(settings.embedding_model, settings.chroma_path,
+                                collection=collection)
             print("  [backend] similarity: chroma + sentence-transformers (primary)")
             return index
         except Exception as exc:

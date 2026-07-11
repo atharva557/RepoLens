@@ -126,6 +126,36 @@ class _FakeStore:
         self.saved = (kind, key, doc)
 
 
+def test_iter_repo_commits_parallel_fetch():
+    """The threaded detail fetch must preserve order, honor the cap, and skip
+    failing commits — the exact semantics of the old sequential loop."""
+    from types import SimpleNamespace as NS
+
+    from core.github_client import GitHubAPI
+
+    def fake_commit(sha, fail=False):
+        class Files:
+            def __get__(self, obj, owner):
+                if fail:
+                    raise RuntimeError("boom")
+                return [NS(filename="a.py", status="modified", additions=1, deletions=0)]
+        c = type(f"C_{sha}", (), {"files": Files()})()
+        c.sha = sha
+        c.stats = NS(additions=1, deletions=0)
+        c.commit = NS(message=f"msg {sha}", author=NS(name="alice", date=None))
+        return c
+
+    commits = [fake_commit("s1"), fake_commit("s2", fail=True),
+               fake_commit("s3"), fake_commit("s4")]
+    repo = NS(get_commits=lambda author: commits, full_name="o/r")
+
+    # self is unused by the method - no token/network needed
+    out = GitHubAPI.iter_repo_commits(None, repo, "alice", 3)
+    assert [c["sha"] for c in out] == ["s1", "s3"]     # cap=3, s2 skipped, order kept
+    assert out[0]["repo"] == "o/r" and out[0]["files"][0]["path"] == "a.py"
+    print("  ok: parallel commit-detail fetch (order, cap, skip)")
+
+
 def test_runner_refuses_zero_commit_profiles():
     """Profiling an organization (or an empty account) finds zero authored
     commits; persisting the resulting all-zeros 'Unknown' profile made junk

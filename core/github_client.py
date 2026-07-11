@@ -155,14 +155,25 @@ class GitHubAPI:
         return out
 
     def iter_repo_commits(self, repo, username: str, max_commits: int) -> list[dict]:
-        out: list[dict] = []
+        """Commit dicts with file stats — the profiler's dominant cost.
+
+        The listing is one paginated call, but touching `.files`/`.stats` on a
+        summary commit makes PyGithub lazily fetch the FULL commit: one HTTPS
+        round-trip per commit, up to 15 repos x 100 commits sequentially
+        (~minutes). The detail fetches are independent, so they run on a small
+        thread pool; order is preserved and per-commit failures are skipped,
+        exactly as before.
+        """
         try:
-            commits = repo.get_commits(author=username)
+            summaries = []
+            for i, c in enumerate(repo.get_commits(author=username)):
+                if i >= max_commits:
+                    break
+                summaries.append(c)
         except Exception:
-            return out
-        for i, c in enumerate(commits):
-            if i >= max_commits:
-                break
+            return []
+
+        def detail(c):
             try:
                 files = [
                     {"path": f.filename, "status": f.status,
@@ -171,7 +182,7 @@ class GitHubAPI:
                 ]
                 st = c.stats
                 author = c.commit.author
-                out.append({
+                return {
                     "sha": c.sha,
                     "message": c.commit.message,
                     "author": author.name if author else username,
@@ -180,10 +191,14 @@ class GitHubAPI:
                     "deletions": st.deletions,
                     "files": files,
                     "repo": repo.full_name,
-                })
+                }
             except Exception:
-                continue
-        return out
+                return None
+
+        from concurrent.futures import ThreadPoolExecutor
+
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            return [d for d in pool.map(detail, summaries) if d is not None]
 
     def authored_prs(self, username: str, sample: int) -> tuple[int, list[str]]:
         try:

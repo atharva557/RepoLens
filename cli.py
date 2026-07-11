@@ -344,6 +344,18 @@ def interactive_pull(env: str) -> None:
     run_pull(repo, env=env, max_commits=max_commits)
 
 
+def interactive_evaluate(env: str) -> None:
+    from tools.bug_hotspot.evaluate import run_hotspot_evaluation
+
+    repo = prompt("Repo path or URL", required=True)
+    max_commits = prompt_int("Max commits to scan (0 = all)", 0)
+    settings = Settings.load(env)
+    store = open_store_announced(settings)
+    run_hotspot_evaluation(repo, settings, store,
+                           max_commits=max_commits or None)
+    print()
+
+
 def interactive_train(env: str) -> None:
     repo_list = prompt("Path to repo list", "train_repos.txt")
     max_commits = prompt_int("Max commits per repo (0 = all)", 0)
@@ -434,7 +446,8 @@ RepoLens - GitHub Analytics & Intelligence
   7) test-llm       check the configured LLM provider
   8) setup-indexes  create MongoDB indexes
   9) config         show resolved settings
- 10) quit
+ 10) evaluate      temporal hold-out validation of the hotspot score (v0.5)
+ 11) quit
 """
 
 
@@ -448,7 +461,7 @@ def main() -> int:
     while True:
         print(MENU)
         try:
-            choice = input("Select an option (1-10): ").strip().lower()
+            choice = input("Select an option (1-11): ").strip().lower()
         except (EOFError, KeyboardInterrupt):
             print()
             return 0
@@ -472,11 +485,13 @@ def main() -> int:
                 run_setup_indexes(env)
             elif choice in ("9", "config", "c"):
                 run_config(env)
-            elif choice in ("10", "quit", "q", "exit", ""):
+            elif choice in ("10", "evaluate", "eval", "e"):
+                interactive_evaluate(env)
+            elif choice in ("11", "quit", "q", "exit", ""):
                 print("bye.")
                 return 0
             else:
-                print("  unknown option; choose 1-10.")
+                print("  unknown option; choose 1-11.")
         except (EOFError, KeyboardInterrupt):
             print("\ncancelled.")
         except SystemExit as exc:

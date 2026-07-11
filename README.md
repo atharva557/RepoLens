@@ -168,7 +168,8 @@ RepoLens - GitHub Analytics & Intelligence
   7) test-llm       check the configured LLM provider
   8) setup-indexes  create MongoDB indexes
   9) config         show resolved settings
- 10) quit
+ 10) evaluate      temporal hold-out validation of the hotspot score
+ 11) quit
 ```
 
 `Repo path or URL` is a local git repository path or a remote URL (cloned once).

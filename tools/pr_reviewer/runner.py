@@ -81,7 +81,8 @@ def run_pr_review(spec: str, settings, store, *, post: bool = False,
             local_path, key, store, keywords=settings.bug_keywords, progress=progress)
         report_progress("embedding bug-fix diffs (ML)",
                         detail=f"{sum(1 for c in commits if c.get('is_bugfix'))} diffs")
-        index, corpus_n = build_bug_diff_index(commits, GitClient(local_path), settings)
+        index, corpus_n = build_bug_diff_index(commits, GitClient(local_path), settings,
+                                               repo_key=key)
         print(f"  bug-diff corpus: {corpus_n} diffs [{index.backend}]")
     except Exception as exc:
         print(f"  [warn] similarity corpus unavailable: {exc}")

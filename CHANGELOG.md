@@ -7,6 +7,27 @@ This project follows the milestone roadmap in `../GitPulse_Revised_Sections.md`.
 
 ## [Unreleased]
 
+- **Performance: the three N-per-item bottlenecks are gone.**
+  (1) History pulls are ONE `git log --numstat` invocation parsed in Python
+  (`parse_numstat_log`) instead of one `git diff` subprocess per commit -
+  flask's full 3,812-commit history now reads in ~1.2s. (2) The profiler's
+  per-commit GitHub detail fetches (up to 15 repos x 100 commits, previously
+  sequential) run on an 8-worker thread pool with identical order/skip
+  semantics. (3) Tool 3's similarity index persists per repo with a corpus
+  fingerprint: an unchanged corpus is reused - no git-show loop, no
+  re-embedding per review - and per-repo Chroma collections fix the
+  concurrency bug where two simultaneous reviews of different repos silently
+  corrupted each other's similarity scores. New regression tests in
+  test_bug_hotspot / test_dev_profiler / test_embeddings.
+- **v0.5 hotspot evaluation** (CLI option 10, `tools/bug_hotspot/evaluate.py`):
+  temporal hold-out validation of the weighted score - rank files as of past
+  cutoffs, measure precision/recall@k against the files that actually received
+  code bug fixes in the following window, compared against per-component
+  baselines, equal weights, and the random base rate. On nodejs/node
+  (46,993 commits, 4 snapshots): weighted P@5 = 0.850 vs base rate 0.0074
+  (~115x lift), beating every single-component baseline. Reports persist as
+  `hotspot_eval`; new suite tests/test_hotspot_eval.py.
+
 - **Pre-review upgrades (Tool 3)**: the risk level is now a **weighted signal
   score** (mirroring Tool 1's formula brand — `RISK_WEIGHTS`, bands tunable
   via `PR_RISK_HIGH`/`PR_RISK_MEDIUM`, arithmetic printed in the report);

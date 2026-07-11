@@ -130,6 +130,36 @@ def test_bug_credit_only_for_code_files():
     print("  ok: bug credit only for code files")
 
 
+def test_numstat_log_parser():
+    """The single-pass `git log --numstat` read must produce the exact commit
+    shape the old per-commit GitPython path did (which spawned one git process
+    per commit)."""
+    from core.git_client import _FS, _RS, parse_numstat_log
+
+    text = (
+        f"{_RS}aaa111{_FS}Alice{_FS}ALICE@X.COM{_FS}1750000000{_FS}"
+        f"Fix crash\n\nlong body here{_FS}\n"
+        "10\t2\tsrc/a.py\n"
+        "-\t-\tassets/logo.png\n"          # binary -> zeros
+        f"{_RS}bbb222{_FS}Bob{_FS}bob@x{_FS}1750100000{_FS}Add feature{_FS}\n"
+        "3\t1\tlib/b.js\n"
+    )
+    commits = parse_numstat_log(text)
+    assert len(commits) == 2
+    a, b = commits
+    assert a["sha"] == "aaa111" and a["email"] == "alice@x.com"  # lowered
+    assert a["message"].startswith("Fix crash") and "long body" in a["message"]
+    assert a["date"].tzinfo is not None
+    assert a["files"] == [
+        {"path": "src/a.py", "insertions": 10, "deletions": 2},
+        {"path": "assets/logo.png", "insertions": 0, "deletions": 0},
+    ]
+    assert b["files"] == [{"path": "lib/b.js", "insertions": 3, "deletions": 1}]
+    # malformed record never kills the pull
+    assert parse_numstat_log(f"{_RS}garbage-without-separators") == []
+    print("  ok: single-pass numstat log parser")
+
+
 def test_github_shorthand_expands():
     """Bare 'owner/repo' input must work like the full GitHub URL — rejecting
     it failed the analysis under a wrong cache key (owner dropped)."""
