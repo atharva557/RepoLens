@@ -1,13 +1,12 @@
 import { Link, useLocation } from "react-router-dom";
-import { useState, useContext } from "react";
-import { ThemeContext } from "../App";
+import { useState } from "react";
+import GlobalSettingsModal from "./GlobalSettingsModal";
 
 export default function Navbar() {
   const location = useLocation();
   const searchParams = new URLSearchParams(location.search);
   const repo = searchParams.get("repo");
   const user = searchParams.get("user");
-  const { theme, setTheme } = useContext(ThemeContext);
   const [showSettings, setShowSettings] = useState(false);
 
   const path = location.pathname;
@@ -46,11 +45,6 @@ export default function Navbar() {
       label: "PR Review",
       path: "/pr-review",
       to: "/pr-review" + getQueryString({ repo, user }),
-    },
-    {
-      label: "Status",
-      path: "/status",
-      to: "/status",
     },
   ];
 
@@ -93,45 +87,19 @@ export default function Navbar() {
           })}
         </nav>
 
-        {/* Settings Dropdown */}
+        {/* Settings Button */}
         <div className="flex items-center gap-4">
-          <div className="relative">
-            <button 
-              onClick={() => setShowSettings(!showSettings)}
-              className="p-1 rounded-full hover:bg-surface-container-high transition-colors text-on-surface-variant flex items-center justify-center"
-              aria-label="Settings"
-            >
-              <span className="material-symbols-outlined text-[20px]">settings</span>
-            </button>
-            
-            {showSettings && (
-              <div className="absolute right-0 mt-2 w-40 bg-surface border border-outline-variant rounded-md shadow-lg overflow-hidden z-50">
-                <div className="py-1">
-                  <button
-                    onClick={() => { setTheme("dark"); setShowSettings(false); }}
-                    className={`w-full text-left px-4 py-2 text-sm font-code flex items-center gap-2 hover:bg-surface-container-high ${theme === "dark" ? "text-primary font-bold" : "text-on-surface"}`}
-                  >
-                    <span className="material-symbols-outlined text-[16px]">dark_mode</span>
-                    Dark Mode
-                  </button>
-                  <button
-                    onClick={() => { setTheme("light"); setShowSettings(false); }}
-                    className={`w-full text-left px-4 py-2 text-sm font-code flex items-center gap-2 hover:bg-surface-container-high ${theme === "light" ? "text-primary font-bold" : "text-on-surface"}`}
-                  >
-                    <span className="material-symbols-outlined text-[16px]">light_mode</span>
-                    Light Mode
-                  </button>
-                  <button
-                    onClick={() => { setTheme("grey"); setShowSettings(false); }}
-                    className={`w-full text-left px-4 py-2 text-sm font-code flex items-center gap-2 hover:bg-surface-container-high ${theme === "grey" ? "text-primary font-bold" : "text-on-surface"}`}
-                  >
-                    <span className="material-symbols-outlined text-[16px]">contrast</span>
-                    Grey Mode
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
+          <button 
+            onClick={() => setShowSettings(true)}
+            className="p-1 rounded-full hover:bg-surface-container-high transition-colors text-on-surface-variant flex items-center justify-center cursor-pointer"
+            aria-label="Settings"
+          >
+            <span className="material-symbols-outlined text-[20px]">settings</span>
+          </button>
+          
+          {showSettings && (
+            <GlobalSettingsModal onClose={() => setShowSettings(false)} />
+          )}
         </div>
       </div>
     </header>

@@ -1,7 +1,10 @@
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useState, useCallback, useMemo, useContext } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { getJSON, postJSON } from "../lib/api";
 import SyncBadge from "../components/SyncBadge";
+import { ThemeContext } from "../App";
+import { getHeatmapColorStyle } from "../lib/settings";
+import Card from "../components/Card";
 
 
 function formatNumber(num) {
@@ -11,6 +14,7 @@ function formatNumber(num) {
 }
 
 export default function DeveloperProfile() {
+  const { settings } = useContext(ThemeContext);
   const navigate = useNavigate();
   const searchParams = new URLSearchParams(window.location.search);
   const repoParam = searchParams.get("repo");
@@ -38,6 +42,10 @@ export default function DeveloperProfile() {
   const [tokenError, setTokenError] = useState(false);
   const [gaugeAnimated, setGaugeAnimated] = useState(false);
   const [selectedYear, setSelectedYear] = useState(() => new Date().getFullYear());
+
+  const getHeatmapStyle = (count) => {
+    return { backgroundColor: getHeatmapColorStyle(count, settings.contributionColor, settings.theme) };
+  };
 
   const loadProfile = useCallback(() => {
     setLoading(true);
@@ -107,7 +115,6 @@ export default function DeveloperProfile() {
     }
   };
 
-  const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
   const availableYears = useMemo(() => {
     const heatmapData = data?.heatmap || [];
@@ -224,8 +231,8 @@ export default function DeveloperProfile() {
           </div>
 
           <div className="space-y-3">
-            <h2 className="font-display-lg text-3xl text-on-surface font-bold tracking-tight">Missing Link</h2>
-            <p className="text-sm text-on-surface-variant leading-relaxed px-2 font-body">
+            <h2 className="text-[var(--font-size-heading)] text-on-surface font-bold tracking-tight">Missing Link</h2>
+            <p className="text-[var(--font-size-body)] text-on-surface-variant leading-relaxed px-2 font-body">
               We need a valid GitHub username to analyze the profile. Please return to the home page to enter one.
             </p>
           </div>
@@ -258,16 +265,16 @@ export default function DeveloperProfile() {
   if (error && (error.includes("404") || error.includes("not found"))) {
     return (
       <div className="min-h-screen flex items-center justify-center p-6">
-        <div className="glass-panel p-8 text-center space-y-6 rounded-xl max-w-md w-full">
+        <Card className="p-8 text-center space-y-6 max-w-md w-full">
           <span className="material-symbols-outlined text-primary text-[64px]">person_off</span>
           <div className="space-y-2">
-            <h2 className="font-headline-lg text-primary font-bold">Profile Not Found</h2>
-            <p className="font-body-sm text-on-surface-variant leading-relaxed">
+            <h2 className="text-[var(--font-size-heading)] text-primary font-bold">Profile Not Found</h2>
+            <p className="text-[var(--font-size-body)] text-on-surface-variant leading-relaxed">
               No developer profile index found for <span className="text-on-surface font-bold">@{user}</span>.
             </p>
           </div>
           {tokenError && (
-            <div className="p-sm bg-error-container/20 border border-error-container/50 text-error rounded-lg text-left font-body-sm">
+            <div className="p-sm bg-error-container/20 border border-error-container/50 text-error rounded-lg text-left text-[var(--font-size-body)]">
               <p className="font-bold flex items-center gap-1 mb-1"><span className="material-symbols-outlined text-sm">warning</span> ACCESS DENIED</p>
               <p>The server lacks a GitHub API Token. Rebuilding profiles requires GITHUB_TOKEN.</p>
             </div>
@@ -288,7 +295,7 @@ export default function DeveloperProfile() {
               RETURN HOME
             </button>
           </div>
-        </div>
+        </Card>
       </div>
     );
   }
@@ -296,17 +303,17 @@ export default function DeveloperProfile() {
   if (error) {
     return (
       <div className="min-h-screen flex items-center justify-center p-6">
-        <div className="glass-panel p-8 text-center space-y-4 rounded-xl max-w-md w-full">
+        <Card className="p-8 text-center space-y-4 max-w-md w-full">
           <span className="material-symbols-outlined text-error text-[54px]">warning</span>
-          <h2 className="font-headline-lg text-error font-bold">Error loading profile</h2>
-          <p className="font-body-sm text-on-surface-variant leading-relaxed break-words">{error}</p>
+          <h2 className="text-[var(--font-size-heading)] text-error font-bold">Error loading profile</h2>
+          <p className="text-[var(--font-size-body)] text-on-surface-variant leading-relaxed break-words">{error}</p>
           <button
             onClick={loadProfile}
-            className="w-full bg-primary text-on-primary font-label-caps py-sm rounded-lg active:scale-95 transition-all"
+            className="w-full bg-primary text-on-primary font-label-caps py-sm rounded-lg active:scale-95 transition-all cursor-pointer"
           >
             RETRY
           </button>
-        </div>
+        </Card>
       </div>
     );
   }
@@ -316,13 +323,6 @@ export default function DeveloperProfile() {
   const lquality = data.commit_message_quality || 0;
   const lqualityPct = Math.round(lquality * 10);
 
-  const getHeatmapColor = (count) => {
-    if (count === 0) return "bg-surface-container-high";
-    if (count <= 2) return "bg-primary/20";
-    if (count <= 5) return "bg-primary/40";
-    if (count <= 9) return "bg-primary/70";
-    return "bg-primary";
-  };
 
   const activityColors = [
     { text: "text-primary", bg: "bg-primary" },
@@ -341,7 +341,7 @@ export default function DeveloperProfile() {
 
       <main className="mt-xl pt-lg pb-xl px-margin-mobile md:px-margin-desktop max-w-[1440px] mx-auto">
         {/* Profile Header */}
-        <section className="glass-panel p-md rounded-xl mb-lg flex flex-col md:flex-row gap-lg items-center md:items-start relative overflow-hidden">
+        <Card className="p-md mb-lg flex flex-col md:flex-row gap-lg items-center md:items-start relative overflow-hidden">
           <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-primary via-secondary to-tertiary"></div>
           <div className="relative shrink-0">
             <div className="w-32 h-32 rounded-xl overflow-hidden border-2 border-primary/20 shadow-xl">
@@ -383,44 +383,44 @@ export default function DeveloperProfile() {
           </div>
 
 
-        </section>
+        </Card>
 
         {/* Bento Grid Section */}
         <div className="grid grid-cols-1 md:grid-cols-12 gap-gutter">
           {/* Quick Stats */}
           <div className="md:col-span-12 grid grid-cols-2 lg:grid-cols-4 gap-gutter">
-            <div className="glass-panel p-md rounded-xl flex flex-col justify-between">
+            <Card className="p-md flex flex-col justify-between">
               <span className="font-label-caps text-on-surface-variant mb-sm">Analyzed Commits</span>
               <div className="flex items-end justify-between">
                 <span className="font-display-lg text-display-lg text-primary leading-none">{formatNumber(data.commits_analyzed)}</span>
-                <span className="text-tertiary font-body-sm flex items-center"><span className="material-symbols-outlined text-sm">trending_up</span> Profiler</span>
+                <span className="text-tertiary text-[var(--font-size-label)] flex items-center"><span className="material-symbols-outlined text-sm">trending_up</span> Profiler</span>
               </div>
-            </div>
-            <div className="glass-panel p-md rounded-xl flex flex-col justify-between">
+            </Card>
+            <Card className="p-md flex flex-col justify-between">
               <span className="font-label-caps text-on-surface-variant mb-sm">PRs Merged</span>
               <div className="flex items-end justify-between">
                 <span className="font-display-lg text-display-lg text-secondary leading-none">{formatNumber(data.prs_merged)}</span>
-                <span className="text-tertiary font-body-sm flex items-center"><span className="material-symbols-outlined text-sm">trending_up</span> out of {data.authored_prs || 0}</span>
+                <span className="text-tertiary text-[var(--font-size-label)] flex items-center"><span className="material-symbols-outlined text-sm">trending_up</span> out of {data.authored_prs || 0}</span>
               </div>
-            </div>
-            <div className="glass-panel p-md rounded-xl flex flex-col justify-between">
+            </Card>
+            <Card className="p-md flex flex-col justify-between">
               <span className="font-label-caps text-on-surface-variant mb-sm">Issues Resolved</span>
               <div className="flex items-end justify-between">
                 <span className="font-display-lg text-display-lg text-tertiary leading-none">{formatNumber(data.issues_resolved)}</span>
-                <span className="text-on-surface-variant font-body-sm">Verified</span>
+                <span className="text-on-surface-variant text-[var(--font-size-label)]">Verified</span>
               </div>
-            </div>
-            <div className="glass-panel p-md rounded-xl flex flex-col justify-between">
+            </Card>
+            <Card className="p-md flex flex-col justify-between">
               <span className="font-label-caps text-on-surface-variant mb-sm">Years Active</span>
               <div className="flex items-end justify-between">
                 <span className="font-display-lg text-display-lg text-on-surface leading-none">{social.years_active?.toFixed(1) || "1.0"}</span>
-                <span className="text-on-surface-variant font-body-sm">Experience</span>
+                <span className="text-on-surface-variant text-[var(--font-size-label)]">Experience</span>
               </div>
-            </div>
+            </Card>
           </div>
 
           {/* Heatmap */}
-          <div className="md:col-span-8 glass-panel rounded-xl overflow-hidden flex flex-col">
+          <Card className="md:col-span-8 flex flex-col">
             <div className="terminal-header px-md py-sm flex items-center justify-between">
               <div className="flex gap-2">
                 <div className="dot"></div><div className="dot"></div><div className="dot"></div>
@@ -429,17 +429,19 @@ export default function DeveloperProfile() {
             </div>
             <div className="p-md">
               <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-3 mb-md">
-                <h3 className="font-headline-md text-headline-md">Annual Velocity</h3>
+                <h3 className="text-[11px] font-code font-bold text-on-surface-variant uppercase tracking-widest">Annual Velocity</h3>
                 <div className="flex items-center gap-4 justify-between sm:justify-end">
                   {/* Legend */}
                   <div className="flex items-center gap-2 text-on-surface-variant font-label-caps text-[10px]">
                     <span>Less</span>
                     <div className="flex gap-1">
-                      <div className="contribution-cell bg-surface-container-high"></div>
-                      <div className="contribution-cell bg-primary/20"></div>
-                      <div className="contribution-cell bg-primary/40"></div>
-                      <div className="contribution-cell bg-primary/70"></div>
-                      <div className="contribution-cell bg-primary"></div>
+                      {[0, 2, 5, 8, 12].map((val) => (
+                        <div
+                          key={val}
+                          className="contribution-cell border border-outline-variant/10"
+                          style={getHeatmapStyle(val)}
+                        />
+                      ))}
                     </div>
                     <span>More</span>
                   </div>
@@ -504,8 +506,9 @@ export default function DeveloperProfile() {
                               <div
                                 key={idx}
                                 title={cell.title}
-                                className={`contribution-cell ${getHeatmapColor(cell.count)} transition-all duration-200 hover:ring-2 hover:ring-primary/60 cursor-crosshair`}
-                              ></div>
+                                className="contribution-cell transition-all duration-200 hover:ring-2 hover:ring-primary/60 cursor-crosshair border border-outline-variant/10"
+                                style={getHeatmapStyle(cell.count)}
+                              />
                             );
                           })}
                         </div>
@@ -526,11 +529,11 @@ export default function DeveloperProfile() {
                 </div>
               )}
             </div>
-          </div>
+          </Card>
 
           {/* Language Circular Chart */}
-          <div className="md:col-span-4 glass-panel p-md rounded-xl flex flex-col items-center justify-center text-center">
-            <h3 className="font-headline-md text-headline-md mb-lg">Top Languages</h3>
+          <Card className="md:col-span-4 p-md flex flex-col items-center justify-center text-center">
+            <h3 className="text-[11px] font-code font-bold text-on-surface-variant uppercase tracking-widest mb-lg">Top Languages</h3>
             {topLanguage ? (
               <>
                 <div
@@ -557,11 +560,11 @@ export default function DeveloperProfile() {
             ) : (
               <div className="text-on-surface-variant font-body-sm py-8">No language data</div>
             )}
-          </div>
+          </Card>
 
           {/* Activity Split */}
-          <div className="md:col-span-6 glass-panel p-md rounded-xl">
-            <h3 className="font-headline-md text-headline-md mb-lg">Contribution Mix</h3>
+          <Card className="md:col-span-6 p-md">
+            <h3 className="text-[11px] font-code font-bold text-on-surface-variant uppercase tracking-widest mb-lg">Contribution Mix</h3>
             <div className="space-y-lg">
               {Object.entries(data.activity_split || {}).map(([key, value], idx) => {
                 const col = activityColors[idx % activityColors.length];
@@ -578,12 +581,12 @@ export default function DeveloperProfile() {
                 );
               })}
             </div>
-          </div>
+          </Card>
 
           {/* Commit Quality Gauge */}
-          <div className="md:col-span-6 glass-panel p-md rounded-xl flex flex-col justify-between">
-            <h3 className="font-headline-md text-headline-md mb-xs">Commit Health</h3>
-            <p className="font-body-sm text-on-surface-variant mb-lg">Semantic clarity and description depth index.</p>
+          <Card className="md:col-span-6 p-md flex flex-col justify-between">
+            <h3 className="text-[11px] font-code font-bold text-on-surface-variant uppercase tracking-widest mb-xs flex items-center gap-1.5"><span className="material-symbols-outlined text-sm text-primary">verified_user</span>Commit Health</h3>
+            <p className="text-[var(--font-size-body)] text-on-surface-variant mb-lg">Semantic clarity and description depth index.</p>
             <div className="flex items-center justify-center flex-grow py-md">
               <div className="relative w-48 h-24 overflow-hidden">
                 <div className="absolute top-0 left-0 w-48 h-48 rounded-full border-[12px] border-surface-container"></div>
@@ -608,24 +611,26 @@ export default function DeveloperProfile() {
                 <span className="font-headline-md block">
                   {typeof data.review_ratio === "number"
                     ? `${Math.round(data.review_ratio * 100)}%`
-                    : (data.review_participation || "N/A")}
+                    : typeof data.review_participation === "number" && !isNaN(data.review_participation)
+                    ? `${Math.round(data.review_participation * 100)}%`
+                    : "0%"}
                 </span>
                 <span className="font-label-caps text-on-surface-variant">Participation</span>
               </div>
             </div>
-          </div>
+          </Card>
 
           {/* AI Developer Summary */}
           {data.llm_summary && (
-            <div className="md:col-span-12 glass-panel p-md rounded-xl space-y-3 mt-4">
-              <h3 className="font-label-caps text-primary font-bold uppercase tracking-wider flex items-center gap-1.5 select-none border-b border-outline-variant/20 pb-2">
+            <Card className="md:col-span-12 p-md space-y-3 mt-4">
+              <h3 className="text-[11px] font-code font-bold text-primary uppercase tracking-widest flex items-center gap-1.5 select-none border-b border-outline-variant/20 pb-2">
                 <span className="material-symbols-outlined text-sm text-primary">auto_awesome</span>
                 AI Developer Summary
               </h3>
-              <p className="text-body-sm text-on-surface-variant font-code-sm leading-relaxed bg-[#0a0a0a] border border-[#222222] p-4 rounded-md">
+              <p className="text-[var(--font-size-body)] text-on-surface-variant font-code-sm leading-relaxed bg-[#0a0a0a] border border-[#222222] p-4 rounded-md">
                 {data.llm_summary}
               </p>
-            </div>
+            </Card>
           )}
 
         </div>

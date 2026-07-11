@@ -1,9 +1,10 @@
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useRef, useContext } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { getJSON, postJSON } from "../lib/api";
-import { loadRepoSettings, saveRepoSettings } from "../lib/settings";
+import { loadRepoSettings, saveRepoSettings, getHeatmapColorStyle } from "../lib/settings";
 import SyncBadge from "../components/SyncBadge";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar } from "recharts";
+import { ThemeContext } from "../App";
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -318,35 +319,35 @@ function SettingsModal({ settingsForm, setSettingsForm, onSave, onClose }) {
         </div>
 
         {/* Body */}
-        <div className="px-8 py-6 space-y-6">
-          <div className="space-y-2">
-            <label className="block font-code text-[11px] font-bold text-on-surface-variant uppercase tracking-wider">
+        <div className="px-8 py-6 flex flex-col gap-6 bg-surface">
+          <div className="flex flex-col gap-2">
+            <label className="font-code text-xs font-bold text-on-surface-variant uppercase tracking-wider">
               Max Commits To Analyze
             </label>
             <input
               type="number"
               value={settingsForm.max_commits || ""}
               onChange={(e) => setSettingsForm({ ...settingsForm, max_commits: e.target.value })}
-              className="w-full bg-surface-container border border-outline-variant rounded-lg px-4 py-3 text-[13px] font-code text-on-surface placeholder-on-surface-variant/40 focus:outline-none focus:border-primary transition-colors"
+              className="w-full max-w-md bg-surface-container border border-outline-variant rounded-lg px-4 py-2.5 text-sm font-code text-on-surface placeholder-on-surface-variant/40 focus:outline-none focus:border-primary transition-colors"
               placeholder="e.g. 250"
             />
-            <p className="text-[10px] text-on-surface-variant/50 font-code">
+            <p className="text-xs text-on-surface-variant/60 font-code leading-normal max-w-md">
               Higher values are more accurate but take longer to process.
             </p>
           </div>
 
-          <div className="space-y-2">
-            <label className="block font-code text-[11px] font-bold text-on-surface-variant uppercase tracking-wider">
+          <div className="flex flex-col gap-2">
+            <label className="font-code text-xs font-bold text-on-surface-variant uppercase tracking-wider">
               Top Scoring Hotspots Count
             </label>
             <input
               type="number"
               value={settingsForm.top || ""}
               onChange={(e) => setSettingsForm({ ...settingsForm, top: e.target.value })}
-              className="w-full bg-surface-container border border-outline-variant rounded-lg px-4 py-3 text-[13px] font-code text-on-surface placeholder-on-surface-variant/40 focus:outline-none focus:border-primary transition-colors"
+              className="w-full max-w-md bg-surface-container border border-outline-variant rounded-lg px-4 py-2.5 text-sm font-code text-on-surface placeholder-on-surface-variant/40 focus:outline-none focus:border-primary transition-colors"
               placeholder="e.g. 15"
             />
-            <p className="text-[10px] text-on-surface-variant/50 font-code">
+            <p className="text-xs text-on-surface-variant/60 font-code leading-normal max-w-md">
               Number of hotspot files ranked by churn + fix frequency.
             </p>
           </div>
@@ -397,6 +398,11 @@ export default function Dashboard() {
 
   const [showSettings, setShowSettings] = useState(false);
   const [showQualityModal, setShowQualityModal] = useState(false);
+
+  const { settings } = useContext(ThemeContext);
+  const getHeatmapStyle = (count) => {
+    return { backgroundColor: getHeatmapColorStyle(count, settings.contributionColor, settings.theme) };
+  };
 
   const [settingsForm, setSettingsForm] = useState(() => loadRepoSettings(repo));
 
@@ -718,13 +724,6 @@ export default function Dashboard() {
 
   const monthLabels = getMonthLabels(heatmapCells);
 
-  const getHeatmapColor = (count) => {
-    if (count === 0) return "bg-surface-container-highest";
-    if (count <= 2) return "bg-primary/20";
-    if (count <= 5) return "bg-primary/40";
-    if (count <= 9) return "bg-primary/70";
-    return "bg-primary";
-  };
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
@@ -928,8 +927,12 @@ export default function Dashboard() {
             <div className="flex items-center gap-3 font-code text-[11px] text-on-surface-variant">
               <span>Less</span>
               <div className="flex gap-1">
-                {["bg-surface-container-highest border border-outline-variant/30", "bg-primary/20", "bg-primary/40", "bg-primary/70", "bg-primary"].map((cls, i) => (
-                  <div key={i} className={`w-[13px] h-[13px] rounded-sm ${cls}`} />
+                {[0, 2, 5, 8, 12].map((val) => (
+                  <div
+                    key={val}
+                    className={`w-[13px] h-[13px] rounded-sm ${val === 0 ? "border border-outline-variant/30" : ""}`}
+                    style={getHeatmapStyle(val)}
+                  />
                 ))}
               </div>
               <span>More</span>
@@ -964,7 +967,8 @@ export default function Dashboard() {
                     <div
                       key={idx}
                       title={cell.title}
-                      className={`w-[13px] h-[13px] rounded-[3px] transition-all duration-200 hover:ring-2 hover:ring-primary/60 cursor-crosshair ${getHeatmapColor(cell.count)} ${cell.count === 0 ? "border border-outline-variant/30" : ""}`}
+                      className={`w-[13px] h-[13px] rounded-[3px] transition-all duration-200 hover:ring-2 hover:ring-primary/60 cursor-crosshair ${cell.count === 0 ? "border border-outline-variant/30" : ""}`}
+                      style={getHeatmapStyle(cell.count)}
                     />
                   )
                 )}
