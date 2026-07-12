@@ -94,6 +94,19 @@ def test_profile_assembly_with_fake_llm():
     assert 0 <= profile["commit_message_quality"] <= 10
     assert profile["authored_prs"] == 12
     assert profile["llm_summary"] == "Strong, detail-oriented."
+
+    # the summary is built from the whole profile, not just PR bodies: a
+    # developer with commits but ZERO authored PRs still gets one (the common
+    # case that used to always return None)
+    fake = FakeProvider("A steady feature builder.")
+    no_pr = build_profile(
+        {"username": "carol", "commits": commits, "languages": {"Go": 1},
+         "authored_prs": 0, "pr_samples": [], "reviews_count": 0},
+        _settings(), llm=fake)
+    assert no_pr["llm_summary"] == "A steady feature builder."
+    # and the digest it was handed carries the real signal, not PR text
+    digest = fake.calls[-1]["prompt"]
+    assert "commits" in digest and no_pr["primary_type"] in digest
     # dashboard fields: language shares, social header, counts, daily heatmap
     assert profile["languages"][0] == {"name": "Python", "pct": 75.0}
     assert profile["prs_merged"] == 9 and profile["issues_resolved"] == 4

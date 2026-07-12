@@ -75,6 +75,22 @@ def build_profile(activity: dict, settings, llm=None) -> dict:
         "review_participation": participation,
         "user": activity.get("user") or {},
         "heatmap": _daily_heatmap(commits),
-        "llm_summary": analyze(llm, username, activity.get("pr_samples", [])),
     }
+    # the summary reads the whole computed picture, not just PR bodies (most
+    # users have no authored PRs -> the old path always returned None)
+    subjects = [(_c.get("message") or "").strip().splitlines()[0][:80]
+                for _c in commits if _c.get("message")]
+    profile["llm_summary"] = analyze(llm, username, {
+        "distribution": classification["distribution"],
+        "primary_type": classification["primary_type"],
+        "top_languages": top_languages,
+        "commits_analyzed": len(commits),
+        "repos_analyzed": len(activity.get("repos", [])),
+        "authored_prs": activity.get("authored_prs", 0),
+        "prs_merged": activity.get("merged_prs", 0),
+        "reviews": reviews,
+        "commit_message_quality": profile["commit_message_quality"],
+        "commit_subjects": subjects[:8],
+        "pr_samples": activity.get("pr_samples", []),
+    })
     return profile

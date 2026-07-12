@@ -326,16 +326,19 @@ export default function DeveloperProfile() {
   const lqualityPct = Math.round(lquality * 10);
 
 
-  const activityColors = [
-    { text: "text-primary", bg: "bg-primary" },
-    { text: "text-secondary", bg: "bg-secondary" },
-    { text: "text-tertiary", bg: "bg-tertiary" },
-    { text: "text-on-surface", bg: "bg-on-surface" },
-    { text: "text-error", bg: "bg-error" },
-    { text: "text-outline", bg: "bg-outline" },
-  ];
-
-  const topLanguage = data.languages && data.languages.length > 0 ? data.languages[0] : null;
+  // categorical palette for languages / activity types — fixed hues that read
+  // clearly in both themes (a single accent can't separate 6 series)
+  const CATEGORICAL = ["#f5a524", "#3fb950", "#0ea5e9", "#c084fc", "#f472b6", "#94a3b8"];
+  const langs = (data.languages || []).slice(0, 6);
+  const activityEntries = Object.entries(data.activity_split || {})
+    .sort((a, b) => b[1] - a[1]);
+  const qualityLabel =
+    lqualityPct >= 85 ? "Elite" : lqualityPct >= 70 ? "Strong"
+    : lqualityPct >= 50 ? "Good" : "Weak";
+  const participationDisplay =
+    typeof data.review_ratio === "number" ? `${Math.round(data.review_ratio * 100)}%`
+    : typeof data.review_participation === "string" ? data.review_participation.split(" ")[0]
+    : "N/A";
 
   return (
     <div className="min-h-screen overflow-x-hidden">
@@ -533,51 +536,56 @@ export default function DeveloperProfile() {
             </div>
           </Card>
 
-          {/* Language Circular Chart */}
-          <Card className="md:col-span-4 p-md flex flex-col items-center justify-center text-center">
-            <h3 className="text-[11px] font-code font-bold text-on-surface-variant uppercase tracking-widest mb-lg">Top Languages</h3>
-            {topLanguage ? (
-              <>
-                <div
-                  className="relative w-40 h-40 radial-progress rounded-full flex items-center justify-center mb-lg"
-                  style={{ background: `radial-gradient(closest-side, var(--color-surface-container) 79%, transparent 80% 100%), conic-gradient(var(--color-primary) ${Math.round(topLanguage.pct)}%, var(--color-surface-container-highest) 0)` }}
-                >
-                  <div className="flex flex-col">
-                    <span className="font-headline-lg text-headline-lg">{topLanguage.name}</span>
-                    <span className="font-label-caps text-on-surface-variant">{Math.round(topLanguage.pct)}% Usage</span>
-                  </div>
+          {/* Top Languages — GitHub-style segmented bar + legend */}
+          <Card className="md:col-span-4 p-5 flex flex-col">
+            <h3 className="text-[11px] font-code font-bold text-on-surface-variant uppercase tracking-widest mb-4 flex items-center gap-1.5">
+              <span className="material-symbols-outlined text-sm text-primary">code</span>Top Languages
+            </h3>
+            {langs.length > 0 ? (
+              <div className="flex flex-col flex-grow">
+                <div className="flex w-full h-2.5 rounded-full overflow-hidden mb-5 bg-surface-container-highest">
+                  {langs.map((lang, idx) => (
+                    <div
+                      key={lang.name}
+                      style={{ width: `${lang.pct}%`, backgroundColor: CATEGORICAL[idx % CATEGORICAL.length] }}
+                      title={`${lang.name} ${lang.pct.toFixed(1)}%`}
+                    />
+                  ))}
                 </div>
-                <div className="grid grid-cols-2 gap-md w-full">
-                  {data.languages.slice(0, 4).map((lang, idx) => {
-                    const bgColors = ["bg-primary", "bg-secondary", "bg-tertiary", "bg-outline"];
-                    return (
-                      <div key={lang.name} className="flex items-center gap-sm">
-                        <div className={`w-3 h-3 rounded-full ${bgColors[idx % bgColors.length]}`}></div>
-                        <span className="font-body-sm truncate">{lang.name}</span>
-                      </div>
-                    );
-                  })}
+                <div className="space-y-2.5">
+                  {langs.map((lang, idx) => (
+                    <div key={lang.name} className="flex items-center gap-2.5">
+                      <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: CATEGORICAL[idx % CATEGORICAL.length] }} />
+                      <span className="font-body-sm text-on-surface truncate flex-grow">{lang.name}</span>
+                      <span className="font-code text-xs text-on-surface-variant tabular-nums">{lang.pct.toFixed(1)}%</span>
+                    </div>
+                  ))}
                 </div>
-              </>
+              </div>
             ) : (
-              <div className="text-on-surface-variant font-body-sm py-8">No language data</div>
+              <div className="text-on-surface-variant font-body-sm py-8 text-center flex-grow flex items-center justify-center">No language data</div>
             )}
           </Card>
 
-          {/* Activity Split */}
-          <Card className="md:col-span-6 p-md">
-            <h3 className="text-[11px] font-code font-bold text-on-surface-variant uppercase tracking-widest mb-lg">Contribution Mix</h3>
-            <div className="space-y-lg">
-              {Object.entries(data.activity_split || {}).map(([key, value], idx) => {
-                const col = activityColors[idx % activityColors.length];
+          {/* Contribution Mix — ranked developer-type distribution */}
+          <Card className="md:col-span-5 p-5">
+            <h3 className="text-[11px] font-code font-bold text-on-surface-variant uppercase tracking-widest mb-4 flex items-center gap-1.5">
+              <span className="material-symbols-outlined text-sm text-primary">donut_small</span>Contribution Mix
+            </h3>
+            <div className="space-y-3.5">
+              {activityEntries.map(([key, value], idx) => {
+                const isTop = idx === 0 && value > 0;
                 return (
                   <div key={key}>
-                    <div className="flex justify-between mb-2">
-                      <span className="font-body-lg">{key}</span>
-                      <span className={col.text}>{Math.round(value)}%</span>
+                    <div className="flex justify-between items-baseline mb-1.5">
+                      <span className={`font-body-sm ${isTop ? "text-on-surface font-semibold" : "text-on-surface-variant"}`}>{key}</span>
+                      <span className="font-code text-xs tabular-nums text-on-surface-variant">{Math.round(value)}%</span>
                     </div>
-                    <div className="w-full h-2 bg-surface-container rounded-full overflow-hidden">
-                      <div className={`h-full ${col.bg}`} style={{ width: `${value}%` }}></div>
+                    <div className="w-full h-2 bg-surface-container-highest rounded-full overflow-hidden">
+                      <div
+                        className="h-full rounded-full transition-all duration-700"
+                        style={{ width: `${value}%`, backgroundColor: isTop ? "var(--color-primary)" : CATEGORICAL[idx % CATEGORICAL.length] }}
+                      />
                     </div>
                   </div>
                 );
@@ -585,41 +593,30 @@ export default function DeveloperProfile() {
             </div>
           </Card>
 
-          {/* Commit Quality Gauge */}
-          <Card className="md:col-span-6 p-md flex flex-col justify-between">
-            <h3 className="text-[11px] font-code font-bold text-on-surface-variant uppercase tracking-widest mb-xs flex items-center gap-1.5"><span className="material-symbols-outlined text-sm text-primary">verified_user</span>Commit Health</h3>
-            <p className="text-[var(--font-size-body)] text-on-surface-variant mb-lg">Semantic clarity and description depth index.</p>
-            <div className="flex items-center justify-center flex-grow py-md">
-              <div className="relative w-48 h-24 overflow-hidden">
-                <div className="absolute top-0 left-0 w-48 h-48 rounded-full border-[12px] border-surface-container"></div>
-                <div
-                  className="absolute top-0 left-0 w-48 h-48 rounded-full border-[12px] border-primary border-b-transparent border-l-transparent transition-transform duration-1000 ease-out"
-                  style={{ transform: `rotate(${gaugeAnimated ? -45 + (180 * (lqualityPct / 100)) : -45}deg)` }}
-                ></div>
-                <div className="absolute bottom-0 left-1/2 -translate-x-1/2 flex flex-col items-center">
-                  <span className="font-display-lg text-display-lg leading-none">{lqualityPct}</span>
-                  <span className="font-label-caps text-primary">
-                    {lqualityPct >= 85 ? "Elite" : lqualityPct >= 70 ? "Strong" : lqualityPct >= 50 ? "Good" : "Weak"}
-                  </span>
+          {/* Commit Health — clean conic ring + sub-stats */}
+          <Card className="md:col-span-3 p-5 flex flex-col">
+            <h3 className="text-[11px] font-code font-bold text-on-surface-variant uppercase tracking-widest mb-4 flex items-center gap-1.5">
+              <span className="material-symbols-outlined text-sm text-primary">verified_user</span>Commit Health
+            </h3>
+            <div className="flex flex-col items-center justify-center flex-grow gap-4">
+              <div
+                className="relative w-32 h-32 rounded-full flex items-center justify-center"
+                style={{ background: `conic-gradient(var(--color-primary) ${gaugeAnimated ? lqualityPct : 0}%, var(--color-surface-container-highest) 0)`, transition: "background 1s ease-out" }}
+              >
+                <div className="w-[104px] h-[104px] rounded-full bg-surface-container flex flex-col items-center justify-center">
+                  <span className="font-stat text-3xl font-bold leading-none text-on-surface">{lqualityPct}</span>
+                  <span className="font-label-caps text-primary text-[10px] mt-0.5">{qualityLabel}</span>
                 </div>
               </div>
-            </div>
-            <div className="flex gap-md justify-center border-t border-outline-variant/10 pt-md mt-md">
-              <div className="text-center">
-                <span className="font-headline-md block">{lqualityPct}%</span>
-                <span className="font-label-caps text-on-surface-variant">Semantic</span>
-              </div>
-              <div className="text-center">
-                <span className="font-headline-md block">
-                  {typeof data.review_ratio === "number"
-                    ? `${Math.round(data.review_ratio * 100)}%`
-                    : typeof data.review_participation === "number" && !isNaN(data.review_participation)
-                    ? `${Math.round(data.review_participation * 100)}%`
-                    : typeof data.review_participation === "string"
-                    ? data.review_participation.split(" ")[0]
-                    : "N/A"}
-                </span>
-                <span className="font-label-caps text-on-surface-variant">Participation</span>
+              <div className="grid grid-cols-2 gap-2 w-full border-t border-outline-variant/20 pt-4">
+                <div className="text-center">
+                  <span className="font-headline-md text-lg block text-on-surface tabular-nums">{lqualityPct}%</span>
+                  <span className="font-label-caps text-on-surface-variant text-[10px]">Semantic</span>
+                </div>
+                <div className="text-center">
+                  <span className="font-headline-md text-lg block text-on-surface tabular-nums">{participationDisplay}</span>
+                  <span className="font-label-caps text-on-surface-variant text-[10px]">Reviews</span>
+                </div>
               </div>
             </div>
           </Card>

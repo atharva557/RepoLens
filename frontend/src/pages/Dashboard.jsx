@@ -484,10 +484,11 @@ export default function Dashboard() {
         }
       }
 
-      const [metaData, qualityData, insightsData] = await Promise.all([
+      const [metaData, qualityData, insightsData, prData] = await Promise.all([
         soft(`/repos/${repo}/meta`),
         soft(`/repos/${repo}/commit-quality`),
         soft(`/repos/${repo}/insights`),
+        soft(`/repos/${repo}/pr-reviews`),
       ]);
 
       let finalInsights = insightsData;
@@ -513,7 +514,9 @@ export default function Dashboard() {
         }
       }
 
-      setData({ activity: activityData, meta: metaData, quality: finalQuality, insights: finalInsights });
+      setData({ activity: activityData, meta: metaData, quality: finalQuality,
+                insights: finalInsights,
+                prReviews: (prData && prData.pr_reviews) || [] });
       setLoading(false);
     } catch (e) {
       setError(e.message);
@@ -650,7 +653,11 @@ export default function Dashboard() {
 
   // ── Data + derived state ───────────────────────────────────────────────────
 
-  const { activity, meta, quality, insights } = data;
+  const { activity, meta, quality, insights, prReviews = [] } = data;
+  const prLevel = (lvl) =>
+    lvl === "HIGH" ? "bg-red-500/20 text-red-400 border-red-500/30"
+    : lvl === "MEDIUM" ? "bg-orange-400/20 text-orange-400 border-orange-400/30"
+    : "bg-green-500/20 text-green-500 border-green-500/30";
   const hasMeta = meta && !meta.unavailable;
   const hasQuality = data.quality && !data.quality.unavailable && !data.quality.generating;
   const hasInsights = insights && !insights.unavailable;
@@ -1239,6 +1246,52 @@ export default function Dashboard() {
                 </div>
               </div>
             )}
+
+            {/* Pull Requests — reviewed PRs for this repo (Tool 3) */}
+            <div className="bg-surface-container border border-outline-variant rounded-xl p-5 space-y-3 glow-card">
+              <div className="flex items-center justify-between border-b border-outline-variant pb-3">
+                <p className="text-[10px] text-on-surface-variant font-code font-bold uppercase tracking-widest">Pull Requests</p>
+                <span className="material-symbols-outlined text-[16px] text-on-surface-variant">merge</span>
+              </div>
+              {prReviews.length > 0 ? (
+                <div className="space-y-2 pt-1">
+                  {prReviews.slice(0, 4).map((pr) => (
+                    <Link
+                      key={pr.number}
+                      to={`/pr-review?repo=${repo}&pr=${pr.number}`}
+                      className="flex items-center justify-between p-2.5 rounded-lg bg-surface-container-high hover:bg-surface-container-highest border border-outline-variant/30 hover:border-primary/50 transition-all group"
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="material-symbols-outlined text-[15px] text-primary shrink-0">commit</span>
+                        <span className="font-code text-xs text-on-surface group-hover:text-primary transition-colors">#{pr.number}</span>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-sm uppercase border ${prLevel(pr.level)}`}>
+                          {pr.level}
+                        </span>
+                        <span className="material-symbols-outlined text-[14px] text-on-surface-variant group-hover:text-primary group-hover:translate-x-0.5 transition-all">arrow_forward</span>
+                      </div>
+                    </Link>
+                  ))}
+                  {prReviews.length > 4 && (
+                    <Link to={`/pr-review?repo=${repo}`} className="block text-center text-[11px] font-code text-primary hover:underline pt-1">
+                      View all {prReviews.length} reviewed PRs →
+                    </Link>
+                  )}
+                </div>
+              ) : (
+                <div className="pt-1 space-y-3">
+                  <p className="text-xs text-on-surface-variant font-body">No PRs reviewed yet for this repository.</p>
+                  <Link
+                    to={`/pr-review?repo=${repo}`}
+                    className="inline-flex items-center gap-1.5 text-[11px] font-code font-bold text-primary hover:underline"
+                  >
+                    <span className="material-symbols-outlined text-[14px]">rate_review</span>
+                    Review a pull request →
+                  </Link>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </main>

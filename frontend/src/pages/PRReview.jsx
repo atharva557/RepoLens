@@ -110,6 +110,10 @@ export default function PRReview() {
   useEffect(() => {
     if (repo && pr) {
       fetchReport(repo, pr);
+    }
+    // load the repo's reviewed-PR list whenever we know the repo — the input
+    // screen shows it too, not just once a report is open
+    if (repo) {
       fetchHistory(repo);
     }
     return () => clearTimeout(pollTimerRef.current);
@@ -211,6 +215,31 @@ export default function PRReview() {
               </div>
             )}
           </form>
+
+          {/* repo's already-reviewed PRs (shown when arriving with ?repo=) */}
+          {repo && history.length > 0 && (
+            <div className="w-full mt-6 space-y-2">
+              <p className="text-[10px] font-code font-bold uppercase tracking-widest text-on-surface-variant flex items-center gap-1.5">
+                <span className="material-symbols-outlined text-[14px]">history</span>
+                Reviewed in {repo}
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {history.slice(0, 6).map((h) => (
+                  <button
+                    key={h.number}
+                    onClick={() => navigate(`/pr-review?repo=${repo}&pr=${h.number}`)}
+                    className="flex items-center justify-between p-2.5 rounded-lg bg-surface-container border border-outline-variant/40 hover:border-primary/50 hover:bg-surface-container-high transition-all group text-left"
+                  >
+                    <span className="font-code text-xs text-on-surface group-hover:text-primary transition-colors">#{h.number}</span>
+                    <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-sm uppercase ${
+                      h.level === "HIGH" ? "bg-red-500/20 text-red-400" :
+                      h.level === "MEDIUM" ? "bg-orange-400/20 text-orange-400" : "bg-green-500/20 text-green-500"
+                    }`}>{h.level}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     );
