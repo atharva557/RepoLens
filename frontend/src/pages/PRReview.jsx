@@ -286,13 +286,11 @@ export default function PRReview() {
     breakdownText = `${breakdownText} = ${totalScore.toFixed(2)} → ${report.level}`;
   }
 
-  const riskColor = report.level === "CRITICAL" ? "text-error" : 
-                    report.level === "HIGH" ? "text-tertiary" : 
-                    report.level === "MEDIUM" ? "text-primary" : "text-green-500";
-                    
-  const riskBg = report.level === "CRITICAL" ? "bg-error" : 
-                 report.level === "HIGH" ? "bg-tertiary" : 
-                 report.level === "MEDIUM" ? "bg-primary" : "bg-green-500";
+  // Risk severity uses FIXED semantic colors, deliberately independent of the
+  // theme accent: HIGH rendered in blue (or in "jade green" when the user
+  // picks that accent) reads as safe. Red = high, orange = medium, green = low.
+  const riskBg = report.level === "HIGH" ? "bg-red-500"
+                 : report.level === "MEDIUM" ? "bg-orange-400" : "bg-green-500";
 
   return (
     <div className="min-h-screen bg-background text-on-surface pb-12">
@@ -305,7 +303,10 @@ export default function PRReview() {
               <h1 className="font-display-lg text-3xl font-bold tracking-tight">
                 {repo} <span className="text-primary">#{pr}</span>
               </h1>
-              <span className={`px-2 py-0.5 border text-[10px] font-bold uppercase rounded-sm border-outline-variant/30 ${riskColor}`}>
+              <span
+                className={`px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider rounded-sm text-black ${riskBg}`}
+                style={{ boxShadow: "0 0 14px color-mix(in srgb, currentColor 25%, transparent)" }}
+              >
                 {report.level} RISK
               </span>
             </div>
@@ -330,7 +331,7 @@ export default function PRReview() {
           <div className="lg:col-span-8 space-y-gutter">
             
             {/* Breakdown Card */}
-            <div className="bg-surface-container border border-outline-variant p-6 rounded-xl space-y-4">
+            <div className="bg-surface-container border border-outline-variant p-6 rounded-xl space-y-4 glow-card">
               <h3 className="font-code text-sm font-bold uppercase text-on-surface-variant flex items-center gap-2">
                 <span className="material-symbols-outlined text-primary text-[18px]">functions</span>
                 Risk Score Computation
@@ -370,31 +371,35 @@ export default function PRReview() {
 
             {/* Quick Stats */}
             <div className="grid grid-cols-3 gap-gutter">
-              <div className="bg-surface-container border border-outline-variant p-4 rounded-xl">
+              <div className="bg-surface-container border border-outline-variant p-4 rounded-xl glow-card">
                 <p className="font-code text-[10px] text-on-surface-variant uppercase mb-1">Files Changed</p>
-                <p className="font-display-lg text-2xl font-bold">{report.files_changed || 0}</p>
+                <p className="font-stat text-2xl font-bold">{report.files_changed || 0}</p>
               </div>
-              <div className="bg-surface-container border border-outline-variant p-4 rounded-xl">
+              <div className="bg-surface-container border border-outline-variant p-4 rounded-xl glow-card">
                 <p className="font-code text-[10px] text-on-surface-variant uppercase mb-1">Lines Added</p>
-                <p className="font-display-lg text-2xl font-bold text-error">+{report.lines_added || 0}</p>
+                {/* red only past the large-change threshold — a 12-line PR isn't a warning */}
+                <p className={`font-stat text-2xl font-bold ${(report.lines_added || 0) >= 400 ? "text-red-400" : "text-on-surface"}`}>
+                  +{report.lines_added || 0}
+                </p>
               </div>
-              <div className="bg-surface-container border border-outline-variant p-4 rounded-xl">
+              <div className="bg-surface-container border border-outline-variant p-4 rounded-xl glow-card">
                 <p className="font-code text-[10px] text-on-surface-variant uppercase mb-1">Similarity</p>
-                <p className="font-display-lg text-2xl font-bold text-primary">{(report.similarity * 100).toFixed(0)}%</p>
+                <p className="font-stat text-2xl font-bold text-primary">{(report.similarity * 100).toFixed(0)}%</p>
+                <p className="font-code text-[9px] text-on-surface-variant uppercase">vs past bug-fix diffs</p>
               </div>
             </div>
 
             {/* Signals */}
             <div className="space-y-4">
               {report.warnings && report.warnings.length > 0 && (
-                <div className="bg-tertiary/10 border border-tertiary/30 p-4 rounded-xl space-y-2">
-                  <h4 className="font-code text-[11px] font-bold text-tertiary uppercase flex items-center gap-1.5">
+                <div className="bg-orange-900/20 border border-orange-700/40 p-4 rounded-xl space-y-2">
+                  <h4 className="font-code text-[11px] font-bold text-orange-400 uppercase flex items-center gap-1.5">
                     <span className="material-symbols-outlined text-[16px]">warning</span> Warnings
                   </h4>
                   <ul className="space-y-1.5 pl-1">
                     {report.warnings.map((w, idx) => (
                       <li key={idx} className="font-body text-[13px] text-on-surface flex items-start gap-2">
-                        <span className="text-tertiary mt-1">•</span>
+                        <span className="text-orange-400 mt-1">•</span>
                         <span>{w}</span>
                       </li>
                     ))}
@@ -475,9 +480,8 @@ export default function PRReview() {
                       <div className="flex justify-between items-center mb-1">
                         <span className="font-code text-sm">#{h.number}</span>
                         <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-sm uppercase ${
-                          h.level === "CRITICAL" ? "bg-error/20 text-error" :
-                          h.level === "HIGH" ? "bg-tertiary/20 text-tertiary" :
-                          h.level === "MEDIUM" ? "bg-primary/20 text-primary" : "bg-green-500/20 text-green-500"
+                          h.level === "HIGH" ? "bg-red-500/20 text-red-400" :
+                          h.level === "MEDIUM" ? "bg-orange-400/20 text-orange-400" : "bg-green-500/20 text-green-500"
                         }`}>
                           {h.level}
                         </span>

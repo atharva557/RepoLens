@@ -36,8 +36,8 @@ export function saveRepoSettings(repo, settings) {
 // primary token, so choosing it means "no override".
 export const ACCENTS = [
   { name: "Amber", value: "amber", color: "#f5a524" },
-  { name: "Jade", value: "jade", color: "#34d399" },
-  { name: "Ocean", value: "ocean", color: "#38bdf8" },
+  { name: "Jade", value: "jade", color: "#3fb950" },   // GitHub's dark-theme green
+  { name: "Ocean", value: "ocean", color: "#0ea5e9" }, // deeper sky than the old #38bdf8
   { name: "Orchid", value: "orchid", color: "#c084fc" },
 ];
 

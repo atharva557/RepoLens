@@ -361,7 +361,7 @@ export default function DeveloperProfile() {
           <div className="flex-grow text-center md:text-left">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-sm mb-xs">
               <h1 className="font-display-lg text-display-lg leading-none">
-                @{user} <span className="text-on-surface-variant/50 mx-2">•</span> <span className="text-primary">{data.primary_type || "Contributor"}</span>
+                @{user} <span className="text-on-surface-variant/50 mx-2">•</span> <span className="text-primary glow-text">{data.primary_type || "Contributor"}</span>
               </h1>
               <SyncBadge ageHours={data.age_hours} stale={data.stale} onRefresh={handleBuildProfile} />
             </div>
@@ -540,7 +540,7 @@ export default function DeveloperProfile() {
               <>
                 <div
                   className="relative w-40 h-40 radial-progress rounded-full flex items-center justify-center mb-lg"
-                  style={{ background: `radial-gradient(closest-side, #111111 79%, transparent 80% 100%), conic-gradient(#c0c1ff ${Math.round(topLanguage.pct)}%, #222222 0)` }}
+                  style={{ background: `radial-gradient(closest-side, var(--color-surface-container) 79%, transparent 80% 100%), conic-gradient(var(--color-primary) ${Math.round(topLanguage.pct)}%, var(--color-surface-container-highest) 0)` }}
                 >
                   <div className="flex flex-col">
                     <span className="font-headline-lg text-headline-lg">{topLanguage.name}</span>
@@ -615,25 +615,44 @@ export default function DeveloperProfile() {
                     ? `${Math.round(data.review_ratio * 100)}%`
                     : typeof data.review_participation === "number" && !isNaN(data.review_participation)
                     ? `${Math.round(data.review_participation * 100)}%`
-                    : "0%"}
+                    : typeof data.review_participation === "string"
+                    ? data.review_participation.split(" ")[0]
+                    : "N/A"}
                 </span>
                 <span className="font-label-caps text-on-surface-variant">Participation</span>
               </div>
             </div>
           </Card>
 
-          {/* AI Developer Summary */}
-          {data.llm_summary && (
-            <Card className="md:col-span-12 p-md space-y-3 mt-4">
-              <h3 className="text-[11px] font-code font-bold text-primary uppercase tracking-widest flex items-center gap-1.5 select-none border-b border-outline-variant/20 pb-2">
-                <span className="material-symbols-outlined text-sm text-primary">auto_awesome</span>
-                AI Developer Summary
-              </h3>
-              <p className="text-[var(--font-size-body)] text-on-surface-variant font-code-sm leading-relaxed bg-background border border-outline-variant/40 p-4 rounded-md">
+          {/* AI Developer Summary — always visible: hiding it silently made
+              "why is there no summary?" a support question. Profiles built
+              while no LLM was reachable have llm_summary=null; a re-sync
+              regenerates it. */}
+          <Card className="md:col-span-12 p-md space-y-3 mt-4 border-l-4 border-l-primary">
+            <h3 className="text-[11px] font-code font-bold text-primary uppercase tracking-widest flex items-center gap-1.5 select-none border-b border-outline-variant/20 pb-2">
+              <span className="material-symbols-outlined text-sm text-primary">auto_awesome</span>
+              AI Developer Summary
+            </h3>
+            {data.llm_summary ? (
+              <p className="text-[var(--font-size-body)] text-on-surface leading-relaxed bg-background border border-outline-variant/40 p-4 rounded-md">
                 {data.llm_summary}
               </p>
-            </Card>
-          )}
+            ) : (
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-background border border-outline-variant/40 p-4 rounded-md">
+                <p className="text-[var(--font-size-body)] text-on-surface-variant">
+                  No AI summary on this profile — it was built while no LLM was
+                  reachable. Re-sync the profile to generate one.
+                </p>
+                <button
+                  onClick={handleBuildProfile}
+                  disabled={triggeringBuild}
+                  className="shrink-0 h-9 px-4 bg-primary text-on-primary font-code text-[12px] font-bold rounded-lg hover:opacity-90 transition-all active:scale-95 disabled:opacity-50 glow-primary"
+                >
+                  {triggeringBuild ? "REBUILDING…" : "RE-SYNC PROFILE"}
+                </button>
+              </div>
+            )}
+          </Card>
 
         </div>
       </main>
