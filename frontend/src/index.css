@@ -320,9 +320,7 @@ body {
     0 0 18px color-mix(in srgb, var(--color-primary) 40%, transparent),
     0 2px 8px color-mix(in srgb, var(--color-primary) 25%, transparent);
 }
-.glow-text {
-  text-shadow: 0 0 14px color-mix(in srgb, var(--color-primary) 55%, transparent);
-}
+
 @media (prefers-reduced-motion: reduce) {
   .glow-card { transition: none; }
 }

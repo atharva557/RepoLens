@@ -88,11 +88,18 @@ export function hexToRgba(hex, opacity) {
   return `rgba(${r}, ${g}, ${b}, ${opacity})`;
 }
 
-/** Heatmap cell color: intensity steps of the accent color (prototype style). */
 export function getHeatmapColorStyle(count, accentColor, theme) {
   const isLight = theme === "light";
-  if (!count) return isLight ? "#e5e7eb" : "#1e1e1c";
+  if (!count) return isLight ? "#ebedf0" : "#1e1e1c";
   const accent = accentColor || DEFAULT_GLOBAL_SETTINGS.accentColor;
+  
+  if (isLight) {
+    if (count <= 2) return hexToRgba(accent, 0.45);
+    if (count <= 5) return hexToRgba(accent, 0.7);
+    if (count <= 9) return hexToRgba(accent, 0.85);
+    return accent;
+  }
+  
   if (count <= 2) return hexToRgba(accent, 0.3);
   if (count <= 5) return hexToRgba(accent, 0.55);
   if (count <= 9) return hexToRgba(accent, 0.8);

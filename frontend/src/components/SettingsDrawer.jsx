@@ -51,9 +51,9 @@ export default function SettingsDrawer({ open, onClose }) {
   const set = (patch) => setTempSettings((prev) => ({ ...prev, ...patch }));
 
   const themeOptions = [
+    { value: "system", label: "System" },
     { value: "dark", label: "Dark" },
     { value: "light", label: "Light" },
-    { value: "system", label: "System" },
   ];
 
   return createPortal(

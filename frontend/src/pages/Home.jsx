@@ -40,6 +40,11 @@ export default function Home() {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const inputRef = useRef(null);
 
+  const resolvedTheme = globalSettings.theme === "system"
+    ? (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light")
+    : globalSettings.theme;
+  const isLight = resolvedTheme === "light";
+
   useEffect(() => {
     const handleKeyDown = (e) => {
       if (e.key === "/" && e.target.tagName !== "INPUT" && e.target.tagName !== "TEXTAREA") {
@@ -93,7 +98,7 @@ export default function Home() {
     try {
       const repoKey = getRepoKey(targetRepo);
       const settings = loadRepoSettings(repoKey);
-      
+
       if (maxCommits) {
         const parsedMax = parseInt(maxCommits, 10);
         settings.max_commits = isNaN(parsedMax) ? undefined : parsedMax;
@@ -206,7 +211,7 @@ export default function Home() {
               style={{
                 border: "1.5px solid color-mix(in srgb, var(--color-primary) 75%, transparent)",
                 backgroundColor: "color-mix(in srgb, var(--color-primary) 5%, transparent)",
-                boxShadow: "0 0 20px color-mix(in srgb, var(--color-primary) 14%, transparent)",
+                boxShadow: isLight ? "0 4px 12px rgba(0,0,0,0.05)" : "0 0 20px color-mix(in srgb, var(--color-primary) 14%, transparent)",
               }}
             >
               <div className="pl-[16px] pr-[8px] flex items-center text-on-surface-variant/50">
@@ -244,7 +249,7 @@ export default function Home() {
                 type="submit"
                 disabled={submitting || !url.trim()}
                 aria-label="Analyze Repository"
-                className="px-[24px] py-[16px] flex items-center gap-[8px] transition-all disabled:opacity-50 disabled:cursor-not-allowed hover:opacity-90 active:scale-95 bg-primary text-on-primary glow-primary"
+                className={`px-[24px] py-[16px] flex items-center gap-[8px] transition-all disabled:opacity-50 disabled:cursor-not-allowed hover:opacity-90 active:scale-95 bg-primary text-on-primary ${isLight ? "" : "glow-primary"}`}
                 style={{
                   fontWeight: "bold",
                   fontSize: "14px",
@@ -334,7 +339,7 @@ export default function Home() {
             <style>{`
               .hide-scroll::-webkit-scrollbar { display: none; }
             `}</style>
-            
+
             {profiles.length === 0 ? (
               <div
                 className="w-full p-[32px] text-center border border-outline-variant/30 rounded-[8px]"
@@ -415,12 +420,16 @@ export default function Home() {
 
           {/* Repo list */}
           <div
-            className="w-full relative overflow-hidden"
-            style={{
-              border: "1px solid rgba(255,255,255,0.07)",
-              borderRadius: "8px",
-              backgroundColor: "transparent",
-            }}
+            className={`w-full relative ${isLight ? "" : "overflow-hidden"}`}
+            style={
+              isLight
+                ? {}
+                : {
+                  border: "1px solid rgba(255,255,255,0.07)",
+                  borderRadius: "8px",
+                  backgroundColor: "transparent",
+                }
+            }
           >
             {repos.length === 0 ? (
               <div
@@ -431,7 +440,7 @@ export default function Home() {
               </div>
             ) : (
               <div
-                className="flex flex-col w-full overflow-y-auto"
+                className={`flex flex-col w-full overflow-y-auto ${isLight ? "space-y-3 p-1" : ""}`}
                 style={{
                   maxHeight: "228px",
                   scrollbarWidth: "none",
@@ -455,32 +464,46 @@ export default function Home() {
                           e.preventDefault();
                           navigate(`/dashboard?repo=${r.repo}`);
                         }}
-                        className="flex items-center justify-between p-[16px] cursor-pointer hover:bg-white/5 transition-colors flex-shrink-0"
-                        style={{
-                          borderBottom:
-                            i !== repos.length - 1
-                              ? "1px solid rgba(255,255,255,0.06)"
-                              : "none",
-                          height: "76px",
-                        }}
+                        className={`flex items-center justify-between cursor-pointer transition-colors flex-shrink-0 ${isLight
+                            ? "bg-surface-container border border-outline-variant/40 shadow-sm rounded-lg p-[16px] hover:border-outline-variant"
+                            : "p-[16px] hover:bg-white/5"
+                          }`}
+                        style={
+                          isLight
+                            ? { height: "76px" }
+                            : {
+                              borderBottom: i !== repos.length - 1 ? "1px solid rgba(255,255,255,0.06)" : "none",
+                              height: "76px",
+                            }
+                        }
                       >
                         <div className="flex flex-col gap-[4px]">
                           <span
-                            style={{
-                              color: "rgba(255,255,255,0.85)",
-                              fontFamily: "monospace",
-                              fontWeight: "bold",
-                              fontSize: "14px",
-                            }}
+                            className={isLight ? "font-code font-bold text-[14px] text-on-surface" : ""}
+                            style={
+                              isLight
+                                ? {}
+                                : {
+                                  color: "rgba(255,255,255,0.85)",
+                                  fontFamily: "monospace",
+                                  fontWeight: "bold",
+                                  fontSize: "14px",
+                                }
+                            }
                           >
                             {r.repo}
                           </span>
                           <div className="flex items-center gap-[8px]">
                             <span
-                              style={{
-                                color: "rgba(255,255,255,0.35)",
-                                fontSize: "12px",
-                              }}
+                              className={isLight ? "text-[12px] text-on-surface-variant font-medium" : ""}
+                              style={
+                                isLight
+                                  ? {}
+                                  : {
+                                    color: "rgba(255,255,255,0.35)",
+                                    fontSize: "12px",
+                                  }
+                              }
                             >
                               {r.commits} commits
                             </span>
@@ -488,20 +511,30 @@ export default function Home() {
                               <div className="flex items-center gap-[8px]">
                                 {r.hotspots && (
                                   <span
-                                    style={{
-                                      color: "var(--color-primary)",
-                                      fontSize: "12px",
-                                    }}
+                                    className={isLight ? "text-[12px] text-primary font-bold" : ""}
+                                    style={
+                                      isLight
+                                        ? {}
+                                        : {
+                                          color: "var(--color-primary)",
+                                          fontSize: "12px",
+                                        }
+                                    }
                                   >
                                     • hotspots
                                   </span>
                                 )}
                                 {r.commit_quality && (
                                   <span
-                                    style={{
-                                      color: "var(--color-primary)",
-                                      fontSize: "12px",
-                                    }}
+                                    className={isLight ? "text-[12px] text-primary font-bold" : ""}
+                                    style={
+                                      isLight
+                                        ? {}
+                                        : {
+                                          color: "var(--color-primary)",
+                                          fontSize: "12px",
+                                        }
+                                    }
                                   >
                                     • quality
                                   </span>
@@ -519,7 +552,11 @@ export default function Home() {
                                     e.stopPropagation();
                                     navigate(`/pr-review?repo=${r.repo}&pr=${prNum}`);
                                   }}
-                                  className="px-1.5 py-0.5 bg-primary/10 hover:bg-primary/20 text-primary border border-primary/30 rounded text-[9px] font-bold font-code transition-colors"
+                                  className={
+                                    isLight
+                                      ? "px-1.5 py-0.5 bg-primary/10 hover:bg-primary/20 text-primary border border-primary/50 rounded text-[9px] font-bold font-code transition-colors"
+                                      : "px-1.5 py-0.5 bg-primary/10 hover:bg-primary/20 text-primary border border-primary/30 rounded text-[9px] font-bold font-code transition-colors"
+                                  }
                                 >
                                   #{prNum}
                                 </button>
@@ -531,11 +568,19 @@ export default function Home() {
                         <div className="flex flex-col items-end gap-[4px]">
                           {lastActive && <SyncBadge timestamp={lastActive} />}
                           <span
-                            className="material-symbols-outlined"
-                            style={{
-                              color: "rgba(255,255,255,0.3)",
-                              fontSize: "16px",
-                            }}
+                            className={
+                              isLight
+                                ? "material-symbols-outlined text-[16px] text-on-surface-variant/50"
+                                : "material-symbols-outlined"
+                            }
+                            style={
+                              isLight
+                                ? {}
+                                : {
+                                  color: "rgba(255,255,255,0.3)",
+                                  fontSize: "16px",
+                                }
+                            }
                           >
                             arrow_forward
                           </span>
@@ -547,7 +592,7 @@ export default function Home() {
               </div>
             )}
 
-            {repos.length > 3 && (
+            {!isLight && repos.length > 3 && (
               <div
                 className="absolute bottom-0 left-0 w-full h-[48px] pointer-events-none"
                 style={{
