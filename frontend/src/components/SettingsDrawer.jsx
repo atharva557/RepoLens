@@ -15,6 +15,8 @@ import { getJSON } from "../lib/api";
 export default function SettingsDrawer({ open, onClose }) {
   const { settings, saveSettings } = useContext(ThemeContext);
   const [about, setAbout] = useState(null);
+  const [tempSettings, setTempSettings] = useState(settings);
+  const [saveMessage, setSaveMessage] = useState("");
 
   // ESC closes; the page behind must not scroll while the drawer is open
   useEffect(() => {
@@ -30,6 +32,14 @@ export default function SettingsDrawer({ open, onClose }) {
     };
   }, [open, onClose]);
 
+  // Sync tempSettings when opened
+  useEffect(() => {
+    if (open) {
+      setTempSettings(settings);
+      setSaveMessage("");
+    }
+  }, [open, settings]);
+
   // live backend facts for the ABOUT card (soft-fail: the drawer must work
   // with the backend down)
   useEffect(() => {
@@ -38,7 +48,7 @@ export default function SettingsDrawer({ open, onClose }) {
     }
   }, [open, about]);
 
-  const set = (patch) => saveSettings({ ...settings, ...patch });
+  const set = (patch) => setTempSettings((prev) => ({ ...prev, ...patch }));
 
   const themeOptions = [
     { value: "dark", label: "Dark" },
@@ -103,7 +113,7 @@ export default function SettingsDrawer({ open, onClose }) {
                   type="button"
                   onClick={() => set({ theme: opt.value })}
                   className={`flex-1 py-2 text-label rounded transition-all ${
-                    settings.theme === opt.value
+                    tempSettings.theme === opt.value
                       ? "bg-primary text-on-primary font-bold"
                       : "text-on-surface-variant hover:text-on-surface"
                   }`}
@@ -117,7 +127,7 @@ export default function SettingsDrawer({ open, onClose }) {
               <p className="text-label text-on-surface-variant">Contribution Color Picker</p>
               <div className="space-y-2">
                 {ACCENTS.map((a) => {
-                  const selected = settings.accent === a.value;
+                  const selected = tempSettings.accent === a.value;
                   return (
                     <div
                       key={a.value}
@@ -166,7 +176,7 @@ export default function SettingsDrawer({ open, onClose }) {
                 </label>
                 <select
                   id="timeRangeSelect"
-                  value={settings.timeRange}
+                  value={tempSettings.timeRange}
                   onChange={(e) => set({ timeRange: e.target.value })}
                   className="w-full bg-surface-container-lowest border border-outline-variant rounded px-3 py-2 text-body focus:outline-none focus:border-primary"
                 >
@@ -187,16 +197,16 @@ export default function SettingsDrawer({ open, onClose }) {
                 <button
                   type="button"
                   role="switch"
-                  aria-checked={settings.autoAnalyze}
+                  aria-checked={tempSettings.autoAnalyze}
                   aria-label="Auto-analyze on paste"
-                  onClick={() => set({ autoAnalyze: !settings.autoAnalyze })}
+                  onClick={() => set({ autoAnalyze: !tempSettings.autoAnalyze })}
                   className={`relative w-10 h-5 rounded-full transition-colors flex-shrink-0 ${
-                    settings.autoAnalyze ? "bg-primary/30" : "bg-surface-container-highest"
+                    tempSettings.autoAnalyze ? "bg-primary/30" : "bg-surface-container-highest"
                   }`}
                 >
                   <span
                     className={`absolute top-1 w-3 h-3 rounded-full transition-all duration-200 ${
-                      settings.autoAnalyze ? "left-6 bg-primary" : "left-1 bg-on-surface-variant"
+                      tempSettings.autoAnalyze ? "left-6 bg-primary" : "left-1 bg-on-surface-variant"
                     }`}
                   />
                 </button>
@@ -231,8 +241,17 @@ export default function SettingsDrawer({ open, onClose }) {
 
         {/* Footer */}
         <div className="p-6 bg-surface-container-high border-t border-outline-variant">
+          {saveMessage && (
+            <div className="mb-4 p-2 bg-green-500/10 text-green-500 text-label rounded text-center border border-green-500/20">
+              {saveMessage}
+            </div>
+          )}
           <button
-            onClick={onClose}
+            onClick={() => {
+              saveSettings(tempSettings);
+              setSaveMessage("Settings saved successfully.");
+              setTimeout(() => setSaveMessage(""), 3000);
+            }}
             className="w-full bg-primary text-on-primary py-3 font-bold rounded hover:opacity-90 transition-opacity uppercase tracking-widest text-label glow-primary"
           >
             Save Changes
