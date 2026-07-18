@@ -7,6 +7,32 @@ This project follows the milestone roadmap in `../GitPulse_Revised_Sections.md`.
 
 ## [Unreleased]
 
+- **Developer AI summary now works for everyone; dashboard surfaces PRs;
+  profile cards rebuilt.** The Tool 2 LLM summary is generated from the whole
+  computed profile — type distribution, languages, commit/PR/review counts,
+  and real commit subjects — not just PR descriptions, so accounts without
+  authored PRs (most users, including the project owner) finally get a
+  grounded paragraph instead of nothing (`llm_analyzer.py` digest, prompt
+  requires every claim to follow from the data). The Dashboard gained a Pull
+  Requests card listing the repo's reviewed PRs with severity chips (each
+  links to the PR review page; empty state offers a "Review a pull request"
+  CTA), and the PR review input screen shows that same list when arriving via
+  `?repo=`. Profile cards redrawn: Top Languages is a GitHub-style segmented
+  bar + legend (was a single-language conic radial), Contribution Mix is
+  ranked with the primary type highlighted, and Commit Health is a clean
+  conic ring, all on a fixed-hue categorical palette that stays distinct in
+  both themes.
+- **Settings moved into a right-hand drawer with theme-wide accents.** The old
+  `GlobalSettingsModal` is replaced by `SettingsDrawer` (portal-rendered so the
+  navbar's backdrop-blur can't clip it); it applies theme (`dark | light |
+  system`) and accent-color changes live and persists them through
+  `ThemeContext`. A chosen accent recolors the whole app — primary, borders,
+  muted text, glows — via an injected per-theme palette (`lib/theme.js`:
+  `accentThemeCss`, `mixHex`). Home's "Recent Analysis" list is now actually
+  ordered most-recent-first.
+- **GitHub owner/repo shorthand.** Analysis inputs accept a bare `owner/repo`
+  (not only a full URL); the uvicorn reloader no longer watches the clone
+  cache, so pulling a repo mid-run stops restarting the server.
 - **Performance: the three N-per-item bottlenecks are gone.**
   (1) History pulls are ONE `git log --numstat` invocation parsed in Python
   (`parse_numstat_log`) instead of one `git diff` subprocess per commit -

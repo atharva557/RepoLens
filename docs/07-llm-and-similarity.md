@@ -85,9 +85,9 @@ Used by Tool 3 to compare a PR diff against the repo's past bug-fix diffs.
 One interface, two backends:
 
 ```python
-index = open_similarity_index(settings)
-index.build(docs)          # docs: [{"id", "text", "meta"}, ...]
-index.query(text, k=5)     # -> [{"id", "score" (0..1 cosine), "meta"}, ...]
+index = open_similarity_index(settings, collection="bugdiffs_owner_repo")
+index.build(docs, fingerprint=fp)   # docs: [{"id", "text", "meta"}, ...]
+index.query(text, k=5)              # -> [{"id", "score" (0..1 cosine), "meta"}, ...]
 ```
 
 ### `ChromaIndex` — preferred
@@ -97,12 +97,25 @@ embeds each diff; vectors live in a **persistent ChromaDB collection**
 (`CHROMA_PATH`, default `data/chroma`, cosine space). Real semantic
 similarity — two diffs doing the same thing in different words score high.
 
+**Per-repo collections, reused by fingerprint.** Each repo gets its own
+collection (`collection_name(repo_key)` → `bugdiffs_<slug>`): a single shared
+collection meant two concurrent reviews of *different* repos silently
+corrupted each other's scores. A collection also carries its corpus
+**fingerprint** — a cheap identity (`corpus_fingerprint`: count + first/last
+qualifying SHA, computed without extracting any diffs). Before rebuilding,
+`try_reuse(fingerprint)` adopts the persisted collection when the fingerprint
+still matches, skipping both the git-show loop and the re-embedding that used
+to run on every single review. `build(docs, fingerprint=...)` stamps the new
+fingerprint into the collection metadata.
+
 ### `LiteIndex` — stdlib fallback
 
 Pure-Python **TF-IDF cosine** index. Tokenizes diffs into identifiers and
 numbers, weights by tf-idf, and computes exact cosine against every doc
 (fine at Tool 3's corpus size, ≤ 400 diffs). Zero dependencies, so Tool 3
-works on a fresh machine with nothing installed.
+works on a fresh machine with nothing installed. It accepts the same
+`build(docs, fingerprint=...)` signature but rebuilds in memory each time —
+the fingerprint reuse is a Chroma-only optimization (nothing persists).
 
 ### Selection
 

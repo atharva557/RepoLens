@@ -13,7 +13,7 @@ open/update. Requires `GITHUB_TOKEN`.
 "owner/repo#42"  (or a full PR URL — parse_pr_spec handles both)
   1. fetch PR metadata + changed files (patches) via the GitHub API
   2. ensure a local clone; load/refresh the cached commit history
-  3. build the bug-diff similarity corpus            [pipeline/build_bug_index.py]
+  3. build (or reuse) the bug-diff similarity corpus [pipeline/build_bug_index.py]
   4. get the repo's hotspot list (Tool 1)            for the file-risk check
   5. mechanical risk checks                          [risk_scorer.py]
      + diff similarity to past bug fixes             [similarity.py]
@@ -50,6 +50,9 @@ extra scrutiny.*
    4,000 chars) and indexed. Docs/config-only "fixes" (changelog typos) are
    excluded — matching a PR's own changelog edit against them produced false
    similarity warnings.
+   The corpus is **per-repo and reused when unchanged**: a corpus fingerprint
+   (the qualifying SHAs) lets an unchanged repo skip the git-show loop and
+   re-embedding entirely — see [07-llm-and-similarity.md](07-llm-and-similarity.md).
 2. **Query**: the PR's concatenated patch text (first 8,000 chars) is embedded
    and compared against the corpus with cosine similarity.
 3. **Warning**: the top match's score ≥ `PR_SIMILARITY_WARN` (default 0.6)

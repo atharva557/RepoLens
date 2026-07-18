@@ -13,7 +13,7 @@ username
   → pipeline/fetch_user_activity.py     GitHub REST → normalized activity dict
   → tools/dev_profiler/classifier.py    rule-based type distribution
   → tools/commit_quality/scorer.py      message quality (reuses Tool 4)
-  → tools/dev_profiler/llm_analyzer.py  optional LLM read of PR descriptions
+  → tools/dev_profiler/llm_analyzer.py  optional LLM read of the whole profile
   → tools/dev_profiler/profile_builder  final profile document
   → store.save_report("developer_profile", username, doc)
 ```
@@ -73,9 +73,15 @@ distribution is normalized to percentages and the max becomes `primary_type`.
 - **commit-message quality** — the mean Tool 4 score over the fetched commits
 - **review participation** counts
 - a **daily activity heatmap** (last 365 days)
-- optionally, an **LLM summary**: `llm_analyzer.py` feeds the sampled PR
-  descriptions to the configured provider for a qualitative read of how the
-  person describes their work. Skipped cleanly when no LLM is available.
+- optionally, an **LLM summary**: `llm_analyzer.py` builds a *digest* of the
+  whole computed profile — the type distribution, language mix,
+  commit/PR/review counts, commit-message quality, and a few real commit
+  subjects (sampled PR descriptions are one input among these) — and asks the
+  configured provider for a grounded qualitative paragraph. Summarizing PR
+  descriptions alone left anyone without authored PRs (most users, including
+  the project owner) with no summary at all; the digest fixes that. The
+  prompt requires every claim to follow from the data given. Skipped cleanly
+  when no LLM is available.
 
 The final document is stored under kind `developer_profile`, key = username,
 and rendered by the CLI and the dashboard's Developer Profile page.
