@@ -62,9 +62,8 @@ export default function SettingsDrawer({ open, onClose }) {
           drawer transform below */}
       <div
         style={{ opacity: open ? 1 : 0, transition: "opacity 300ms" }}
-        className={`fixed inset-0 z-40 bg-black/45 backdrop-blur-[2px] ${
-          open ? "" : "pointer-events-none"
-        }`}
+        className={`fixed inset-0 z-40 bg-black/45 backdrop-blur-[2px] ${open ? "" : "pointer-events-none"
+          }`}
         onClick={onClose}
         aria-hidden="true"
       />
@@ -104,7 +103,7 @@ export default function SettingsDrawer({ open, onClose }) {
           {/* Appearance */}
           <div className="space-y-4">
             <p className="text-label text-on-surface-variant uppercase tracking-widest font-bold">
-              {"// APPEARANCE"}
+              {" APPEARANCE"}
             </p>
             <div className="flex p-1 bg-surface-container-lowest rounded border border-outline-variant">
               {themeOptions.map((opt) => (
@@ -112,11 +111,10 @@ export default function SettingsDrawer({ open, onClose }) {
                   key={opt.value}
                   type="button"
                   onClick={() => set({ theme: opt.value })}
-                  className={`flex-1 py-2 text-label rounded transition-all ${
-                    tempSettings.theme === opt.value
-                      ? "bg-primary text-on-primary font-bold"
-                      : "text-on-surface-variant hover:text-on-surface"
-                  }`}
+                  className={`flex-1 py-2 text-label rounded transition-all ${tempSettings.theme === opt.value
+                    ? "bg-primary text-on-primary font-bold"
+                    : "text-on-surface-variant hover:text-on-surface"
+                    }`}
                 >
                   {opt.label}
                 </button>
@@ -142,9 +140,8 @@ export default function SettingsDrawer({ open, onClose }) {
                           set({ accent: a.value, accentColor: a.color });
                         }
                       }}
-                      className={`p-2 rounded cursor-pointer flex items-center justify-between transition-colors hover:bg-surface-container-low ${
-                        selected ? "bg-surface-container-high" : ""
-                      }`}
+                      className={`p-2 rounded cursor-pointer flex items-center justify-between transition-colors hover:bg-surface-container-low ${selected ? "bg-surface-container-high" : ""
+                        }`}
                       style={selected ? { borderLeft: `3px solid ${a.color}` } : { borderLeft: "3px solid transparent" }}
                     >
                       <span className="text-label">{a.name}</span>
@@ -167,7 +164,7 @@ export default function SettingsDrawer({ open, onClose }) {
           {/* Analysis */}
           <div className="space-y-4 pt-4 border-t border-outline-variant">
             <p className="text-label text-on-surface-variant uppercase tracking-widest font-bold">
-              {"// ANALYSIS"}
+              {"ANALYSIS"}
             </p>
             <div className="space-y-4">
               <div className="space-y-2">
@@ -200,14 +197,12 @@ export default function SettingsDrawer({ open, onClose }) {
                   aria-checked={tempSettings.autoAnalyze}
                   aria-label="Auto-analyze on paste"
                   onClick={() => set({ autoAnalyze: !tempSettings.autoAnalyze })}
-                  className={`relative w-10 h-5 rounded-full transition-colors flex-shrink-0 ${
-                    tempSettings.autoAnalyze ? "bg-primary/30" : "bg-surface-container-highest"
-                  }`}
+                  className={`relative w-10 h-5 rounded-full transition-colors flex-shrink-0 ${tempSettings.autoAnalyze ? "bg-primary/30" : "bg-surface-container-highest"
+                    }`}
                 >
                   <span
-                    className={`absolute top-1 w-3 h-3 rounded-full transition-all duration-200 ${
-                      tempSettings.autoAnalyze ? "left-6 bg-primary" : "left-1 bg-on-surface-variant"
-                    }`}
+                    className={`absolute top-1 w-3 h-3 rounded-full transition-all duration-200 ${tempSettings.autoAnalyze ? "left-6 bg-primary" : "left-1 bg-on-surface-variant"
+                      }`}
                   />
                 </button>
               </div>
@@ -217,7 +212,7 @@ export default function SettingsDrawer({ open, onClose }) {
           {/* About */}
           <div className="space-y-4 pt-4 border-t border-outline-variant">
             <p className="text-label text-on-surface-variant uppercase tracking-widest font-bold">
-              {"// ABOUT"}
+              {"ABOUT"}
             </p>
             <div className="p-4 rounded bg-surface-container-lowest border border-outline-variant space-y-2">
               <div className="flex justify-between text-label">

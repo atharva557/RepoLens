@@ -344,7 +344,7 @@ export default function DeveloperProfile() {
     <div className="min-h-screen overflow-x-hidden">
 
 
-      <main className="mt-xl pt-lg pb-xl px-margin-mobile md:px-margin-desktop max-w-[1440px] mx-auto">
+      <main className="mt-sm pt-sm pb-xl px-margin-mobile md:px-margin-desktop max-w-[1440px] mx-auto">
         {/* Profile Header */}
         <Card className="p-md mb-lg flex flex-col md:flex-row gap-lg items-center md:items-start relative overflow-hidden">
           <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-primary via-secondary to-tertiary"></div>
@@ -568,7 +568,7 @@ export default function DeveloperProfile() {
           </Card>
 
           {/* Contribution Mix — ranked developer-type distribution */}
-          <Card className="md:col-span-5 p-5">
+          <Card className="md:col-span-9 p-5">
             <h3 className="text-[11px] font-code font-bold text-on-surface-variant uppercase tracking-widest mb-4 flex items-center gap-1.5">
               <span className="material-symbols-outlined text-sm text-primary">donut_small</span>Contribution Mix
             </h3>
