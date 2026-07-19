@@ -49,8 +49,25 @@ automatically by `open_identity()` at startup.
 
 ## Auth flow (`api/auth.py`, spec §7.4/§8.1)
 
-"Sign in with GitHub" — login and token-acquisition are the same step; nobody
-pastes a token:
+Two sign-in paths share one session plane (cookie, `/me`, logout, CSRF):
+
+**Email + password** — the dashboard's Login wall (`frontend/src/pages/Login.jsx`):
+
+```
+POST /api/v1/auth/signup   {email, password}  validate (email shape, ≥8 chars)
+                           → salted-scrypt hash (core.identity.hash_password)
+                           → users row (github_id NULL) → session + cookie (201)
+POST /api/v1/auth/login    {email, password}  verify_password (constant-time)
+                           → session + cookie. Wrong email and wrong password
+                           are ONE generic 401 — never confirm an email exists
+```
+
+Hash format `scrypt$n$r$p$salt$hash` — parameters ride in the string so they
+can be raised later without invalidating existing accounts. The hash is
+selected only by `get_password_user` (the login check); every other user read
+strips it.
+
+**GitHub OAuth** — login and token-acquisition in one step; nobody pastes a token:
 
 ```
 GET /api/v1/auth/github/login      302 → github.com/oauth/authorize
@@ -78,10 +95,22 @@ DELETE /api/v1/me/github-token     revoke the stored token
 
 With multiuser on, every **analysis trigger** (`POST /analyze`,
 `/commit-quality`, `/profiles/{u}`, pr-reviews, insights) requires a session,
-and the job records `created_by`. Reads and the HMAC-verified webhook are
-unchanged. **Deferred to the next slice** (per spec §7.12/§8.3): per-repo
-access rules (`require_repo_access`), private-repo ownership, quotas, the
-per-request LLM resolution that consumes `llm_configs`, and OAuth scope
+and the job records `created_by`. Each trigger also **tracks what the user
+searched**: repos into `user_repos` (canonical key via `repo_key()`), profile
+usernames into the `user_profiles` table — re-searching refreshes `added_at`,
+so both lists are most-recently-searched-first (`user_repo_keys` /
+`user_profile_names`, also returned by `/me`).
+
+**Discovery is scoped per user**: `GET /repos` and `GET /profiles` show a
+signed-in user only what they themselves analyzed/searched (a new account
+sees empty lists — Home renders its empty states), and anonymous requesters
+get empty lists. Single-user mode stays global.
+
+Deep reads (`/repos/{key}/...`, `/profiles/{u}`) and the HMAC-verified
+webhook are unchanged — a user who knows a key can still open it directly.
+**Deferred to the next slice** (per spec §7.12/§8.3): hard per-repo access
+rules on those reads (`require_repo_access`), private-repo ownership, quotas,
+the per-request LLM resolution that consumes `llm_configs`, and OAuth scope
 escalation for comment posting.
 
 ## Testing (`tests/test_identity.py`)
@@ -93,17 +122,36 @@ the 503 gate, the full OAuth→cookie→`/me`→CSRF→logout flow (exchange stu
 and trigger enforcement. Suite 9 of 9; skips cleanly without `cryptography`
 or `fastapi`.
 
+## The dashboard side
+
+`frontend/src/lib/auth.jsx` probes `GET /api/v1/me` once on load and exposes
+three states: **503 → single-user** (no wall, exactly the old app), **401 →
+anonymous** (App renders the Login wall on every URL; after sign-in the user
+lands on the URL they originally asked for), **200 → signed in** (navbar shows
+the account chip + sign-out). `postJSON`/`putJSON` always send the
+`X-GitPulse-Client` CSRF header — harmless in single-user mode, required in
+multiuser.
+
 ## Turning it on
 
 ```bash
+# Quick DEV mode (no Postgres): accounts/sessions live in process memory and
+# RESET on every server restart — for developing/demoing login only.
+MULTIUSER=true
+IDENTITY_BACKEND=memory
+FERNET_KEY=<generated once — see above>
+
+# Real mode (Postgres):
 # 1. create the database (once)                # psql/pgAdmin, as your PG user
 CREATE DATABASE gitpulse;
 
 # 2. .env
 MULTIUSER=true
+IDENTITY_BACKEND=postgres        # (or just omit — postgres is the default)
 DATABASE_URL=postgresql://<user>:<password>@localhost:5432/gitpulse
 FERNET_KEY=<generated once — see above>
 SESSION_SECRET=<any long random string>
+# optional, only for "Sign in with GitHub":
 GITHUB_OAUTH_CLIENT_ID=<from github.com/settings/developers>
 GITHUB_OAUTH_CLIENT_SECRET=...
 # OAuth App callback URL: http://127.0.0.1:8000/api/v1/auth/github/callback

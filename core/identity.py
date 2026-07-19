@@ -40,6 +40,30 @@ def hash_session(token: str) -> str:
     return hashlib.sha256((token or "").encode()).hexdigest()
 
 
+def hash_password(password: str) -> str:
+    """Salted scrypt (stdlib, memory-hard) — format: scrypt$n$r$p$salt$hash.
+
+    Parameters ride in the stored string so they can be raised later without
+    invalidating existing accounts (old hashes verify with their own params).
+    """
+    n, r, p = 2 ** 14, 8, 1
+    salt = secrets.token_bytes(16)
+    dk = hashlib.scrypt(password.encode(), salt=salt, n=n, r=r, p=p, dklen=32)
+    return f"scrypt${n}${r}${p}${salt.hex()}${dk.hex()}"
+
+
+def verify_password(password: str, stored: str) -> bool:
+    try:
+        algo, n, r, p, salt_hex, hash_hex = (stored or "").split("$")
+        if algo != "scrypt":
+            return False
+        dk = hashlib.scrypt(password.encode(), salt=bytes.fromhex(salt_hex),
+                            n=int(n), r=int(r), p=int(p), dklen=32)
+        return secrets.compare_digest(dk.hex(), hash_hex)
+    except (ValueError, AttributeError):
+        return False
+
+
 def encrypt_secret(fernet_key: str, plaintext: str) -> bytes:
     from cryptography.fernet import Fernet  # lazy import
 
@@ -85,6 +109,13 @@ CREATE TABLE IF NOT EXISTS user_repos (
   PRIMARY KEY (user_id, repo_key)
 );
 CREATE INDEX IF NOT EXISTS user_repos_repo_key_idx ON user_repos (repo_key);
+
+CREATE TABLE IF NOT EXISTS user_profiles (
+  user_id   INT  NOT NULL REFERENCES users ON DELETE CASCADE,
+  username  TEXT NOT NULL,
+  added_at  TIMESTAMPTZ DEFAULT now(),
+  PRIMARY KEY (user_id, username)
+);
 
 CREATE TABLE IF NOT EXISTS llm_configs (
   user_id     INT PRIMARY KEY REFERENCES users ON DELETE CASCADE,
@@ -151,6 +182,34 @@ class PgIdentity:
         with self.conn.cursor() as cur:
             cur.execute(f"SELECT {_USER_COLS} FROM users WHERE id = %s", (user_id,))
             return _user_row(cur.fetchone())
+
+    # -------------------------------------------------- email/password users
+    def create_password_user(self, email: str, password_hash: str) -> dict:
+        with self.conn.cursor() as cur:
+            cur.execute(
+                f"INSERT INTO users (email, password_hash) VALUES (%s, %s) "
+                f"RETURNING {_USER_COLS}",
+                (email, password_hash),
+            )
+            user = _user_row(cur.fetchone())
+        self.audit(user["id"], "signup")
+        return user
+
+    def get_password_user(self, email: str) -> dict | None:
+        """User row INCLUDING password_hash — for the login check only;
+        every other read path strips the hash (_USER_COLS)."""
+        with self.conn.cursor() as cur:
+            cur.execute(
+                f"SELECT {_USER_COLS}, password_hash FROM users "
+                f"WHERE lower(email) = lower(%s) AND password_hash IS NOT NULL",
+                (email,),
+            )
+            row = cur.fetchone()
+        if row is None:
+            return None
+        user = _user_row(row[:6])
+        user["password_hash"] = row[6]
+        return user
 
     # ------------------------------------------------- GitHub token (Fernet)
     def save_github_token(self, user_id: int, token: str, scopes: str = "") -> None:
@@ -221,10 +280,12 @@ class PgIdentity:
 
     # ------------------------------------------------------------ user_repos
     def track_repo(self, user_id: int, repo_key: str, role: str = "tracker") -> None:
+        # re-tracking refreshes added_at — the list is "most recently searched"
         with self.conn.cursor() as cur:
             cur.execute(
                 "INSERT INTO user_repos (user_id, repo_key, role) VALUES (%s, %s, %s) "
-                "ON CONFLICT (user_id, repo_key) DO UPDATE SET role = EXCLUDED.role",
+                "ON CONFLICT (user_id, repo_key) "
+                "DO UPDATE SET role = EXCLUDED.role, added_at = now()",
                 (user_id, repo_key, role),
             )
         self.audit(user_id, "repo_track", target=repo_key)
@@ -238,7 +299,27 @@ class PgIdentity:
     def user_repo_keys(self, user_id: int) -> list[str]:
         with self.conn.cursor() as cur:
             cur.execute(
-                "SELECT repo_key FROM user_repos WHERE user_id = %s ORDER BY repo_key",
+                "SELECT repo_key FROM user_repos WHERE user_id = %s "
+                "ORDER BY added_at DESC, repo_key",
+                (user_id,),
+            )
+            return [r[0] for r in cur.fetchall()]
+
+    # --------------------------------------------------------- user_profiles
+    def track_profile(self, user_id: int, username: str) -> None:
+        with self.conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO user_profiles (user_id, username) VALUES (%s, %s) "
+                "ON CONFLICT (user_id, username) DO UPDATE SET added_at = now()",
+                (user_id, username),
+            )
+        self.audit(user_id, "profile_track", target=username)
+
+    def user_profile_names(self, user_id: int) -> list[str]:
+        with self.conn.cursor() as cur:
+            cur.execute(
+                "SELECT username FROM user_profiles WHERE user_id = %s "
+                "ORDER BY added_at DESC, username",
                 (user_id,),
             )
             return [r[0] for r in cur.fetchall()]
@@ -305,10 +386,12 @@ class MemoryIdentity:
         self.fernet_key = fernet_key
         self.users: dict[int, dict] = {}
         self.sessions: dict[str, dict] = {}   # token_hash -> row
-        self.repos: dict[tuple[int, str], str] = {}
+        self.repos: dict[tuple[int, str], dict] = {}     # -> {role, seq}
+        self.profiles: dict[tuple[int, str], int] = {}   # -> seq
         self.llm: dict[int, dict] = {}
         self.audit_log: list[dict] = []
         self._next_id = 1
+        self._seq = 0  # monotonic recency (wall clocks can tie within a test)
 
     def ensure_schema(self) -> None:
         pass
@@ -328,7 +411,27 @@ class MemoryIdentity:
 
     def get_user(self, user_id) -> dict | None:
         u = self.users.get(user_id)
-        return dict(u) if u else None
+        if u is None:
+            return None
+        # same discipline as Pg's _USER_COLS: the hash never leaves login
+        return {k: v for k, v in u.items() if k != "password_hash"}
+
+    def create_password_user(self, email, password_hash) -> dict:
+        u = {"id": self._next_id, "github_id": None, "github_login": None,
+             "email": email, "gh_token_scopes": None, "gh_token_enc": None,
+             "password_hash": password_hash,
+             "created_at": datetime.now(timezone.utc)}
+        self.users[self._next_id] = u
+        self._next_id += 1
+        self.audit(u["id"], "signup")
+        return self.get_user(u["id"])
+
+    def get_password_user(self, email) -> dict | None:
+        for u in self.users.values():
+            if (u.get("email") or "").lower() == (email or "").lower() \
+                    and u.get("password_hash"):
+                return dict(u)
+        return None
 
     def save_github_token(self, user_id, token, scopes="") -> None:
         self.users[user_id]["gh_token_enc"] = encrypt_secret(self.fernet_key, token)
@@ -368,7 +471,8 @@ class MemoryIdentity:
         self.sessions.pop(hash_session(token), None)
 
     def track_repo(self, user_id, repo_key, role="tracker") -> None:
-        self.repos[(user_id, repo_key)] = role
+        self._seq += 1
+        self.repos[(user_id, repo_key)] = {"role": role, "seq": self._seq}
         self.audit(user_id, "repo_track", target=repo_key)
 
     def untrack_repo(self, user_id, repo_key) -> None:
@@ -376,7 +480,19 @@ class MemoryIdentity:
         self.audit(user_id, "repo_untrack", target=repo_key)
 
     def user_repo_keys(self, user_id) -> list[str]:
-        return sorted(k for (uid, k) in self.repos if uid == user_id)
+        rows = [(v["seq"], k) for (uid, k), v in self.repos.items()
+                if uid == user_id]
+        return [k for _, k in sorted(rows, reverse=True)]
+
+    def track_profile(self, user_id, username) -> None:
+        self._seq += 1
+        self.profiles[(user_id, username)] = self._seq
+        self.audit(user_id, "profile_track", target=username)
+
+    def user_profile_names(self, user_id) -> list[str]:
+        rows = [(seq, name) for (uid, name), seq in self.profiles.items()
+                if uid == user_id]
+        return [name for _, name in sorted(rows, reverse=True)]
 
     def save_llm_config(self, user_id, provider, api_key, model="", base_url="") -> None:
         self.llm[user_id] = {"provider": provider, "model": model,
@@ -405,10 +521,14 @@ class MemoryIdentity:
 
 
 def open_identity(settings):
-    """None when MULTIUSER=false; a schema-ensured PgIdentity when true.
+    """None when MULTIUSER=false; a schema-ensured identity store when true.
 
-    Unlike the Mongo->JSON fallback, Postgres is a *hard* requirement in
-    multi-user mode (spec §2.6): identity data has no safe file fallback.
+    `IDENTITY_BACKEND=memory` is an explicit DEV escape hatch: accounts and
+    sessions live in process memory and vanish on restart — it exists so
+    login/signup can be developed and demoed before Postgres is set up.
+    Otherwise Postgres is a *hard* requirement (spec §2.6) — unlike the
+    Mongo->JSON fallback, identity data has no safe file fallback, so
+    failures raise, never silently degrade.
     """
     if not getattr(settings, "multiuser", False):
         return None
@@ -417,6 +537,10 @@ def open_identity(settings):
             "MULTIUSER=true requires FERNET_KEY (generate one: python -c "
             "\"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\")"
         )
+    if getattr(settings, "identity_backend", "postgres").lower() == "memory":
+        print("  [backend] identity: MEMORY (dev only — users, sessions and "
+              "keys reset on every server restart)")
+        return MemoryIdentity(settings.fernet_key)
     identity = PgIdentity(settings.database_url, settings.fernet_key)
     identity.ensure_schema()
     print("  [backend] identity: postgres (multiuser)")

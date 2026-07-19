@@ -1,10 +1,15 @@
 """Auth & account routes (spec §7.4 / §8) — enabled by MULTIUSER=true.
 
-Sign-in is GitHub OAuth: login and token-acquisition are the same step, so
-nobody pastes a token (spec §8.1). The web-flow code exchange is two HTTPS
-calls, done with stdlib urllib to keep the auth slice dependency-light (the
-spec sketched authlib; the flow is small enough that a library adds more
-surface than it removes — the endpoints and semantics are unchanged).
+Two sign-in paths share one session plane:
+
+- **Email + password** (`/signup`, `/login`): salted-scrypt hashes via
+  core.identity.hash_password; login answers a single "invalid email or
+  password" so it never confirms which half was wrong.
+- **GitHub OAuth**: login and token-acquisition in one step, so nobody
+  pastes a token (spec §8.1). The web-flow code exchange is two HTTPS
+  calls, done with stdlib urllib to keep the auth slice dependency-light
+  (the spec sketched authlib; the flow is small enough that a library adds
+  more surface than it removes — the endpoints and semantics are unchanged).
 
 Session cookie: httpOnly, SameSite=Lax, value = secrets.token_urlsafe(32);
 Postgres stores only its SHA-256 hash. CSRF: SameSite=Lax plus a required
@@ -17,12 +22,16 @@ Route pattern follows api/webhook.py precedent: routes always exist and return
 from __future__ import annotations
 
 import json
+import re
 import secrets
 import time
 import urllib.parse
 import urllib.request
 
 from fastapi import HTTPException, Request
+
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+MIN_PASSWORD_LEN = 8
 
 SESSION_COOKIE = "gitpulse_session"
 CSRF_HEADER = "x-gitpulse-client"       # required value: "dashboard"
@@ -109,6 +118,19 @@ def require_csrf(request: Request) -> None:
         raise HTTPException(403, f"missing {CSRF_HEADER} header")
 
 
+def _set_session_cookie(resp, request: Request, token: str) -> None:
+    resp.set_cookie(
+        SESSION_COOKIE, token,
+        httponly=True, samesite="lax",
+        secure=request.url.scheme == "https",  # Secure breaks plain-http dev
+        max_age=30 * 24 * 3600,
+    )
+
+
+def _safe_user(user: dict) -> dict:
+    return {k: user.get(k) for k in ("id", "github_id", "github_login", "email")}
+
+
 def add_auth_routes(app) -> None:
     """Register the §7.4 endpoints on the app (called from create_app)."""
     from fastapi.responses import RedirectResponse
@@ -150,12 +172,59 @@ def add_auth_routes(app) -> None:
         session = identity.create_session(user["id"])
 
         resp = RedirectResponse(s.dashboard_origin, status_code=302)
-        resp.set_cookie(
-            SESSION_COOKIE, session,
-            httponly=True, samesite="lax",
-            secure=request.url.scheme == "https",  # Secure breaks plain-http dev
-            max_age=30 * 24 * 3600,
-        )
+        _set_session_cookie(resp, request, session)
+        return resp
+
+    # ------------------------------------------------- email/password path
+    @app.post("/api/v1/auth/signup", status_code=201)
+    def signup(request: Request, body: dict):
+        """Create an account and sign it in (one step, like the OAuth path)."""
+        identity = _identity(request)
+        require_csrf(request)
+        email = (body.get("email") or "").strip().lower()
+        password = body.get("password") or ""
+        if not _EMAIL_RE.match(email):
+            raise HTTPException(422, "a valid email address is required")
+        if len(password) < MIN_PASSWORD_LEN:
+            raise HTTPException(
+                422, f"password must be at least {MIN_PASSWORD_LEN} characters")
+        if identity.get_password_user(email) is not None:
+            raise HTTPException(409, "an account with this email already exists")
+
+        from core.identity import hash_password
+
+        try:
+            user = identity.create_password_user(email, hash_password(password))
+        except Exception:  # unique-violation race with the pre-check
+            raise HTTPException(409, "an account with this email already exists")
+        session = identity.create_session(user["id"])
+
+        from fastapi.responses import JSONResponse
+
+        resp = JSONResponse({"ok": True, "user": _safe_user(user)}, status_code=201)
+        _set_session_cookie(resp, request, session)
+        return resp
+
+    @app.post("/api/v1/auth/login")
+    def login(request: Request, body: dict):
+        identity = _identity(request)
+        require_csrf(request)
+        email = (body.get("email") or "").strip().lower()
+        password = body.get("password") or ""
+
+        from core.identity import verify_password
+
+        user = identity.get_password_user(email)
+        if user is None or not verify_password(password, user.get("password_hash") or ""):
+            # one message for both failures — never confirm an email exists
+            identity.audit(user["id"] if user else None, "login_failed")
+            raise HTTPException(401, "invalid email or password")
+        session = identity.create_session(user["id"])  # audits "login"
+
+        from fastapi.responses import JSONResponse
+
+        resp = JSONResponse({"ok": True, "user": _safe_user(user)})
+        _set_session_cookie(resp, request, session)
         return resp
 
     @app.post("/api/v1/auth/logout")
@@ -181,10 +250,11 @@ def add_auth_routes(app) -> None:
         identity = request.app.state.identity
         llm = identity.get_llm_config(user["id"])  # never includes the key
         return {
-            "user": {k: user[k] for k in ("id", "github_id", "github_login", "email")},
+            "user": _safe_user(user),
             "has_github_token": identity.get_github_token(user["id"]) is not None,
             "llm": {"provider": llm["provider"], "model": llm["model"]} if llm else None,
             "repos": identity.user_repo_keys(user["id"]),
+            "profiles": identity.user_profile_names(user["id"]),
         }
 
     @app.put("/api/v1/me/llm")

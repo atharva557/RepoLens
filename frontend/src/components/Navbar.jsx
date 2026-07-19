@@ -1,6 +1,7 @@
 import { Link, useLocation } from "react-router-dom";
-import { useState } from "react";
+import { useContext, useState } from "react";
 import SettingsDrawer from "./SettingsDrawer";
+import { AuthContext } from "../lib/auth";
 
 export default function Navbar() {
   const location = useLocation();
@@ -8,6 +9,8 @@ export default function Navbar() {
   const repo = searchParams.get("repo");
   const user = searchParams.get("user");
   const [showSettings, setShowSettings] = useState(false);
+  // session (multiuser mode); `user` above is a URL param, hence `account`
+  const { mode, user: account, logout } = useContext(AuthContext);
 
   const path = location.pathname;
 
@@ -91,6 +94,28 @@ export default function Navbar() {
 
         {/* Settings Button (prototype: labeled, bordered, active while open) */}
         <div className="flex items-center gap-4">
+          {/* signed-in account chip (multiuser mode only) */}
+          {mode === "multiuser" && account && (
+            <div className="flex items-center gap-2">
+              <div
+                className="w-7 h-7 rounded-full bg-primary/15 border border-primary/30 flex items-center justify-center text-primary text-[12px] font-bold uppercase"
+                title={account.email || account.github_login || "signed in"}
+              >
+                {(account.github_login || account.email || "?").slice(0, 1)}
+              </div>
+              <span className="hidden md:inline text-label text-on-surface-variant max-w-[160px] truncate">
+                {account.github_login || account.email}
+              </span>
+              <button
+                onClick={logout}
+                title="Sign out"
+                className="text-on-surface-variant hover:text-primary transition-colors flex items-center"
+              >
+                <span className="material-symbols-outlined text-[18px]">logout</span>
+              </button>
+            </div>
+          )}
+
           <button
             onClick={() => setShowSettings(true)}
             className={`bg-surface-container-high border h-9 px-3 rounded-[4px] flex items-center gap-2 text-label font-bold text-on-surface-variant hover:bg-surface-container-highest hover:border-primary transition-all group cursor-pointer ${

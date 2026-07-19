@@ -1,5 +1,5 @@
 import { BrowserRouter, Route, Routes } from "react-router-dom";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useContext } from "react";
 import Home from "./pages/Home";
 import Loading from "./pages/Loading";
 import Dashboard from "./pages/Dashboard";
@@ -7,9 +7,31 @@ import BugHotspots from "./pages/BugHotspots";
 import DeveloperProfile from "./pages/DeveloperProfile";
 import PRReview from "./pages/PRReview";
 import Status from "./pages/Status";
+import Login from "./pages/Login";
 import Navbar from "./components/Navbar";
 import { loadGlobalSettings, saveGlobalSettings } from "./lib/settings";
 import { ThemeContext, accentThemeCss } from "./lib/theme";
+import { AuthContext, AuthProvider } from "./lib/auth";
+
+// Routes sit behind the auth gate: in multiuser mode an anonymous visitor
+// gets the Login wall on every URL (and lands on the URL they asked for once
+// signed in); single-user mode renders routes directly, exactly as before.
+function Gate() {
+  const { mode, user } = useContext(AuthContext);
+  if (mode === "loading") return null; // one fast local probe; avoid a flash
+  if (mode === "multiuser" && !user) return <Login />;
+  return (
+    <Routes>
+      <Route path="/" element={<Home />} />
+      <Route path="/loading" element={<Loading />} />
+      <Route path="/dashboard" element={<Dashboard />} />
+      <Route path="/hotspots" element={<BugHotspots />} />
+      <Route path="/profile" element={<DeveloperProfile />} />
+      <Route path="/pr-review" element={<PRReview />} />
+      <Route path="/status" element={<Status />} />
+    </Routes>
+  );
+}
 
 // Smoke-test shell wired to the real UI pages.
 export default function App() {
@@ -68,20 +90,14 @@ export default function App() {
       theme: settings.theme,
       setTheme: (newTheme) => saveSettings({ ...settings, theme: newTheme })
     }}>
-      <BrowserRouter>
-        <Navbar />
-        <div className="pt-[52px]">
-          <Routes>
-          <Route path="/" element={<Home />} />
-          <Route path="/loading" element={<Loading />} />
-          <Route path="/dashboard" element={<Dashboard />} />
-          <Route path="/hotspots" element={<BugHotspots />} />
-          <Route path="/profile" element={<DeveloperProfile />} />
-          <Route path="/pr-review" element={<PRReview />} />
-          <Route path="/status" element={<Status />} />
-          </Routes>
-        </div>
-      </BrowserRouter>
+      <AuthProvider>
+        <BrowserRouter>
+          <Navbar />
+          <div className="pt-[52px]">
+            <Gate />
+          </div>
+        </BrowserRouter>
+      </AuthProvider>
     </ThemeContext.Provider>
   );
 }

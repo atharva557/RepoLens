@@ -24,9 +24,11 @@ from core.identity import (
     MemoryIdentity,
     decrypt_secret,
     encrypt_secret,
+    hash_password,
     hash_session,
     new_session_token,
     open_identity,
+    verify_password,
 )
 
 FKEY = Fernet.generate_key().decode()
@@ -94,9 +96,19 @@ def test_repos_and_llm_config():
     u = ident.upsert_github_user(9, "dev", None)
     ident.track_repo(u["id"], "pallets/flask")
     ident.track_repo(u["id"], "psf/requests", role="owner")
+    # most-recently-searched first; re-tracking refreshes the recency
+    assert ident.user_repo_keys(u["id"]) == ["psf/requests", "pallets/flask"]
+    ident.track_repo(u["id"], "pallets/flask")
     assert ident.user_repo_keys(u["id"]) == ["pallets/flask", "psf/requests"]
     ident.untrack_repo(u["id"], "pallets/flask")
     assert ident.user_repo_keys(u["id"]) == ["psf/requests"]
+
+    # searched developer profiles follow the same per-user recency list
+    ident.track_profile(u["id"], "octocat")
+    ident.track_profile(u["id"], "torvalds")
+    assert ident.user_profile_names(u["id"]) == ["torvalds", "octocat"]
+    assert ident.user_profile_names(999) == []  # other users see nothing
+    assert "profile_track" in [a["action"] for a in ident.audit_log]
 
     ident.save_llm_config(u["id"], "openai", "sk-xyz", model="gpt-4o-mini")
     cfg = ident.get_llm_config(u["id"])
@@ -106,6 +118,97 @@ def test_repos_and_llm_config():
     ident.delete_llm_config(u["id"])
     assert ident.get_llm_config(u["id"]) is None
     print("  ok: repo tracking + encrypted LLM config")
+
+
+def test_password_hashing():
+    stored = hash_password("hunter22")
+    # salted scrypt: self-describing format, plaintext absent, unique salts
+    assert stored.startswith("scrypt$") and "hunter22" not in stored
+    assert stored != hash_password("hunter22")
+    assert verify_password("hunter22", stored) is True
+    assert verify_password("hunter23", stored) is False
+    assert verify_password("hunter22", "") is False
+    assert verify_password("hunter22", "garbage$x") is False
+    print("  ok: password hashing (salted scrypt, verify, tamper-safe)")
+
+
+def test_password_user_lifecycle():
+    ident = MemoryIdentity(FKEY)
+    u = ident.create_password_user("a@b.com", hash_password("longenough"))
+    assert u["email"] == "a@b.com" and u["github_id"] is None
+    assert "password_hash" not in u                    # never leaves login
+    assert "password_hash" not in ident.get_user(u["id"])
+    # the login lookup is the one path that sees the hash (case-insensitive)
+    row = ident.get_password_user("A@B.COM")
+    assert row and verify_password("longenough", row["password_hash"])
+    assert ident.get_password_user("nope@b.com") is None
+    assert "signup" in [a["action"] for a in ident.audit_log]
+
+    # IDENTITY_BACKEND=memory is the dev escape hatch behind open_identity
+    from types import SimpleNamespace
+
+    dev = open_identity(SimpleNamespace(multiuser=True, fernet_key=FKEY,
+                                        identity_backend="memory"))
+    assert isinstance(dev, MemoryIdentity)
+    print("  ok: password users (hash discipline) + memory dev backend")
+
+
+def test_signup_login_api_flow():
+    if find_spec("fastapi") is None:  # pragma: no cover
+        print("  skip: fastapi not installed (auth API tests)")
+        return
+    client, identity = _api_client()
+    csrf = {"X-GitPulse-Client": "dashboard"}
+    with client:
+        # CSRF header is demanded before anything else happens
+        assert client.post("/api/v1/auth/signup",
+                           json={"email": "a@b.com", "password": "longenough"}
+                           ).status_code == 403
+        # validation: bad email / short password
+        assert client.post("/api/v1/auth/signup", headers=csrf,
+                           json={"email": "not-an-email", "password": "longenough"}
+                           ).status_code == 422
+        assert client.post("/api/v1/auth/signup", headers=csrf,
+                           json={"email": "a@b.com", "password": "short"}
+                           ).status_code == 422
+
+        # signup signs the user in (cookie set) and normalizes the email
+        r = client.post("/api/v1/auth/signup", headers=csrf,
+                        json={"email": " A@B.com ", "password": "longenough"})
+        assert r.status_code == 201
+        assert import_auth().SESSION_COOKIE in r.cookies
+        assert r.json()["user"]["email"] == "a@b.com"
+        me = client.get("/api/v1/me").json()
+        assert me["user"]["email"] == "a@b.com"
+        assert me["user"]["github_login"] is None
+
+        # duplicate email refused
+        assert client.post("/api/v1/auth/signup", headers=csrf,
+                           json={"email": "a@b.com", "password": "longenough2"}
+                           ).status_code == 409
+
+        # logout, then log back in; wrong password = one generic 401
+        assert client.post("/api/v1/auth/logout", headers=csrf).status_code == 200
+        client.cookies.clear()
+        assert client.get("/api/v1/me").status_code == 401
+        assert client.post("/api/v1/auth/login", headers=csrf,
+                           json={"email": "a@b.com", "password": "wrongwrong"}
+                           ).status_code == 401
+        assert client.post("/api/v1/auth/login", headers=csrf,
+                           json={"email": "nobody@b.com", "password": "longenough"}
+                           ).status_code == 401
+        r = client.post("/api/v1/auth/login", headers=csrf,
+                        json={"email": "A@b.com", "password": "longenough"})
+        assert r.status_code == 200
+        assert client.get("/api/v1/me").json()["user"]["email"] == "a@b.com"
+        assert "login_failed" in [a["action"] for a in identity.audit_log]
+    print("  ok: signup -> session; login (generic 401) -> session; CSRF gates")
+
+
+def import_auth():
+    import api.auth as auth
+
+    return auth
 
 
 def test_open_identity_gates():
