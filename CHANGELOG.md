@@ -7,6 +7,14 @@ This project follows the milestone roadmap in `../GitPulse_Revised_Sections.md`.
 
 ## [Unreleased]
 
+- **Fixed: ML training labels disagreed with the evaluator and the live
+  scorer.** `dataset.py` labeled *any* file touched by a future bug-fix
+  commit as positive — docs/config included — while `evaluate.py`'s ground
+  truth and the live feature extractor both gate bug credit to
+  `is_code_file`. The same gate now applies to `buggy_future`, so training,
+  evaluation and serving share one definition of "received a bug fix".
+  Retrain the second-opinion model (CLI `train`) to pick up the corrected
+  labels. Regression test in `test_ml_scorer.py`.
 - **Fixed: `MongoStore.load_commits` had no sort.** Consumers assume
   newest-first — the bug-diff corpus takes the *first* N qualifying commits
   and fingerprints the first/last SHA — but Mongo's natural order is

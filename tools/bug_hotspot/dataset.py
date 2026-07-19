@@ -20,6 +20,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 
+from core.paths import is_code_file
 from pipeline.extract_features import build_file_features
 
 
@@ -76,11 +77,16 @@ def make_dataset(
 
         # files that existed (were touched) by the cutoff
         existing = {f["path"] for c in before for f in c.get("files", [])}
-        # files that received a bug fix in the label window -> positive label
+        # files that received a CODE bug fix in the label window -> positive
+        # label. Same is_code_file gate as the evaluator's ground truth
+        # (evaluate.py) and the live feature extractor: training, evaluation
+        # and serving must share one definition of "received a bug fix" —
+        # a changelog edit riding in a fix commit is not a defect in that file.
         buggy_future = {
             f["path"]
             for c in after if c.get("is_bugfix")
             for f in c.get("files", [])
+            if is_code_file(f["path"])
         }
 
         feats = build_file_features(

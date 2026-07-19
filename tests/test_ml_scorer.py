@@ -75,6 +75,34 @@ def test_temporal_labeling_no_leakage():
     print("  ok: temporal labeling has no leakage")
 
 
+def test_labels_gate_to_code_files():
+    # A future "fix" that touches only docs must NOT mark README.md positive,
+    # and a doc riding along in a real code fix must not either — the same
+    # is_code_file gate the evaluator's ground truth and the live feature
+    # extractor use. Training on a different target than the one evaluated
+    # and served would quietly skew the model.
+    commits = [
+        _commit(400, "add readme", ["README.md"]),
+        _commit(390, "add app", ["app.py"]),
+        _commit(300, "update app", ["app.py"]),
+        _commit(200, "polish readme", ["README.md"]),
+        _commit(10, "fix typo in changelog", ["README.md"]),        # docs-only "fix"
+        _commit(9, "fix crash on load", ["app.py", "README.md"]),   # code fix + ride-along
+    ]
+    classify_commits(commits)
+    rows = make_dataset(
+        commits, "repo", language="python",
+        n_snapshots=3, label_window_days=90, churn_window_days=30, halflife_days=30,
+    )
+    labels: dict[str, set] = {}
+    for r in rows:
+        labels.setdefault(r["path"], set()).add(r["label"])
+    assert 1 in labels["app.py"], "code file with a future fix must label positive"
+    assert labels["README.md"] == {0}, \
+        "docs must never label positive, even when touched by fix commits"
+    print("  ok: training labels gate to code files (match evaluator + live scorer)")
+
+
 def _synthetic_dataset(n_repos=4, files_per=70, seed=0):
     rng = random.Random(seed)
     langs = ["python", "javascript", "go"]
