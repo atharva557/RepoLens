@@ -61,10 +61,12 @@ export default function Home() {
     const analyzedAt = (r) =>
       r.hotspots?.generated_at || r.commit_quality?.generated_at || "";
     const load = () => {
+      // 30s TTL absorbs the focus/visibility re-loads below; analysis
+      // triggers clear the client cache, so fresh results still show
       Promise.all([
-        getJSON("/repos").catch(() => ({ repos: [] })),
-        getJSON("/profiles").catch(() => ({ profiles: [] })),
-        getJSON("/health").catch(() => null),
+        getJSON("/repos", { ttl: 30000 }).catch(() => ({ repos: [] })),
+        getJSON("/profiles", { ttl: 30000 }).catch(() => ({ profiles: [] })),
+        getJSON("/health", { ttl: 30000 }).catch(() => null),
       ])
         .then(([reposData, profilesData, healthData]) => {
           const sorted = [...(reposData.repos || [])].sort((a, b) =>

@@ -31,6 +31,11 @@ def fetch_and_store_commits(
             report("reading commit history (git)", detail=f"{len(commits)} commits")
     classify_commits(commits, keywords)
     store.save_commits(repo_key, commits)
+    # cache the window-independent activity aggregate alongside the history —
+    # the dashboard's activity endpoint reads THIS, never the full commit list
+    from core.activity import build_activity_base
+
+    store.save_report("activity_base", repo_key, build_activity_base(commits))
     report("reading commit history (git)", pct=100,
            detail=f"{len(commits)} commits cached")
     return commits

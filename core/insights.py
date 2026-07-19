@@ -7,7 +7,7 @@ is cached as a 'repo_insights' report so the dashboard reads it instantly.
 """
 from __future__ import annotations
 
-from core.activity import build_activity
+from core.activity import build_activity_base, window_activity
 from core.llm import LLMUnavailable, get_llm
 
 _SYSTEM = ("You are a senior engineer summarizing repository analytics. "
@@ -84,13 +84,18 @@ def run_repo_insights(repo_key: str, settings, store, progress=None) -> dict:
 
     report_progress = reporter_or_print(progress)
     report_progress("building analytics digest (database)")
-    commits = store.load_commits(repo_key)
-    if not commits:
-        raise SystemExit(f"no cached commits for '{repo_key}' — run an analysis first")
+    # cached aggregate first — the digest needs windowed stats, not raw commits
+    base = store.load_report("activity_base", repo_key)
+    if base is None:
+        commits = store.load_commits(repo_key)
+        if not commits:
+            raise SystemExit(f"no cached commits for '{repo_key}' — run an analysis first")
+        base = build_activity_base(commits)
+        store.save_report("activity_base", repo_key, base)
 
     quality = store.load_report("commit_quality", repo_key)
     hotspots = store.load_hotspots(repo_key)
-    activity = build_activity(commits, quality=quality)
+    activity = window_activity(base, quality=quality)
 
     llm = get_llm(settings)
     if not llm.available():

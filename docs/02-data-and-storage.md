@@ -78,6 +78,8 @@ store.list_reports(kind, fields=())     # small discovery summaries
 | `pr_review` | `owner/repo#N` | Tool 3 runner / webhook | CLI, `GET /repos/{key}/pr-reviews/{n}` |
 | `repo_insights` | repo key | `core/insights.py` | `GET /repos/{key}/insights` |
 | `repo_meta` | repo key | `core/github_client.get_repo_meta` | `GET /repos/{key}/meta` |
+| `recent_pulls` | repo key | `core/github_client.get_recent_pulls` | `GET /repos/{key}/pulls` (dashboard PR card) |
+| `activity_base` | repo key | `pipeline/fetch_commits.py` on every history save (self-heals on read for older caches) | `GET /repos/{key}/activity`, insights digest — the window-independent aggregate, so reads never scan the commit list |
 | `api_selftest` | `"ping"` | `GET /test` round-trip check | — |
 
 `report_age_hours(doc)` computes a report's age from its `generated_at`.

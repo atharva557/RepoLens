@@ -50,8 +50,8 @@ export default function BugHotspots() {
     setLoading(true);
     setError(null);
     Promise.all([
-      getJSON(`/repos/${repo}/hotspots?top=50`),
-      getJSON(`/repos/${repo}/activity?recent=10`).catch(() => null),
+      getJSON(`/repos/${repo}/hotspots?top=50`, { ttl: 60000 }),
+      getJSON(`/repos/${repo}/activity?recent=10`, { ttl: 60000 }).catch(() => null),
     ])
       .then(([hotspotsData, activityData]) => {
         setData(hotspotsData);

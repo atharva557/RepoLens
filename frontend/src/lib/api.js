@@ -29,7 +29,29 @@
 // "/api" is proxied to http://127.0.0.1:8000 by vite.config.js
 export const API_BASE = "/api";
 
-export async function getJSON(path) {
+// Session-scoped GET cache so page-to-page navigation feels instant instead
+// of refetching everything on every mount. Opt-in per call via { ttl } (ms);
+// every successful GET reprimes its entry regardless, and any successful
+// POST/PUT clears the whole cache (triggers change server state through
+// background jobs, so everything read before them is suspect). /jobs polling
+// is never cached — job status must always be live.
+const _cache = new Map();
+
+export function invalidateCache(prefix = "") {
+  if (!prefix) {
+    _cache.clear();
+    return;
+  }
+  for (const key of _cache.keys()) {
+    if (key.startsWith(prefix)) _cache.delete(key);
+  }
+}
+
+export async function getJSON(path, { ttl } = {}) {
+  if (ttl) {
+    const hit = _cache.get(path);
+    if (hit && Date.now() - hit.at < ttl) return hit.data;
+  }
   const res = await fetch(API_BASE + path);
   const body = await res.json().catch(() => null);
   if (!res.ok) {
@@ -38,13 +60,18 @@ export async function getJSON(path) {
     }
     throw new Error((body && body.detail) || `${res.status} ${res.statusText}`);
   }
+  if (!path.startsWith("/jobs")) _cache.set(path, { data: body, at: Date.now() });
   return body;
 }
+
+// custom header = CSRF proof on every mutating call (cross-site forms can't
+// set custom headers); the server requires it in multiuser mode
+const CSRF_HEADERS = { "X-GitPulse-Client": "dashboard" };
 
 export async function postJSON(path, payload) {
   const res = await fetch(API_BASE + path, {
     method: "POST",
-    headers: payload ? { "Content-Type": "application/json" } : {},
+    headers: payload ? { "Content-Type": "application/json", ...CSRF_HEADERS } : CSRF_HEADERS,
     body: payload ? JSON.stringify(payload) : undefined,
   });
   const body = await res.json().catch(() => null);
@@ -54,5 +81,23 @@ export async function postJSON(path, payload) {
     }
     throw new Error((body && body.detail) || `${res.status} ${res.statusText}`);
   }
+  invalidateCache();
+  return body;
+}
+
+export async function putJSON(path, payload) {
+  const res = await fetch(API_BASE + path, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", ...CSRF_HEADERS },
+    body: JSON.stringify(payload || {}),
+  });
+  const body = await res.json().catch(() => null);
+  if (!res.ok) {
+    if (res.status === 502) {
+      throw new Error("Backend server is currently unavailable (502 Bad Gateway). Please try again later.");
+    }
+    throw new Error((body && body.detail) || `${res.status} ${res.statusText}`);
+  }
+  invalidateCache();
   return body;
 }

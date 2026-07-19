@@ -398,6 +398,7 @@ export default function Dashboard() {
 
   const [showSettings, setShowSettings] = useState(false);
   const [showQualityModal, setShowQualityModal] = useState(false);
+  const [pullsSyncing, setPullsSyncing] = useState(false);
 
   const { settings } = useContext(ThemeContext);
   const getHeatmapStyle = (count) => {
@@ -467,29 +468,32 @@ export default function Dashboard() {
   const loadData = useCallback(async () => {
     setLoading(true);
     setError(null);
-    const soft = (p) => getJSON(p).catch((e) => ({ error: String(e), unavailable: true }));
+    // 60s client TTL: any trigger invalidates the cache, so within a session
+    // the only staleness source is upstream GitHub drift (server-cached too)
+    const soft = (p) => getJSON(p, { ttl: 60000 }).catch((e) => ({ error: String(e), unavailable: true }));
 
     try {
-      let activityData;
-      try {
-        activityData = await getJSON(`/repos/${repo}/activity?days=${settings.timeRange || 365}&recent=15`);
-      } catch (e) {
-        if (e.message.includes("404") || e.message.includes("no cached commits") || e.message.includes("POST /analyze first")) {
-          const parsed = getParsedSettings();
-          const res = await postJSON("/analyze", { repo, refresh: false, max_commits: parsed.max_commits, top: parsed.top });
-          navigate(`/loading?job=${res.job_id}&repo=${repo}&next=/dashboard`);
-          return;
-        } else {
-          throw e;
-        }
-      }
-
-      const [metaData, qualityData, insightsData, prData] = await Promise.all([
+      // one parallel round-trip for the whole page — activity used to be
+      // awaited alone first, making total load = activity + slowest of rest
+      const [activityData, metaData, qualityData, insightsData, prData, pullsData] = await Promise.all([
+        soft(`/repos/${repo}/activity?days=${settings.timeRange || 365}&recent=15`),
         soft(`/repos/${repo}/meta`),
         soft(`/repos/${repo}/commit-quality`),
         soft(`/repos/${repo}/insights`),
         soft(`/repos/${repo}/pr-reviews`),
+        soft(`/repos/${repo}/pulls`),
       ]);
+
+      if (activityData.unavailable) {
+        const msg = activityData.error || "";
+        if (msg.includes("404") || msg.includes("no cached commits") || msg.includes("POST /analyze first")) {
+          const parsed = getParsedSettings();
+          const res = await postJSON("/analyze", { repo, refresh: false, max_commits: parsed.max_commits, top: parsed.top });
+          navigate(`/loading?job=${res.job_id}&repo=${repo}&next=/dashboard`);
+          return;
+        }
+        throw new Error(msg);
+      }
 
       let finalInsights = insightsData;
       if (insightsData.unavailable && insightsData.error && (insightsData.error.includes("404") || insightsData.error.includes("no insights"))) {
@@ -516,7 +520,8 @@ export default function Dashboard() {
 
       setData({ activity: activityData, meta: metaData, quality: finalQuality,
                 insights: finalInsights,
-                prReviews: (prData && prData.pr_reviews) || [] });
+                prReviews: (prData && prData.pr_reviews) || [],
+                pulls: pullsData });
       setLoading(false);
     } catch (e) {
       setError(e.message);
@@ -653,11 +658,32 @@ export default function Dashboard() {
 
   // ── Data + derived state ───────────────────────────────────────────────────
 
-  const { activity, meta, quality, insights, prReviews = [] } = data;
+  const { activity, meta, quality, insights, prReviews = [], pulls } = data;
   const prLevel = (lvl) =>
     lvl === "HIGH" ? "bg-red-500/20 text-red-400 border-red-500/30"
     : lvl === "MEDIUM" ? "bg-orange-400/20 text-orange-400 border-orange-400/30"
     : "bg-green-500/20 text-green-500 border-green-500/30";
+  // PR state chips use GitHub's fixed semantic colors (independent of accent)
+  const prState = (p) =>
+    p.draft ? "bg-surface-container-highest text-on-surface-variant border border-outline-variant/50"
+    : p.state === "open" ? "bg-green-500/20 text-green-500"
+    : p.state === "merged" ? "bg-purple-500/20 text-purple-400"
+    : "bg-red-500/20 text-red-400";
+  const hasPulls = pulls && !pulls.unavailable && Array.isArray(pulls.pulls) && pulls.pulls.length > 0;
+  const recentPulls = hasPulls ? pulls.pulls.slice(0, 5) : [];
+  const reviewLevelByNumber = new Map(prReviews.map((r) => [r.number, r.level]));
+
+  const refreshPulls = async () => {
+    setPullsSyncing(true);
+    try {
+      const res = await getJSON(`/repos/${repo}/pulls?refresh=true`);
+      setData((prev) => (prev ? { ...prev, pulls: res } : prev));
+    } catch (e) {
+      setData((prev) => (prev ? { ...prev, pulls: { unavailable: true, error: String(e) } } : prev));
+    } finally {
+      setPullsSyncing(false);
+    }
+  };
   const hasMeta = meta && !meta.unavailable;
   const hasQuality = data.quality && !data.quality.unavailable && !data.quality.generating;
   const hasInsights = insights && !insights.unavailable;
@@ -1247,13 +1273,66 @@ export default function Dashboard() {
               </div>
             )}
 
-            {/* Pull Requests — reviewed PRs for this repo (Tool 3) */}
+            {/* Pull Requests — the repo's latest PRs live from GitHub
+                (reviewed or not), joined with Tool 3 review levels; falls
+                back to the reviewed-only list when GitHub isn't available
+                (no token / local-only repo) */}
             <div className="bg-surface-container border border-outline-variant rounded-xl p-5 space-y-3 glow-card">
               <div className="flex items-center justify-between border-b border-outline-variant pb-3">
                 <p className="text-[10px] text-on-surface-variant font-code font-bold uppercase tracking-widest">Pull Requests</p>
-                <span className="material-symbols-outlined text-[16px] text-on-surface-variant">merge</span>
+                <div className="flex items-center gap-2">
+                  {hasPulls && (
+                    <button
+                      onClick={refreshPulls}
+                      disabled={pullsSyncing}
+                      title="Sync PR list from GitHub"
+                      className="text-on-surface-variant hover:text-primary transition-colors disabled:opacity-50"
+                    >
+                      <span className={`material-symbols-outlined text-[15px] ${pullsSyncing ? "motion-safe:animate-spin" : ""}`}>sync</span>
+                    </button>
+                  )}
+                  <span className="material-symbols-outlined text-[16px] text-on-surface-variant">merge</span>
+                </div>
               </div>
-              {prReviews.length > 0 ? (
+              {hasPulls ? (
+                <div className="space-y-2 pt-1">
+                  {recentPulls.map((p) => {
+                    const level = reviewLevelByNumber.get(p.number);
+                    return (
+                      <Link
+                        key={p.number}
+                        to={`/pr-review?repo=${repo}&pr=${p.number}`}
+                        className="flex items-center justify-between p-2.5 rounded-lg bg-surface-container-high hover:bg-surface-container-highest border border-outline-variant/30 hover:border-primary/50 transition-all group"
+                      >
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-sm uppercase shrink-0 ${prState(p)}`}>
+                            {p.draft ? "draft" : p.state}
+                          </span>
+                          <span className="font-code text-xs text-on-surface group-hover:text-primary transition-colors shrink-0">#{p.number}</span>
+                          <span className="font-body text-xs text-on-surface-variant truncate" title={p.title}>{p.title}</span>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          {level ? (
+                            <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-sm uppercase border ${prLevel(level)}`}>
+                              {level}
+                            </span>
+                          ) : (
+                            <span className="text-[9px] font-code px-1.5 py-0.5 rounded-sm uppercase border border-outline-variant/50 text-on-surface-variant group-hover:border-primary/50 group-hover:text-primary transition-colors">
+                              review
+                            </span>
+                          )}
+                          <span className="material-symbols-outlined text-[14px] text-on-surface-variant group-hover:text-primary group-hover:translate-x-0.5 transition-all">arrow_forward</span>
+                        </div>
+                      </Link>
+                    );
+                  })}
+                  {prReviews.length > 0 && (
+                    <Link to={`/pr-review?repo=${repo}`} className="block text-center text-[11px] font-code text-primary hover:underline pt-1">
+                      View all {prReviews.length} reviewed PRs →
+                    </Link>
+                  )}
+                </div>
+              ) : prReviews.length > 0 ? (
                 <div className="space-y-2 pt-1">
                   {prReviews.slice(0, 4).map((pr) => (
                     <Link
