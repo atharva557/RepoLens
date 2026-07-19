@@ -36,6 +36,7 @@ are small summaries; full reports live in the store.
 | `GET /health` | meta | liveness + active store backend |
 | `GET /config` | meta | resolved settings, secrets masked |
 | `GET /test` | meta | one-call self-test: store round-trip, LLM availability, similarity backend, token/webhook config |
+| `PUT /config` | meta | single-user runtime settings: LLM provider/model/key + GitHub token. Applies to the live process immediately and persists to `.env` (seeded from `.env.example` if missing). Write-only — responses are masked; omitted field = unchanged, `""` = clear. `403` in multiuser mode (keys live per-user in `/api/v1/me`) |
 | `GET /jobs/{id}` | meta | background-job status |
 | `POST /analyze` | trigger | Tool 1 (`{"repo", "refresh", "max_commits", "top"}`) |
 | `POST /commit-quality` | trigger | Tool 4 |
@@ -48,11 +49,12 @@ are small summaries; full reports live in the store.
 | `GET /repos/{key}/commit-quality` | read | Tool 4 report |
 | `GET /repos/{key}/pr-reviews/{n}` | read | Tool 3 report |
 | `GET /profiles/{username}` | read | Tool 2 profile |
-| `GET /repos/{key}/activity` | read | contributors, recent commits, daily heatmap, health score — aggregated live from cached commits (`core/activity.py`) |
+| `GET /repos/{key}/activity` | read | contributors, recent commits, daily heatmap, health score — served from the `activity_base` aggregate cached at history-save time (`core/activity.py`; window step per request, `?recent=` ≤ 50). Pre-aggregate caches self-heal on first read |
 | `GET /repos/{key}/meta` | read | GitHub header metadata (stars, forks, languages) — database-first: cached copy served whatever its age; GitHub only on first fetch or `?refresh=true` |
+| `GET /repos/{key}/pulls` | read | the repo's last-N GitHub PRs (any state, reviewed or not; `?limit=`, default 5) — store-cached with a short TTL (`PULLS_CACHE_HOURS`, default 1h) since PR lists churn fast; `?refresh=true` forces a refetch. The dashboard joins these against `/pr-reviews` for review chips |
 | `GET /repos/{key}/insights` | read | cached LLM insight bullets |
 | `POST /webhook/github` | webhook | GitHub PR events → auto Tool 3 |
-| `GET /api/v1/auth/github/login` · `/callback`, `POST /api/v1/auth/logout`, `GET /api/v1/me`, `PUT/DELETE /api/v1/me/llm`, `DELETE /api/v1/me/github-token` | auth (v2) | multi-user identity — `503` while `MULTIUSER=false`; see [12-identity-postgres.md](12-identity-postgres.md) |
+| `POST /api/v1/auth/signup` · `/login`, `GET /api/v1/auth/github/login` · `/callback`, `POST /api/v1/auth/logout`, `GET /api/v1/me`, `PUT/DELETE /api/v1/me/llm`, `DELETE /api/v1/me/github-token` | auth (v2) | multi-user identity — email+password (signup signs in; login answers one generic `401`) and GitHub OAuth share the same session plane. `503` while `MULTIUSER=false`; see [12-identity-postgres.md](12-identity-postgres.md) |
 
 Repo keys contain slashes (`owner/repo`), so repo routes use `:path` params —
 `GET /repos/pallets/flask/hotspots` works without URL-encoding.

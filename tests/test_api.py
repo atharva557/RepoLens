@@ -78,8 +78,144 @@ class FakeStore:
         return out
 
 
-def _client(settings=None, store=None):
-    return TestClient(create_app(settings=settings or Settings(), store=store or FakeStore()))
+def _client(settings=None, store=None, env_path=None):
+    return TestClient(create_app(settings=settings or Settings(),
+                                 store=store or FakeStore(),
+                                 env_path=env_path or os.devnull))
+
+
+def test_multiuser_discovery_scoping():
+    """Home's lists must be per-user in multiuser mode: a new account sees
+    nothing; each user sees only what THEY analyzed/searched."""
+    from datetime import datetime, timezone
+
+    from core.identity import MemoryIdentity
+
+    store = FakeStore()
+    now = datetime.now(timezone.utc)
+    for key in ("x", "other/repo"):
+        store.save_commits(key, [{"sha": "a" * 8, "author": "dev", "date": now,
+                                  "message": "Add feature", "is_bugfix": False}])
+    store.save_report("developer_profile", "alice", {"username": "alice"})
+    store.save_report("developer_profile", "bob", {"username": "bob"})
+
+    ident = MemoryIdentity("unused-key")
+    s = Settings(multiuser=True, fernet_key="unused-key", github_token="tok")
+    # tracking happens at trigger time; the background jobs themselves are
+    # stubbed so this test stays network-free (the profiler would hit GitHub)
+    orig_analyze = api_main.run_hotspot_analysis
+    orig_profile = api_main.run_developer_profile
+    api_main.run_hotspot_analysis = lambda *a, **k: {
+        "repo": "x", "commits": 1, "bugfix_commits": 0, "files_scored": 0,
+        "ml_used": False, "scores": []}
+    api_main.run_developer_profile = lambda *a, **k: {}
+    try:
+        _scoping_flow(store, ident, s)
+    finally:
+        api_main.run_hotspot_analysis = orig_analyze
+        api_main.run_developer_profile = orig_profile
+    # single-user mode stays global (no filtering at all)
+    with _client(store=store) as c:
+        assert len(c.get("/repos").json()["repos"]) == 2
+        assert len(c.get("/profiles").json()["profiles"]) == 2
+    print("  ok: multiuser discovery scoped per user (new accounts see nothing)")
+
+
+def _scoping_flow(store, ident, s):
+    from api.auth import SESSION_COOKIE
+
+    with TestClient(create_app(settings=s, store=store, identity=ident,
+                               env_path=os.devnull)) as c:
+        # anonymous discovery lists nothing (the login wall owns that UX)
+        assert c.get("/repos").json()["repos"] == []
+        assert c.get("/profiles").json()["profiles"] == []
+
+        # brand-new signed-in account: still nothing
+        u = ident.create_password_user("a@b.com", "irrelevant")
+        c.cookies.set(SESSION_COOKIE, ident.create_session(u["id"]))
+        assert c.get("/repos").json()["repos"] == []
+        assert c.get("/profiles").json()["profiles"] == []
+
+        # triggering an analysis tracks the canonical repo key for this user
+        assert c.post("/analyze", json={"repo": "x"}).status_code == 202
+        assert ident.user_repo_keys(u["id"]) == ["x"]
+        assert [r["repo"] for r in c.get("/repos").json()["repos"]] == ["x"]
+
+        # profile trigger tracks the username; the other profile stays hidden
+        assert c.post("/profiles/alice").status_code == 202
+        assert [p["username"] for p in c.get("/profiles").json()["profiles"]] \
+            == ["alice"]
+
+        # a second user starts from an empty slate
+        u2 = ident.create_password_user("b@b.com", "irrelevant")
+        c.cookies.clear()
+        c.cookies.set(SESSION_COOKIE, ident.create_session(u2["id"]))
+        assert c.get("/repos").json()["repos"] == []
+        assert c.get("/profiles").json()["profiles"] == []
+
+
+def test_update_config_runtime_and_env():
+    import tempfile
+
+    s = Settings()
+    with tempfile.TemporaryDirectory() as td:
+        env_path = os.path.join(td, ".env")
+        with open(env_path, "w", encoding="utf-8") as fh:
+            fh.write("LLM_PROVIDER=local\nMONGODB_DB=gitpulse\n")
+        with _client(settings=s, env_path=env_path) as c:
+            r = c.put("/config", json={"llm_provider": "Claude",
+                                       "anthropic_api_key": " sk-ant-xyz ",
+                                       "github_token": "ghp_new"})
+            assert r.status_code == 200
+            body = r.json()
+            assert body["persisted"] is True
+            assert body["applied"] == ["anthropic_api_key", "github_token",
+                                       "llm_provider"]
+            # applied to the live process (normalized), never echoed back
+            assert s.llm_provider == "claude" and s.anthropic_api_key == "sk-ant-xyz"
+            assert s.github_token == "ghp_new"
+            assert body["config"]["anthropic_api_key"] == "***"
+            assert "sk-ant-xyz" not in r.text
+            # .env rewritten in place: matching line replaced, others kept,
+            # new keys appended
+            with open(env_path, encoding="utf-8") as fh:
+                env = fh.read()
+            assert "LLM_PROVIDER=claude" in env and "LLM_PROVIDER=local" not in env
+            assert "ANTHROPIC_API_KEY=sk-ant-xyz" in env
+            assert "GITHUB_TOKEN=ghp_new" in env
+            assert "MONGODB_DB=gitpulse" in env
+            # the live self-test sees the new token immediately
+            assert c.get("/test").json()["github_token"] is True
+            # validation: unknown provider 422, empty payload 400
+            assert c.put("/config", json={"llm_provider": "hal9000"}).status_code == 422
+            assert c.put("/config", json={}).status_code == 400
+    # multiuser mode manages keys per-user (/api/v1/me, encrypted) — the
+    # flat-file path must refuse
+    with TestClient(create_app(settings=Settings(multiuser=True), store=FakeStore(),
+                               identity=object(), env_path=os.devnull)) as c:
+        assert c.put("/config", json={"github_token": "x"}).status_code == 403
+    print("  ok: PUT /config (live apply + .env persist + masking + guards)")
+
+
+def test_recent_pulls_endpoint():
+    store = FakeStore()
+    with _client(store=store) as c:
+        # nothing cached + no token -> actionable 404
+        r = c.get("/repos/owner/repo/pulls")
+        assert r.status_code == 404
+        assert "GITHUB_TOKEN" in r.json()["detail"]
+
+        # cached list is served without touching GitHub (no token configured)
+        store.save_report("recent_pulls", "owner/repo", {
+            "repo": "owner/repo",
+            "generated_at": datetime.now(timezone.utc),
+            "pulls": [{"number": 12, "title": "Fix expiry", "state": "merged",
+                       "draft": False, "author": "alice"}],
+        })
+        doc = c.get("/repos/owner/repo/pulls").json()
+        assert doc["pulls"][0]["number"] == 12
+        assert doc["age_hours"] is not None and doc["age_hours"] < 1
+    print("  ok: recent-pulls read (404 -> cached list + age labeling)")
 
 
 def test_health_root_and_config():
@@ -368,6 +504,17 @@ def test_activity_endpoint():
         # param validation: negative/zero values are rejected, not sliced
         assert c.get("/repos/owner/repo/activity?days=0").status_code == 422
         assert c.get("/repos/owner/repo/activity?recent=-1").status_code == 422
+        # the base cap is a contract now, not a silent slice
+        assert c.get("/repos/owner/repo/activity?recent=51").status_code == 422
+
+        # the first GET healed the cache: the aggregate is stored, and serving
+        # no longer reads the commit list at all (the perf fix under test)
+        assert store.load_report("activity_base", "owner/repo") is not None
+        store.commits.clear()
+        body2 = c.get("/repos/owner/repo/activity").json()
+        assert body2["total_commits"] == 4
+        assert body2["window_commits"] == 3
+        assert body2["health"]["score"] == 7.5
     print("  ok: activity endpoint (window, gate, contributors, heatmap, health)")
 
 

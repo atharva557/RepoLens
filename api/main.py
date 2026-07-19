@@ -28,15 +28,16 @@ from fastapi import BackgroundTasks, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
-from api.auth import add_auth_routes, require_user
+from api.auth import add_auth_routes, current_user, require_user
 from api.jobs import JobRegistry
 from api.webhook import REVIEW_ACTIONS, review_pr_from_payload, verify_signature
-from config.settings import Settings
-from core.activity import build_activity
+from config.settings import RUNTIME_ENV_KEYS, Settings, persist_env
+from core.activity import build_activity_base, window_activity
 from core.analysis import run_hotspot_analysis
 from core.db import open_store, report_age_hours
 from core.identity import open_identity
-from core.github_client import get_repo_meta
+from core.github_client import get_recent_pulls, get_repo_meta
+from core.github_client import repo_key as canonical_repo_key
 from core.insights import run_repo_insights
 from tools.commit_quality.runner import run_commit_quality_report
 from tools.dev_profiler.runner import run_developer_profile
@@ -64,6 +65,33 @@ class CommitQualityRequest(BaseModel):
     repo: str = Field(min_length=1, description="local path or GitHub URL")
     max_commits: int | None = None
     top: int = 15
+
+
+class ConfigUpdate(BaseModel):
+    """Runtime key/provider updates (PUT /config). Omitted field = unchanged;
+    empty string = clear. Values are write-only — every response is masked."""
+    llm_provider: str | None = None   # local | openai | claude | gemini
+    llm_model: str | None = None
+    local_llm_base_url: str | None = None
+    anthropic_api_key: str | None = None
+    openai_api_key: str | None = None
+    gemini_api_key: str | None = None
+    github_token: str | None = None
+
+
+def _masked_config(s: Settings) -> dict:
+    from dataclasses import fields
+
+    import re
+
+    masked = {f.name: getattr(s, f.name) for f in fields(s)}
+    for secret in ("github_token", "github_webhook_secret",
+                   "anthropic_api_key", "openai_api_key", "gemini_api_key",
+                   "fernet_key", "session_secret", "github_oauth_client_secret"):
+        masked[secret] = "***" if getattr(s, secret) else ""
+    # a DATABASE_URL may embed credentials (postgresql://user:pass@host/db)
+    masked["database_url"] = re.sub(r"//[^/@]+@", "//***@", s.database_url)
+    return masked
 
 
 # --------------------------------------------------------------------------- #
@@ -123,8 +151,10 @@ def _insights_job(repo_key: str, settings, store, progress=None) -> dict:
 # --------------------------------------------------------------------------- #
 # app factory
 # --------------------------------------------------------------------------- #
-def create_app(settings: Settings | None = None, store=None, identity=None) -> FastAPI:
-    """Build the app. `settings`/`store`/`identity` overrides exist for tests."""
+def create_app(settings: Settings | None = None, store=None, identity=None,
+               env_path: str | None = None) -> FastAPI:
+    """Build the app. `settings`/`store`/`identity`/`env_path` overrides exist
+    for tests (`env_path` keeps PUT /config away from the real .env)."""
     # resolved eagerly (not in lifespan): the CORS middleware needs the origin
     # list at build time
     settings = settings or Settings.load(_env_path())
@@ -145,6 +175,9 @@ def create_app(settings: Settings | None = None, store=None, identity=None) -> F
         description="GitHub analytics & intelligence — read layer + analysis triggers.",
         lifespan=lifespan,
     )
+    # PUT /config persists here — always ".env" proper (never .env.example);
+    # tests inject a scratch path so they can't touch the real file
+    app.state.env_path = env_path or ".env"
 
     # let the dashboard (a different origin in dev, e.g. localhost:5173) call us.
     # multiuser mode pins CORS to the dashboard origin and allows credentials —
@@ -175,8 +208,39 @@ def create_app(settings: Settings | None = None, store=None, identity=None) -> F
         to the user (jobs.created_by, spec §6.4). Single-user: unchanged."""
         if settings.multiuser:
             user = require_user(request)
-            params["created_by"] = user["github_login"]
+            params["created_by"] = user["github_login"] or user["email"]
         return params
+
+    def _track_for_user(request: Request, *, repo: str | None = None,
+                        profile: str | None = None) -> None:
+        """Record what a signed-in user searched (multiuser only) — this is
+        what scopes the Home discovery lists per user. Called after
+        _trigger_params, so the session is already established."""
+        if not settings.multiuser:
+            return
+        user = current_user(request)
+        if user is None:
+            return
+        identity = request.app.state.identity
+        if repo:
+            identity.track_repo(user["id"], repo)
+        if profile:
+            identity.track_profile(user["id"], profile)
+
+    def _visible_scope(request: Request) -> tuple[set | None, set | None]:
+        """(repo_keys, profile_names) the requester may list; None = no limit.
+
+        Multiuser discovery shows each user only what they themselves have
+        analyzed/searched; anonymous requesters see empty lists (the login
+        wall owns that UX). Single-user mode stays global."""
+        if not settings.multiuser:
+            return None, None
+        user = current_user(request)
+        if user is None:
+            return set(), set()
+        identity = request.app.state.identity
+        return (set(identity.user_repo_keys(user["id"])),
+                set(identity.user_profile_names(user["id"])))
 
     # ------------------------------------------------------------------ meta
     @app.get("/")
@@ -197,19 +261,43 @@ def create_app(settings: Settings | None = None, store=None, identity=None) -> F
 
     @app.get("/config")
     def config(request: Request):
-        from dataclasses import fields
+        return _masked_config(request.app.state.settings)
 
-        import re
+    @app.put("/config")
+    def update_config(req: ConfigUpdate, request: Request):
+        """Single-user runtime settings: bring-your-own LLM key + GitHub token
+        from the dashboard. Changes apply to the live process immediately
+        (get_llm() re-reads settings per job) and persist to .env so the CLI
+        and the next server start agree. Multiuser deployments manage keys
+        per-user via /api/v1/me (encrypted at rest) — this flat-file path is
+        disabled there on purpose.
+        """
+        st = request.app.state
+        s = st.settings
+        if s.multiuser:
+            raise HTTPException(403, "disabled in multiuser mode — manage keys "
+                                     "per-user via /api/v1/me")
+        changes = {k: (v or "").strip() for k, v in
+                   req.model_dump(exclude_unset=True).items()}
+        if not changes:
+            raise HTTPException(400, "no settings provided")
+        if "llm_provider" in changes:
+            changes["llm_provider"] = changes["llm_provider"].lower()
+            if changes["llm_provider"] not in ("local", "openai", "claude", "gemini"):
+                raise HTTPException(
+                    422, "llm_provider must be local | openai | claude | gemini")
 
-        s = request.app.state.settings
-        masked = {f.name: getattr(s, f.name) for f in fields(s)}
-        for secret in ("github_token", "github_webhook_secret",
-                       "anthropic_api_key", "openai_api_key", "gemini_api_key",
-                       "fernet_key", "session_secret", "github_oauth_client_secret"):
-            masked[secret] = "***" if getattr(s, secret) else ""
-        # a DATABASE_URL may embed credentials (postgresql://user:pass@host/db)
-        masked["database_url"] = re.sub(r"//[^/@]+@", "//***@", s.database_url)
-        return masked
+        for field_name, value in changes.items():
+            setattr(s, field_name, value)
+        persisted = False
+        try:
+            persist_env({RUNTIME_ENV_KEYS[f]: v for f, v in changes.items()},
+                        env_path=st.env_path)
+            persisted = True
+        except OSError as exc:  # applied in-memory even if the file write fails
+            print(f"  [warn] settings applied but not persisted to .env: {exc}")
+        return {"ok": True, "persisted": persisted, "applied": sorted(changes),
+                "config": _masked_config(s)}
 
     @app.get("/test")
     def selftest(request: Request):
@@ -276,22 +364,26 @@ def create_app(settings: Settings | None = None, store=None, identity=None) -> F
     @app.post("/analyze", status_code=202)
     def analyze(req: AnalyzeRequest, request: Request, tasks: BackgroundTasks):
         st = request.app.state
-        return _accepted(st.jobs, "analyze", _trigger_params(request, {"repo": req.repo}),
+        params = _trigger_params(request, {"repo": req.repo})
+        _track_for_user(request, repo=canonical_repo_key(req.repo))
+        return _accepted(st.jobs, "analyze", params,
                          tasks, _analyze_job, req, st.settings, st.store)
 
     @app.post("/commit-quality", status_code=202)
     def commit_quality(req: CommitQualityRequest, request: Request, tasks: BackgroundTasks):
         st = request.app.state
-        return _accepted(st.jobs, "commit_quality",
-                         _trigger_params(request, {"repo": req.repo}),
+        params = _trigger_params(request, {"repo": req.repo})
+        _track_for_user(request, repo=canonical_repo_key(req.repo))
+        return _accepted(st.jobs, "commit_quality", params,
                          tasks, _commit_quality_job, req, st.settings, st.store)
 
     @app.post("/profiles/{username}", status_code=202)
     def build_profile(username: str, request: Request, tasks: BackgroundTasks):
         st = request.app.state
         _require_token(st.settings)
-        return _accepted(st.jobs, "profile",
-                         _trigger_params(request, {"username": username}),
+        params = _trigger_params(request, {"username": username})
+        _track_for_user(request, profile=username)
+        return _accepted(st.jobs, "profile", params,
                          tasks, _profile_job, username, st.settings, st.store)
 
     @app.post("/repos/{repo_key:path}/pr-reviews/{number}", status_code=202)
@@ -299,14 +391,19 @@ def create_app(settings: Settings | None = None, store=None, identity=None) -> F
         st = request.app.state
         _require_token(st.settings)
         spec = f"{repo_key}#{number}"
-        return _accepted(st.jobs, "pr_review", _trigger_params(request, {"pr": spec}),
+        params = _trigger_params(request, {"pr": spec})
+        _track_for_user(request, repo=repo_key)
+        return _accepted(st.jobs, "pr_review", params,
                          tasks, _pr_review_job, spec, st.settings, st.store)
 
     # ------------------------------------------------------- discovery layer
-    # what's in the store — the dashboard's landing-page data
+    # what's in the store — the dashboard's landing-page data. In multiuser
+    # mode these lists are scoped per user (what THEY analyzed/searched);
+    # a brand-new account correctly sees empty lists.
     @app.get("/repos")
     def list_repos(request: Request):
         store = request.app.state.store
+        visible_repos, _ = _visible_scope(request)
         commits = {r["key"]: r for r in store.list_reports("commits")}
         hotspots = {r["key"]: r for r in store.list_reports("hotspots")}
         quality = {r["key"]: r for r in store.list_reports("commit_quality")}
@@ -317,6 +414,8 @@ def create_app(settings: Settings | None = None, store=None, identity=None) -> F
                 reviews.setdefault(repo, []).append(int(num))
         out = []
         for key in sorted({*commits, *hotspots, *quality, *reviews}):
+            if visible_repos is not None and key not in visible_repos:
+                continue
             h, q = hotspots.get(key), quality.get(key)
             out.append({
                 "repo": key,
@@ -330,8 +429,11 @@ def create_app(settings: Settings | None = None, store=None, identity=None) -> F
 
     @app.get("/profiles")
     def list_profiles(request: Request):
+        _, visible_profiles = _visible_scope(request)
         rows = request.app.state.store.list_reports(
             "developer_profile", fields=("primary_type",))
+        if visible_profiles is not None:
+            rows = [r for r in rows if r["key"] in visible_profiles]
         return {"profiles": [{"username": r["key"],
                               "generated_at": r.get("generated_at"),
                               "primary_type": r.get("primary_type")} for r in rows]}
@@ -351,17 +453,25 @@ def create_app(settings: Settings | None = None, store=None, identity=None) -> F
     # ------------------------------------------------- dashboard read layer
     @app.get("/repos/{repo_key:path}/activity")
     def activity(repo_key: str, request: Request,
-                 days: int = Query(365, ge=1), recent: int = Query(15, ge=0)):
+                 days: int = Query(365, ge=1), recent: int = Query(15, ge=0, le=50)):
         """Contributors, recent commits, daily heatmap and health score —
-        aggregated from the cached commit history."""
+        served from the cached `activity_base` aggregate (computed when the
+        history is saved). Re-reading the full commit list per request made
+        big repos crawl on every dashboard view."""
         st = request.app.state
-        commits = st.store.load_commits(repo_key)
-        if not commits:
-            raise HTTPException(404, f"no cached commits for '{repo_key}' — "
-                                     f"POST /analyze first")
+        base = st.store.load_report("activity_base", repo_key)
+        if base is None:
+            # pre-aggregate-era cache: build the base once from the stored
+            # commits and heal it; genuinely unknown repos still 404
+            commits = st.store.load_commits(repo_key)
+            if not commits:
+                raise HTTPException(404, f"no cached commits for '{repo_key}' — "
+                                         f"POST /analyze first")
+            base = build_activity_base(commits)
+            st.store.save_report("activity_base", repo_key, base)
         quality = st.store.load_report("commit_quality", repo_key)
         return {"repo": repo_key,
-                **build_activity(commits, days=days, recent=recent, quality=quality)}
+                **window_activity(base, days=days, recent=recent, quality=quality)}
 
     @app.get("/repos/{repo_key:path}/meta")
     def repo_meta(repo_key: str, request: Request, refresh: bool = False):
@@ -378,6 +488,26 @@ def create_app(settings: Settings | None = None, store=None, identity=None) -> F
                                      f"'owner/repo' key and GITHUB_TOKEN")
         return doc
 
+    @app.get("/repos/{repo_key:path}/pulls")
+    def recent_pulls(repo_key: str, request: Request, refresh: bool = False,
+                     limit: int = Query(5, ge=1, le=20)):
+        """The repo's last-N GitHub pull requests, whether Tool 3 has reviewed
+        them or not — store-cached with a short TTL (PULLS_CACHE_HOURS). The
+        dashboard joins these against /pr-reviews for the review chips."""
+        st = request.app.state
+        try:
+            doc = get_recent_pulls(repo_key, st.settings, st.store,
+                                   refresh=refresh, limit=limit)
+        except Exception as exc:
+            raise HTTPException(502, f"GitHub pulls fetch failed: "
+                                     f"{type(exc).__name__}: {exc}")
+        if doc is None:
+            raise HTTPException(404, f"no pull requests for '{repo_key}' — needs "
+                                     f"an 'owner/repo' key and GITHUB_TOKEN")
+        age = report_age_hours(doc)
+        doc["age_hours"] = round(age, 1) if age is not None else None
+        return doc
+
     @app.get("/repos/{repo_key:path}/insights")
     def insights(repo_key: str, request: Request):
         doc = request.app.state.store.load_report("repo_insights", repo_key)
@@ -389,7 +519,9 @@ def create_app(settings: Settings | None = None, store=None, identity=None) -> F
     @app.post("/repos/{repo_key:path}/insights", status_code=202)
     def generate_insights(repo_key: str, request: Request, tasks: BackgroundTasks):
         st = request.app.state
-        return _accepted(st.jobs, "insights", _trigger_params(request, {"repo": repo_key}),
+        params = _trigger_params(request, {"repo": repo_key})
+        _track_for_user(request, repo=repo_key)
+        return _accepted(st.jobs, "insights", params,
                          tasks, _insights_job, repo_key, st.settings, st.store)
 
     # ------------------------------------------------------------ read layer

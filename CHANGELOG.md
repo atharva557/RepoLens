@@ -7,6 +7,93 @@ This project follows the milestone roadmap in `../GitPulse_Revised_Sections.md`.
 
 ## [Unreleased]
 
+- **Fixed: Home showed every user the whole store.** In multiuser mode the
+  discovery lists are now per-user: each analysis trigger records what the
+  signed-in user searched (repos → `user_repos` with the canonical
+  `repo_key()`; profile usernames → new `user_profiles` table, idempotent
+  `CREATE TABLE` so existing DBs pick it up on start), re-searching
+  refreshes recency, and `GET /repos` / `GET /profiles` filter to the
+  requesting user's own history — a brand-new account sees empty lists
+  (Home's existing empty states), anonymous requesters see empty lists, and
+  `/me` now returns both recency-ordered lists. `created_by` on jobs falls
+  back to email for password accounts. Deep reads stay open by key (hard
+  per-repo ACLs remain the next slice, per spec §7.12). Single-user mode is
+  untouched — no filtering. Verified live against the real store (fresh
+  user: empty; after analyzing one repo: exactly that repo listed). New
+  `test_api.py` scoping test (18 in the suite) with engine stubs;
+  `test_identity.py` covers profile tracking + recency ordering.
+- **User login/signup is live (email + password), with an in-memory dev
+  identity mode.** New auth routes on the existing session plane
+  (`api/auth.py`): `POST /api/v1/auth/signup` (validates email shape +
+  ≥8-char password, salted-**scrypt** hash via `core.identity.hash_password`
+  — format `scrypt$n$r$p$salt$hash` so params can be raised later — signs the
+  user in on creation, 409 on duplicate email) and `POST /api/v1/auth/login`
+  (constant-time verify; wrong email and wrong password are one generic 401;
+  failures audited). The hash is readable only by the login lookup — every
+  other user read strips it, in Postgres (`_USER_COLS`) and the Memory twin
+  alike. `IDENTITY_BACKEND=memory` (new knob, default `postgres`) runs the
+  identity plane in process memory — a DEV escape hatch that makes login
+  demoable before Postgres is set up (accounts reset on restart; announced
+  loudly at startup). Frontend: `lib/auth.jsx` AuthProvider probes
+  `/api/v1/me` (503 = single-user → no wall; 401 = Login wall on every URL,
+  original URL preserved after sign-in; 200 = signed in), new `Login.jsx`
+  (sign-in/sign-up card in the app style), navbar account chip + sign-out,
+  and `postJSON`/`putJSON` now always send the `X-GitPulse-Client` CSRF
+  header. `MULTIUSER=false` remains exactly the old single-user app.
+  Verified live end-to-end (wall → signup → app → logout → login). Suite
+  grown to 11 tests (`test_identity.py`): scrypt hash/verify/tamper,
+  hash-stripping discipline, memory-backend gate, and the full
+  signup→session→logout→login API flow incl. CSRF and generic-401 checks.
+- **Performance trio — the dashboard's remaining request-path costs are
+  gone.** (1) `GET /repos/{key}/activity` no longer re-reads and re-scans the
+  entire commit history per view: `core/activity.py` is split into
+  `build_activity_base` (one expensive pass, computed when a history is saved
+  in `fetch_and_store_commits` and cached as `activity_base` with per-day
+  bugfix buckets) and `window_activity` (cheap per-request windowing — any
+  time range sums ≤ a few thousand day rows). Pre-aggregate caches self-heal
+  on first read; the insights digest uses the base too. Measured on a
+  50k-commit history through the JSON store: **367ms → 3ms per request
+  (~123x)**. (2) The Dashboard fetch waterfall is flat: activity now rides in
+  the same `Promise.all` as meta/quality/insights/pr-reviews/pulls (was:
+  awaited alone first, total = activity + slowest of the rest). (3)
+  `lib/api.js` gained a session-scoped TTL cache — opt-in `{ ttl }` per GET
+  (Dashboard/BugHotspots 60s, Home 30s, `/jobs` never cached), every
+  successful GET reprimes, and any successful POST/PUT clears the whole cache
+  so triggered re-analyses always show fresh — Home ⇄ Dashboard navigation is
+  now instant. `?recent=` is capped at 50 (422 above — the base stores 50).
+  Activity endpoint tests extended (served-without-commits + heal).
+- **Bring-your-own keys from the dashboard.** The Settings drawer gained an
+  "AI Provider & Keys" section: pick the LLM backend (Local/LM Studio,
+  Claude, OpenAI, Gemini) with its API key and optional model, and set the
+  GitHub token — no `.env` editing. Backed by `PUT /config` (single-user
+  only; `403` in multiuser mode where keys are per-user via `/api/v1/me`):
+  changes apply to the live process immediately (`get_llm()` reads settings
+  per job) and `persist_env()` writes them back to `.env` — seeded from
+  `.env.example` on first save, other lines/comments preserved — so the CLI
+  and the next server start agree. Secrets are write-only: inputs show only
+  a "configured ✓" state (from the masked `GET /config`) and responses never
+  echo values. Save runs `GET /test` and reports whether the LLM/token
+  actually work. Only keys + LLM choice are runtime-editable on purpose —
+  analysis tuning stays file-only. New suite entry (`test_api.py`, 17
+  tests); runtime-editable keys marked in `docs/10-configuration.md`.
+- **PR reviews render before the LLM finishes; the dashboard lists real
+  GitHub PRs.** Tool 3 now saves the deterministic report (risk level,
+  warnings, similarity) *before* the LLM phase with `summary_pending: true`,
+  then re-saves with the summary (`runner.py` two-phase save; single save
+  when no LLM is configured; webhook comments still post only the final
+  report). The PR page shows that report as soon as it exists — new AI
+  Change Summary card with a generating/absent state, a live analysis
+  banner (fed by job `progress`), and stale-while-reanalyzing instead of a
+  full-page spinner; a failed job on a visible report becomes a banner
+  error, not a page swap. The Dashboard's Pull Requests card now shows the
+  repo's **last 5 GitHub PRs whether reviewed or not** (`GET
+  /repos/{key}/pulls` + `GitHubAPI.list_pulls`; store-cached under
+  `recent_pulls` with a short `PULLS_CACHE_HOURS` TTL, default 1h, since PR
+  lists churn fast; card sync button and analyze-refresh both force-refetch)
+  with state chips (open/merged/closed/draft) joined against review-severity
+  chips; unreviewed rows link straight into a review. Falls back to the old
+  reviewed-only list without a token. New tests: two-phase save + LLM-off
+  single save (`test_pr_reviewer.py`, 13), `/pulls` read (`test_api.py`, 16).
 - **Developer AI summary now works for everyone; dashboard surfaces PRs;
   profile cards rebuilt.** The Tool 2 LLM summary is generated from the whole
   computed profile — type distribution, languages, commit/PR/review counts,
