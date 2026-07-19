@@ -36,6 +36,50 @@ def _parse_env_file(path: str) -> dict[str, str]:
     return values
 
 
+# Settings fields the runtime API (PUT /config) may change, with their .env
+# names. Deliberately narrow: keys + LLM choice only — analysis tuning stays a
+# file-edit so a stray dashboard call can't silently reshape scoring.
+RUNTIME_ENV_KEYS: dict[str, str] = {
+    "github_token": "GITHUB_TOKEN",
+    "llm_provider": "LLM_PROVIDER",
+    "llm_model": "LLM_MODEL",
+    "local_llm_base_url": "LOCAL_LLM_BASE_URL",
+    "anthropic_api_key": "ANTHROPIC_API_KEY",
+    "openai_api_key": "OPENAI_API_KEY",
+    "gemini_api_key": "GEMINI_API_KEY",
+}
+
+
+def persist_env(changes: dict[str, str], env_path: str = ".env",
+                example_path: str = ".env.example") -> str:
+    """Write `{ENV_NAME: value}` updates into `env_path`, preserving every
+    other line. A missing .env is seeded from .env.example first (the same
+    copy the README asks for), so comments and documented defaults survive
+    the first dashboard save. Returns the path written.
+    """
+    import shutil
+
+    if not os.path.isfile(env_path) and os.path.isfile(example_path):
+        shutil.copyfile(example_path, env_path)
+    lines: list[str] = []
+    if os.path.isfile(env_path):
+        with open(env_path, encoding="utf-8") as fh:
+            lines = fh.read().splitlines()
+    remaining = dict(changes)
+    out = []
+    for line in lines:
+        stripped = line.strip()
+        name = stripped.partition("=")[0].strip() if "=" in stripped else None
+        if name in remaining and not stripped.startswith("#"):
+            out.append(f"{name}={remaining.pop(name)}")
+        else:
+            out.append(line)
+    out.extend(f"{name}={value}" for name, value in remaining.items())
+    with open(env_path, "w", encoding="utf-8") as fh:
+        fh.write("\n".join(out) + "\n")
+    return env_path
+
+
 @dataclass
 class Settings:
     # GitHub
@@ -87,6 +131,7 @@ class Settings:
     hotspot_top_n: int = 10                 # a file in the top-N hotspots is "high risk"
     pr_risk_high: float = 0.5               # weighted PR risk score >= this -> HIGH
     pr_risk_medium: float = 0.2             # >= this -> MEDIUM (below -> LOW)
+    pulls_cache_hours: float = 1            # recent-PRs list TTL (PRs churn fast)
 
     # FastAPI layer (v0.4) — PR webhook behaviour + dashboard CORS
     webhook_post_comment: bool = False  # post Tool 3 reports back to the PR automatically
@@ -98,6 +143,7 @@ class Settings:
     # Multi-user identity plane (v2, spec §6.4/§8/§9.2). MULTIUSER=false keeps
     # exactly the single-user behavior; true requires Postgres + enables /auth.
     multiuser: bool = False
+    identity_backend: str = "postgres"  # postgres | memory (DEV: resets on restart)
     database_url: str = "postgresql://localhost:5432/gitpulse"
     fernet_key: str = ""       # token/key encryption — generate once, NEVER commit
     session_secret: str = ""   # session/CSRF signing
@@ -164,6 +210,7 @@ class Settings:
             hotspot_top_n=get_num("HOTSPOT_TOP_N", 10, int),
             pr_risk_high=get_num("PR_RISK_HIGH", 0.5, float),
             pr_risk_medium=get_num("PR_RISK_MEDIUM", 0.2, float),
+            pulls_cache_hours=get_num("PULLS_CACHE_HOURS", 1, float),
             webhook_post_comment=str(get("GITPULSE_WEBHOOK_POST", "")).strip().lower()
             in ("1", "true", "yes", "on"),
             cors_origins=[o.strip() for o in get("GITPULSE_CORS_ORIGINS", "*").split(",")
@@ -171,6 +218,7 @@ class Settings:
             store_backend=get("GITPULSE_STORE", "auto").lower(),
             multiuser=str(get("MULTIUSER", "")).strip().lower()
             in ("1", "true", "yes", "on"),
+            identity_backend=get("IDENTITY_BACKEND", "postgres").strip().lower(),
             database_url=get("DATABASE_URL", "postgresql://localhost:5432/gitpulse"),
             fernet_key=get("FERNET_KEY", ""),
             session_secret=get("SESSION_SECRET", ""),

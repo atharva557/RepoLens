@@ -9,22 +9,30 @@ numeric values warn and fall back to the default instead of crashing.
 Sensible defaults mean the project runs with **no configuration at all**
 (JSON store, local LLM probing, no GitHub features).
 
+The keys marked **runtime-editable** below (LLM provider/model/keys +
+`GITHUB_TOKEN`) can also be set from the dashboard's Settings drawer, which
+calls `PUT /config`: the live process picks them up immediately and
+`persist_env()` writes them back to `.env` (seeding it from `.env.example`
+first if it doesn't exist), so the CLI and the next server start agree.
+Everything else stays file-only on purpose — a dashboard call shouldn't be
+able to silently reshape analysis tuning.
+
 ## Credentials
 
 | Variable | Default | Effect |
 |---|---|---|
-| `GITHUB_TOKEN` | *(unset)* | Enables Tool 2 (profiles), Tool 3 (PR fetch/post), repo metadata. Without it those features print a clear message. |
+| `GITHUB_TOKEN` | *(unset)* | **Runtime-editable.** Enables Tool 2 (profiles), Tool 3 (PR fetch/post), repo header metadata, the recent-PRs list, and the webhook review path; raises the API rate limit 60 → 5,000 req/h. Cloning/pulling public repos and hotspot/commit-quality analysis work without it. |
 | `GITHUB_WEBHOOK_SECRET` | *(unset)* | Enables `POST /webhook/github` (HMAC verification key). Unset → webhook returns `503`. |
 
 ## LLM provider
 
 | Variable | Default | Effect |
 |---|---|---|
-| `LLM_PROVIDER` | `local` | `local` \| `openai` \| `claude` \| `gemini` |
-| `LLM_MODEL` | *(per-provider default)* | `gpt-4o-mini` / `claude-opus-4-8` / `gemini-2.0-flash`; local uses the server's loaded model |
-| `LOCAL_LLM_BASE_URL` | `http://localhost:1234/v1` | LM Studio (or any OpenAI-compatible server) |
+| `LLM_PROVIDER` | `local` | **Runtime-editable.** `local` \| `openai` \| `claude` \| `gemini` |
+| `LLM_MODEL` | *(per-provider default)* | **Runtime-editable.** `gpt-4o-mini` / `claude-opus-4-8` / `gemini-2.0-flash`; local uses the server's loaded model |
+| `LOCAL_LLM_BASE_URL` | `http://localhost:1234/v1` | **Runtime-editable.** LM Studio (or any OpenAI-compatible server) |
 | `LOCAL_LLM_AUTOLOAD` | `false` | auto-load a model in LM Studio when the server is up but nothing is loaded (JIT request, `lms load` fallback) |
-| `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `GEMINI_API_KEY` | *(unset)* | key for the matching provider |
+| `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `GEMINI_API_KEY` | *(unset)* | **Runtime-editable.** key for the matching provider |
 | `LLM_MAX_TOKENS` | `512` | generation cap |
 | `LLM_TEMPERATURE` | `0.2` | sampling temperature (not sent to Claude — current models reject it) |
 

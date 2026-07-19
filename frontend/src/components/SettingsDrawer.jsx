@@ -2,7 +2,14 @@ import { useContext, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { ThemeContext } from "../lib/theme";
 import { ACCENTS, hexToRgba } from "../lib/settings";
-import { getJSON } from "../lib/api";
+import { getJSON, putJSON } from "../lib/api";
+
+// which write-only settings field carries each provider's key (PUT /config)
+const KEY_FIELD = {
+  openai: "openai_api_key",
+  claude: "anthropic_api_key",
+  gemini: "gemini_api_key",
+};
 
 /**
  * Right-hand settings drawer (from the design prototype): slides in over an
@@ -17,6 +24,15 @@ export default function SettingsDrawer({ open, onClose }) {
   const [about, setAbout] = useState(null);
   const [tempSettings, setTempSettings] = useState(settings);
   const [saveMessage, setSaveMessage] = useState("");
+
+  // server-side keys section (PUT /config): masked reads, write-only inputs
+  const [serverCfg, setServerCfg] = useState(null);
+  const [keysForm, setKeysForm] = useState({
+    llm_provider: "local", llm_model: "", local_llm_base_url: "",
+    api_key: "", github_token: "",
+  });
+  const [keysSaving, setKeysSaving] = useState(false);
+  const [keysMessage, setKeysMessage] = useState(null);
 
   // ESC closes; the page behind must not scroll while the drawer is open
   useEffect(() => {
@@ -48,7 +64,66 @@ export default function SettingsDrawer({ open, onClose }) {
     }
   }, [open, about]);
 
+  // current server config (masked) whenever the drawer opens — provider and
+  // model prefill from it; the secret inputs always start blank (write-only)
+  useEffect(() => {
+    if (!open) return;
+    setKeysMessage(null);
+    getJSON("/config")
+      .then((cfg) => {
+        setServerCfg(cfg);
+        setKeysForm((prev) => ({
+          ...prev,
+          llm_provider: cfg.llm_provider || "local",
+          llm_model: cfg.llm_model || "",
+          local_llm_base_url: cfg.local_llm_base_url || "",
+          api_key: "",
+          github_token: "",
+        }));
+      })
+      .catch(() => setServerCfg({ unavailable: true }));
+  }, [open]);
+
   const set = (patch) => setTempSettings((prev) => ({ ...prev, ...patch }));
+  const setKeys = (patch) => setKeysForm((prev) => ({ ...prev, ...patch }));
+
+  const saveKeys = async () => {
+    if (!serverCfg || serverCfg.unavailable) return;
+    // only send what changed; blank secret inputs mean "keep the stored key"
+    const payload = {};
+    if (keysForm.llm_provider !== serverCfg.llm_provider) payload.llm_provider = keysForm.llm_provider;
+    if (keysForm.llm_model !== (serverCfg.llm_model || "")) payload.llm_model = keysForm.llm_model;
+    if (keysForm.llm_provider === "local" &&
+        keysForm.local_llm_base_url !== (serverCfg.local_llm_base_url || "")) {
+      payload.local_llm_base_url = keysForm.local_llm_base_url;
+    }
+    const keyField = KEY_FIELD[keysForm.llm_provider];
+    if (keyField && keysForm.api_key.trim()) payload[keyField] = keysForm.api_key.trim();
+    if (keysForm.github_token.trim()) payload.github_token = keysForm.github_token.trim();
+    if (Object.keys(payload).length === 0) {
+      setKeysMessage({ ok: false, text: "Nothing to save — fields are unchanged." });
+      return;
+    }
+    setKeysSaving(true);
+    setKeysMessage(null);
+    try {
+      const res = await putJSON("/config", payload);
+      setServerCfg(res.config);
+      setKeysForm((prev) => ({ ...prev, api_key: "", github_token: "" }));
+      // verify live which subsystems the new settings actually light up
+      let verdict = "";
+      try {
+        const t = await getJSON("/test");
+        verdict = ` — LLM ${t.llm && t.llm.available ? "available" : "not available"}` +
+                  `, GitHub token ${t.github_token ? "configured" : "missing"}`;
+      } catch { /* the self-test is best-effort */ }
+      setKeysMessage({ ok: true, text: `Saved${res.persisted ? " to .env" : " (in-memory only)"}${verdict}.` });
+    } catch (e) {
+      setKeysMessage({ ok: false, text: String(e.message || e) });
+    } finally {
+      setKeysSaving(false);
+    }
+  };
 
   const themeOptions = [
     { value: "system", label: "System" },
@@ -207,6 +282,131 @@ export default function SettingsDrawer({ open, onClose }) {
                 </button>
               </div>
             </div>
+          </div>
+
+          {/* AI provider & keys — server-side (PUT /config): applied live,
+              persisted to .env; secrets are write-only and never echoed */}
+          <div className="space-y-4 pt-4 border-t border-outline-variant">
+            <p className="text-label text-on-surface-variant uppercase tracking-widest font-bold">
+              {"AI PROVIDER & KEYS"}
+            </p>
+            {serverCfg?.unavailable ? (
+              <p className="text-label text-on-surface-variant">
+                Backend offline — start the API server to manage keys.
+              </p>
+            ) : !serverCfg ? (
+              <p className="text-label text-on-surface-variant">Loading current configuration…</p>
+            ) : (
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <label className="text-label text-on-surface-variant" htmlFor="llmProviderSelect">
+                    AI Provider
+                  </label>
+                  <select
+                    id="llmProviderSelect"
+                    value={keysForm.llm_provider}
+                    onChange={(e) => setKeys({ llm_provider: e.target.value })}
+                    className="w-full bg-surface-container-lowest border border-outline-variant rounded px-3 py-2 text-body focus:outline-none focus:border-primary"
+                  >
+                    <option value="local">Local (LM Studio)</option>
+                    <option value="claude">Claude (Anthropic)</option>
+                    <option value="openai">OpenAI</option>
+                    <option value="gemini">Gemini (Google)</option>
+                  </select>
+                </div>
+
+                {keysForm.llm_provider === "local" ? (
+                  <div className="space-y-2">
+                    <label className="text-label text-on-surface-variant" htmlFor="localLlmUrl">
+                      Local Server URL
+                    </label>
+                    <input
+                      id="localLlmUrl"
+                      type="text"
+                      value={keysForm.local_llm_base_url}
+                      onChange={(e) => setKeys({ local_llm_base_url: e.target.value })}
+                      placeholder="http://localhost:1234/v1"
+                      className="w-full bg-surface-container-lowest border border-outline-variant rounded px-3 py-2 text-body font-code focus:outline-none focus:border-primary placeholder:text-on-surface-variant/40"
+                    />
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <label className="text-label text-on-surface-variant flex items-center justify-between" htmlFor="llmApiKey">
+                      <span>API Key</span>
+                      {serverCfg[KEY_FIELD[keysForm.llm_provider]] === "***" && (
+                        <span className="text-green-500 font-code text-[10px]">configured ✓</span>
+                      )}
+                    </label>
+                    <input
+                      id="llmApiKey"
+                      type="password"
+                      autoComplete="off"
+                      value={keysForm.api_key}
+                      onChange={(e) => setKeys({ api_key: e.target.value })}
+                      placeholder={serverCfg[KEY_FIELD[keysForm.llm_provider]] === "***"
+                        ? "•••• configured — paste to replace"
+                        : "paste your API key"}
+                      className="w-full bg-surface-container-lowest border border-outline-variant rounded px-3 py-2 text-body font-code focus:outline-none focus:border-primary placeholder:text-on-surface-variant/40"
+                    />
+                  </div>
+                )}
+
+                <div className="space-y-2">
+                  <label className="text-label text-on-surface-variant" htmlFor="llmModel">
+                    Model <span className="text-on-surface-variant/60">(optional)</span>
+                  </label>
+                  <input
+                    id="llmModel"
+                    type="text"
+                    value={keysForm.llm_model}
+                    onChange={(e) => setKeys({ llm_model: e.target.value })}
+                    placeholder="provider default"
+                    className="w-full bg-surface-container-lowest border border-outline-variant rounded px-3 py-2 text-body font-code focus:outline-none focus:border-primary placeholder:text-on-surface-variant/40"
+                  />
+                </div>
+
+                <div className="space-y-2 pt-2">
+                  <label className="text-label text-on-surface-variant flex items-center justify-between" htmlFor="githubToken">
+                    <span>GitHub Token</span>
+                    {serverCfg.github_token === "***" && (
+                      <span className="text-green-500 font-code text-[10px]">configured ✓</span>
+                    )}
+                  </label>
+                  <input
+                    id="githubToken"
+                    type="password"
+                    autoComplete="off"
+                    value={keysForm.github_token}
+                    onChange={(e) => setKeys({ github_token: e.target.value })}
+                    placeholder={serverCfg.github_token === "***"
+                      ? "•••• configured — paste to replace"
+                      : "ghp_… or github_pat_…"}
+                    className="w-full bg-surface-container-lowest border border-outline-variant rounded px-3 py-2 text-body font-code focus:outline-none focus:border-primary placeholder:text-on-surface-variant/40"
+                  />
+                  <p className="text-[10px] text-on-surface-variant leading-relaxed">
+                    Powers developer profiles, PR reviews (and optional PR comments),
+                    the repo header metadata, and the recent-PRs card — and raises the
+                    GitHub rate limit from 60 to 5,000 req/h. Hotspot and commit-quality
+                    analysis of public repos works without it.
+                  </p>
+                </div>
+
+                {keysMessage && (
+                  <div className={`p-2 text-label rounded text-center border ${keysMessage.ok
+                    ? "bg-green-500/10 text-green-500 border-green-500/20"
+                    : "bg-red-500/10 text-red-400 border-red-500/20"}`}>
+                    {keysMessage.text}
+                  </div>
+                )}
+                <button
+                  onClick={saveKeys}
+                  disabled={keysSaving}
+                  className="w-full border border-primary/60 text-primary py-2.5 font-bold rounded hover:bg-primary/10 transition-colors uppercase tracking-widest text-label disabled:opacity-50"
+                >
+                  {keysSaving ? "Saving & testing…" : "Save & Test Keys"}
+                </button>
+              </div>
+            )}
           </div>
 
           {/* About */}
