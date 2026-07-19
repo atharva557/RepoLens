@@ -73,6 +73,21 @@ def _patched(fn):
         gh.GitHubAPI = original
 
 
+def test_clone_dest_keeps_the_owner():
+    """'pallets/flask' and 'yourfork/flask' are different repos — the clone
+    directory must carry the owner, or the second analysis silently reuses
+    the first repo's clone and caches the wrong history under its own key."""
+    a = gh._clone_dest("cache", "pallets/flask")
+    b = gh._clone_dest("cache", "yourfork/flask")
+    assert a != b
+    assert a.endswith(os.path.join("clones", "pallets__flask"))
+    assert b.endswith(os.path.join("clones", "yourfork__flask"))
+    # bare local-clone keys (no owner) slug to themselves
+    assert gh._clone_dest("cache", "localrepo").endswith(
+        os.path.join("clones", "localrepo"))
+    print("  ok: clone destinations keep the owner (no name collisions)")
+
+
 def test_fresh_cache_is_served_without_calling_github():
     def body():
         store = Store()

@@ -77,13 +77,26 @@ class _GitProgress:
             self.report(self.phase, pct=pct, detail=stage)
 
 
+def _clone_dest(cache_dir: str, key: str) -> str:
+    """Directory a remote clone lives in: `<cache_dir>/clones/<slug>`.
+
+    The slug is the *whole* key with '/' -> '__' (JsonStore._slug's convention),
+    so the owner stays in the path. 'pallets/flask' and 'yourfork/flask' are
+    different repos; keyed on the bare name they would share one 'clones/flask',
+    and the second analysis would silently reuse the first repo's clone and
+    cache the wrong history under its own key. A key with no owner (a bare
+    local-clone name) slugs to itself.
+    """
+    return os.path.join(cache_dir, "clones", key.replace("/", "__"))
+
+
 def ensure_local_clone(target: str, cache_dir: str, *, update: bool = False,
                        progress=None) -> tuple[str, str]:
     """Return (local_path, repo_key) for a repo reference.
 
     - An existing local git repo is used in place (never touched).
     - Bare GitHub shorthand ('owner/repo') expands to the https URL.
-    - A remote URL is cloned (once) into `<cache_dir>/clones/<name>`.
+    - A remote URL is cloned (once) into `<cache_dir>/clones/<owner__repo>`.
     - `update=True` (an explicit refresh) additionally pulls the cached clone
       so new upstream commits actually arrive; a failed pull (offline, forced
       push upstream) warns and proceeds with the existing history.
@@ -106,8 +119,7 @@ def ensure_local_clone(target: str, cache_dir: str, *, update: bool = False,
     from core.progress import reporter_or_print
 
     report = reporter_or_print(progress)
-    name = key.split("/")[-1]
-    dest = os.path.join(cache_dir, "clones", name)
+    dest = _clone_dest(cache_dir, key)
     if not os.path.isdir(os.path.join(dest, ".git")):
         os.makedirs(os.path.dirname(dest), exist_ok=True)
         report("cloning repository (GitHub)", pct=0, detail=target)

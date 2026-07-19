@@ -7,6 +7,13 @@ This project follows the milestone roadmap in `../GitPulse_Revised_Sections.md`.
 
 ## [Unreleased]
 
+- **Fixed: the clone cache collided on repo *name*, dropping the owner.**
+  `pallets/flask` and `yourfork/flask` both mapped to `data/cache/clones/flask`,
+  so analyzing the second silently reused the first repo's clone and cached
+  the wrong history under its own key. Clone directories now use the
+  full-key slug (`clones/pallets__flask` — JsonStore's `__` convention, via
+  the new `_clone_dest()` helper); old-style directories are orphaned and
+  simply re-cloned on next use. Regression test in `test_github_cache.py`.
 - **Fixed: Home showed every user the whole store.** In multiuser mode the
   discovery lists are now per-user: each analysis trigger records what the
   signed-in user searched (repos → `user_repos` with the canonical
