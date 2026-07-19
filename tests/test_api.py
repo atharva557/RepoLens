@@ -78,6 +78,39 @@ class FakeStore:
         return out
 
 
+def test_mongo_load_commits_sorts_newest_first():
+    """The newest-first ordering must be an explicit sort, not an accident of
+    insertion order: build_bug_index takes the FIRST N qualifying commits and
+    fingerprints the first/last SHA, so unordered 'natural' order would
+    silently index the wrong diffs."""
+    from types import SimpleNamespace
+
+    from core.db import MongoStore
+
+    class _Cursor:
+        def __init__(self):
+            self.sorted_by = None
+
+        def sort(self, spec):
+            self.sorted_by = spec
+            return iter([{"sha": "new"}, {"sha": "old"}])
+
+    class _Coll:
+        def __init__(self, cursor):
+            self._cursor = cursor
+
+        def find(self, *a, **k):
+            return self._cursor
+
+    cursor = _Cursor()
+    store = MongoStore.__new__(MongoStore)  # bypass the live-connection __init__
+    store.db = SimpleNamespace(commits=_Coll(cursor))
+    out = store.load_commits("o/r")
+    assert cursor.sorted_by == [("date", -1)]
+    assert [c["sha"] for c in out] == ["new", "old"]
+    print("  ok: MongoStore.load_commits sorts newest-first explicitly")
+
+
 def _client(settings=None, store=None, env_path=None):
     return TestClient(create_app(settings=settings or Settings(),
                                  store=store or FakeStore(),

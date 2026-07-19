@@ -84,6 +84,10 @@ class JsonStore:
         return len(commits)
 
     def load_commits(self, repo_key: str) -> list[dict]:
+        # Ordering contract: newest-first. Commits are saved in git-log order
+        # (newest-first) and the file preserves it, matching the explicit sort in
+        # MongoStore.load_commits. Consumers such as pipeline.build_bug_index rely
+        # on this by taking the first N qualifying commits.
         p = self._path("commits", repo_key)
         if not os.path.isfile(p):
             return []
@@ -198,8 +202,17 @@ class MongoStore:
         return len(commits)
 
     def load_commits(self, repo_key: str) -> list[dict]:
+        # Ordering contract: newest-first, matching JsonStore.load_commits and
+        # the git-log order commits are saved in. Mongo returns documents in
+        # unordered "natural" order, so the sort MUST be explicit: consumers such
+        # as pipeline.build_bug_index take the FIRST N qualifying commits and hash
+        # the first/last SHA into the corpus fingerprint. Without this it works
+        # only by accident (delete-then-insert happens to preserve order) and is
+        # one compaction away from silently indexing the oldest diffs. The
+        # (repo, date DESC) index from ensure_indexes backs this sort.
         out = []
-        for doc in self.db.commits.find({"repo": repo_key}, {"_id": 0, "repo": 0}):
+        cursor = self.db.commits.find({"repo": repo_key}, {"_id": 0, "repo": 0})
+        for doc in cursor.sort([("date", -1)]):
             out.append(doc)
         return out
 

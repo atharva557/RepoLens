@@ -7,6 +7,13 @@ This project follows the milestone roadmap in `../GitPulse_Revised_Sections.md`.
 
 ## [Unreleased]
 
+- **Fixed: `MongoStore.load_commits` had no sort.** Consumers assume
+  newest-first — the bug-diff corpus takes the *first* N qualifying commits
+  and fingerprints the first/last SHA — but Mongo's natural order is
+  unguaranteed and only matched by accident of delete-then-insert. Now an
+  explicit `.sort([("date", -1)])`, backed by the existing `(repo, date
+  DESC)` index, with the ordering contract documented on both stores and
+  asserted by a fake-cursor unit test (`test_api.py`, 19 tests).
 - **Fixed: the clone cache collided on repo *name*, dropping the owner.**
   `pallets/flask` and `yourfork/flask` both mapped to `data/cache/clones/flask`,
   so analyzing the second silently reused the first repo's clone and cached
