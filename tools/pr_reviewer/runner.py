@@ -101,16 +101,29 @@ def run_pr_review(spec: str, settings, store, *, post: bool = False,
                        recently_fixed=recently_fixed,
                        title=pr.get("title", ""), body=pr.get("body", ""))
     sim = assess_similarity(index, pr, settings)
-    report_progress("summarizing the diff (LLM)")
-    summary = summarize(get_llm(settings), pr)
-    report_progress("saving report (database)", pct=100)
-    report = build_report(pr, risk, sim, summary,
-                          coverage={"hotspots": bool(hotspots or recently_fixed),
-                                    "similarity": corpus_n > 0},
-                          high=getattr(settings, "pr_risk_high", 0.5),
-                          medium=getattr(settings, "pr_risk_medium", 0.2))
-    report.update({"repo": key, "pr": number, "url": pr["url"], "corpus_size": corpus_n})
 
+    def _assemble(summary: str | None) -> dict:
+        r = build_report(pr, risk, sim, summary,
+                         coverage={"hotspots": bool(hotspots or recently_fixed),
+                                   "similarity": corpus_n > 0},
+                         high=getattr(settings, "pr_risk_high", 0.5),
+                         medium=getattr(settings, "pr_risk_medium", 0.2))
+        r.update({"repo": key, "pr": number, "url": pr["url"], "corpus_size": corpus_n})
+        return r
+
+    # The deterministic report is saved *before* the LLM phase so readers
+    # (dashboard, GET .../pr-reviews/{n}) can render risk/warnings while the
+    # summary generates; summary_pending tells them a second save is coming.
+    llm = get_llm(settings)
+    report = _assemble(None)
+    if llm is not None and llm.available():
+        report["summary_pending"] = True
+        report_progress("saving preliminary report (database)")
+        store.save_report("pr_review", f"{key}#{number}", report)
+        report_progress("summarizing the diff (LLM)")
+        report = _assemble(summarize(llm, pr))
+    report["summary_pending"] = False
+    report_progress("saving report (database)", pct=100)
     store.save_report("pr_review", f"{key}#{number}", report)
 
     if post:

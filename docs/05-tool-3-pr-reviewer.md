@@ -17,10 +17,20 @@ open/update. Requires `GITHUB_TOKEN`.
   4. get the repo's hotspot list (Tool 1)            for the file-risk check
   5. mechanical risk checks                          [risk_scorer.py]
      + diff similarity to past bug fixes             [similarity.py]
-     + LLM summary of the diff                       [llm_summarizer.py]
-  6. assemble markdown + structured report           [report_builder.py]
-  7. persist as kind "pr_review", key "owner/repo#N"; optionally post as PR comment
+  6. assemble + persist the DETERMINISTIC report     [report_builder.py]
+     (kind "pr_review", key "owner/repo#N", summary_pending=true)
+  7. LLM summary of the diff                         [llm_summarizer.py]
+  8. re-assemble + persist the final report (summary_pending=false);
+     optionally post as PR comment
 ```
+
+The two-phase save exists for the dashboard: the deterministic half (risk
+level, warnings, similarity) is readable from the store while the LLM phase —
+usually the slowest step — still runs, and the PR page renders it immediately
+with a "summary generating" placeholder. When no LLM is configured there is a
+single save and `summary_pending` is never claimed. The PR comment (webhook /
+opt-in post) is unchanged: it is posted only after the final save, so it always
+carries the summary when one was generated.
 
 ## Mechanical risk checks (`risk_scorer.py`)
 

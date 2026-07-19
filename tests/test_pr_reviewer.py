@@ -179,6 +179,81 @@ def test_bug_index_skips_docs_only_fixes():
     print("  ok: bug-diff corpus skips docs/config-only fixes")
 
 
+def _run_runner_stubbed(provider):
+    """run_pr_review with GitHub/clone/LLM/hotspots stubbed out (no network).
+
+    The clone step 'fails' on purpose — the similarity corpus is optional and
+    its absence exercises the graceful path; what these tests care about is
+    the save sequence around the LLM phase.
+    """
+    import core.github_client as ghc
+    import core.llm as llm_mod
+    from tools.pr_reviewer import runner
+
+    class _RecStore:
+        def __init__(self):
+            self.saves = []
+
+        def load_commits(self, key):
+            return []
+
+        def load_hotspots(self, key):
+            return None
+
+        def save_report(self, kind, key, doc):
+            self.saves.append((kind, key, dict(doc)))
+
+    class _FakeAPI:
+        def __init__(self, token):
+            pass
+
+        def get_pull(self, owner, repo, number):
+            return {"owner": owner, "repo": repo, "number": number,
+                    "title": "Fix expiry", "body": "Because #42.",
+                    "url": "https://github.com/o/r/pull/7",
+                    "files": [_file("src/a.py")]}
+
+    def _offline(*a, **k):
+        raise RuntimeError("offline")
+
+    store = _RecStore()
+    settings = _settings(github_token="tok", cache_dir="data/cache",
+                         hotspot_top_n=10, churn_window_days=30,
+                         pr_risk_high=0.5, pr_risk_medium=0.2)
+    patches = [(ghc, "GitHubAPI", _FakeAPI), (ghc, "ensure_local_clone", _offline),
+               (llm_mod, "get_llm", lambda s: provider),
+               (runner, "_hotspot_context", lambda *a, **k: (set(), {}))]
+    originals = [(obj, name, getattr(obj, name)) for obj, name, _ in patches]
+    for obj, name, value in patches:
+        setattr(obj, name, value)
+    try:
+        report = runner.run_pr_review("o/r#7", settings, store)
+    finally:
+        for obj, name, value in originals:
+            setattr(obj, name, value)
+    return report, store.saves
+
+
+def test_runner_saves_deterministic_report_before_llm():
+    report, saves = _run_runner_stubbed(FakeProvider("Sums it up."))
+    assert [k for k, _, _ in saves] == ["pr_review", "pr_review"]
+    first, final = saves[0][2], saves[1][2]
+    # readers get the full deterministic report while the summary generates
+    assert first["summary_pending"] is True and first["summary"] is None
+    assert first["level"] and first["risk_score"] is not None
+    assert final["summary"] == "Sums it up." and final["summary_pending"] is False
+    assert report["summary"] == "Sums it up."
+    print("  ok: deterministic report saved before the LLM summary")
+
+
+def test_runner_single_save_when_llm_unavailable():
+    report, saves = _run_runner_stubbed(FakeProvider(available=False))
+    assert [k for k, _, _ in saves] == ["pr_review"]  # never claims "pending"
+    assert saves[0][2]["summary_pending"] is False
+    assert report["summary"] is None
+    print("  ok: single save (no pending state) when the LLM is off")
+
+
 def test_summarizer_and_spec_parsing():
     pr = {"title": "t", "files": [{"patch": "some diff"}]}
     assert summarize(FakeProvider("It changes X."), pr) == "It changes X."

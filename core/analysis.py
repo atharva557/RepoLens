@@ -154,10 +154,11 @@ def run_hotspot_analysis(
     # without one.
     if refresh and "/" in key and settings.github_token:
         try:
-            from core.github_client import get_repo_meta
+            from core.github_client import get_recent_pulls, get_repo_meta
 
             report("refreshing repo metadata (GitHub)")
             get_repo_meta(key, settings, store, refresh=True)
+            get_recent_pulls(key, settings, store, refresh=True)
         except Exception as exc:
             print(f"  [warn] repo metadata refresh skipped: {type(exc).__name__}: {exc}")
 

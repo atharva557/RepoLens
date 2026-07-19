@@ -298,6 +298,27 @@ class GitHubAPI:
             "files": files, "url": pr.html_url,
         }
 
+    def list_pulls(self, full_name: str, limit: int = 5) -> list[dict]:
+        """Most recently updated PRs, any state (dashboard's Pull Requests card)."""
+        out = []
+        for pr in self.gh.get_repo(full_name).get_pulls(
+                state="all", sort="updated", direction="desc"):
+            out.append({
+                "number": pr.number,
+                "title": pr.title or "",
+                # GitHub's state is only open|closed; merged is the closed
+                # sub-state reviewers actually care about
+                "state": "merged" if pr.merged_at else pr.state,
+                "draft": bool(getattr(pr, "draft", False)),
+                "author": pr.user.login if pr.user else "",
+                "created_at": pr.created_at.isoformat() if pr.created_at else None,
+                "updated_at": pr.updated_at.isoformat() if pr.updated_at else None,
+                "url": pr.html_url,
+            })
+            if len(out) >= limit:
+                break
+        return out
+
     def post_pr_comment(self, owner: str, repo: str, number: int, body: str) -> str:
         """Post a comment on a PR (needs a write-scoped token). Returns its URL."""
         pr = self.gh.get_repo(f"{owner}/{repo}").get_pull(number)
@@ -337,3 +358,34 @@ def get_repo_meta(repo_key: str, settings, store, *, refresh: bool = False) -> d
         raise
     store.save_report("repo_meta", repo_key, meta)
     return store.load_report("repo_meta", repo_key)  # includes generated_at
+
+
+def get_recent_pulls(repo_key: str, settings, store, *, refresh: bool = False,
+                     limit: int = 5) -> dict | None:
+    """Store-cached recent GitHub PRs (any state, reviewed by Tool 3 or not).
+
+    Same discipline as `get_repo_meta`, but with its own much shorter TTL
+    (`PULLS_CACHE_HOURS`, default 1) — a PR list that is a day old is useless,
+    while stars/description barely move. Review state is not stored here; the
+    dashboard joins these numbers against /pr-reviews client-side.
+    """
+    from core.db import report_age_hours
+
+    cached = store.load_report("recent_pulls", repo_key)
+    if "/" not in repo_key or not settings.github_token:
+        return cached
+    if cached and not refresh:
+        age = report_age_hours(cached)
+        max_age = getattr(settings, "pulls_cache_hours", 1)
+        if age is not None and age <= max_age:
+            return cached
+    try:
+        pulls = GitHubAPI(settings.github_token).list_pulls(repo_key, limit=limit)
+    except Exception as exc:
+        if cached:  # stale beats nothing when GitHub is unreachable
+            print(f"  [warn] recent-pulls refresh failed ({type(exc).__name__}); "
+                  f"serving cached copy")
+            return cached
+        raise
+    store.save_report("recent_pulls", repo_key, {"repo": repo_key, "pulls": pulls})
+    return store.load_report("recent_pulls", repo_key)  # includes generated_at

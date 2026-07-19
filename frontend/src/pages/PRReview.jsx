@@ -75,9 +75,19 @@ export default function PRReview() {
   const [tokenError, setTokenError] = useState(false);
   
   const [pollingJobId, setPollingJobId] = useState(null);
+  const [jobPhase, setJobPhase] = useState(null);
+  const [jobError, setJobError] = useState(null);
   const pollTimerRef = useRef(null);
+  // pollJob reads the current report through a ref so it doesn't re-create
+  // itself (and restart the poll loop) on every report update
+  const reportRef = useRef(null);
 
   const [showMarkdown, setShowMarkdown] = useState(false);
+
+  const applyReport = useCallback((data) => {
+    reportRef.current = data;
+    setReport(data);
+  }, []);
 
   const fetchReport = useCallback(async (targetRepo, targetPr) => {
     setLoading(true);
@@ -85,7 +95,7 @@ export default function PRReview() {
     setTokenError(false);
     try {
       const data = await getJSON(`/repos/${targetRepo}/pr-reviews/${targetPr}`);
-      setReport(data);
+      applyReport(data);
       setLoading(false);
     } catch (e) {
       if (e.message.includes("404")) {
@@ -108,6 +118,10 @@ export default function PRReview() {
   }, []);
 
   useEffect(() => {
+    // switching PRs must not keep showing the previous PR's report
+    applyReport(null);
+    setJobPhase(null);
+    setJobError(null);
     if (repo && pr) {
       fetchReport(repo, pr);
     }
@@ -117,12 +131,13 @@ export default function PRReview() {
       fetchHistory(repo);
     }
     return () => clearTimeout(pollTimerRef.current);
-  }, [repo, pr, fetchReport, fetchHistory]);
+  }, [repo, pr, fetchReport, fetchHistory, applyReport]);
 
   const triggerAnalysis = async (targetRepo, targetPr) => {
     setLoading(true);
     setError(null);
     setTokenError(false);
+    setJobError(null);
     try {
       const res = await postJSON(`/repos/${targetRepo}/pr-reviews/${targetPr}`);
       setPollingJobId(res.job_id);
@@ -141,21 +156,39 @@ export default function PRReview() {
       const job = await getJSON(`/jobs/${jobId}`);
       if (job.status === "done") {
         setPollingJobId(null);
+        setJobPhase(null);
         fetchReport(repo, pr);
         fetchHistory(repo);
       } else if (job.status === "failed") {
         setPollingJobId(null);
-        setError(job.error || "Review failed.");
+        setJobPhase(null);
+        if (reportRef.current) {
+          // keep the (preliminary or previous) report on screen and surface
+          // the failure in the banner instead of replacing the whole page
+          setJobError(job.error || "Analysis failed.");
+        } else {
+          setError(job.error || "Review failed.");
+        }
         setLoading(false);
       } else {
+        const p = job.progress;
+        setJobPhase(p && p.phase ? (p.pct != null ? `${p.phase} — ${p.pct}%` : p.phase) : null);
+        // the deterministic report is saved before the LLM phase runs — show
+        // it as soon as it exists instead of spinning until the job ends
+        if (!reportRef.current) {
+          getJSON(`/repos/${repo}/pr-reviews/${pr}`)
+            .then((data) => { applyReport(data); setLoading(false); })
+            .catch(() => {});
+        }
         pollTimerRef.current = setTimeout(() => pollJob(jobId), 1500);
       }
     } catch (e) {
       setPollingJobId(null);
+      setJobPhase(null);
       setError(`Job polling failed: ${e.message}`);
       setLoading(false);
     }
-  }, [repo, pr, fetchReport, fetchHistory]);
+  }, [repo, pr, fetchReport, fetchHistory, applyReport]);
 
   useEffect(() => {
     if (pollingJobId) {
@@ -245,7 +278,7 @@ export default function PRReview() {
     );
   }
 
-  if (loading || pollingJobId) {
+  if ((loading || pollingJobId) && !report) {
     return (
       <div className="min-h-[calc(100vh-52px)] flex items-center justify-center bg-background text-on-surface">
         <div className="text-center space-y-4">
@@ -253,6 +286,9 @@ export default function PRReview() {
           <p className="font-code text-label text-on-surface-variant uppercase tracking-widest animate-pulse">
             {pollingJobId ? "Analyzing PR changes..." : "Loading report..."}
           </p>
+          {pollingJobId && jobPhase && (
+            <p className="font-code text-[10px] text-on-surface-variant/70 tracking-wide">{jobPhase}</p>
+          )}
         </div>
       </div>
     );
@@ -324,7 +360,26 @@ export default function PRReview() {
   return (
     <div className="min-h-screen bg-background text-on-surface pb-12">
       <main className="pt-8 px-gutter max-w-container-max mx-auto space-y-8">
-        
+
+        {/* live analysis banner — page stays interactive while a job runs */}
+        {(pollingJobId || jobError) && (
+          <div className={`flex items-center gap-3 px-4 py-2.5 rounded-lg border font-code text-[11px] tracking-wider ${
+            jobError ? "bg-red-900/20 border-red-700/40 text-red-400"
+                     : "bg-primary/10 border-primary/30 text-primary"}`}>
+            {jobError ? (
+              <>
+                <span className="material-symbols-outlined text-[16px]">error</span>
+                <span>{jobError}</span>
+              </>
+            ) : (
+              <>
+                <div className="w-3.5 h-3.5 border-2 border-primary border-t-transparent rounded-full motion-safe:animate-spin shrink-0"></div>
+                <span className="uppercase">Analyzing{jobPhase ? ` — ${jobPhase}` : "…"}</span>
+              </>
+            )}
+          </div>
+        )}
+
         {/* Header */}
         <section className="flex flex-col md:flex-row justify-between items-start gap-4">
           <div className="space-y-2">
@@ -397,6 +452,31 @@ export default function PRReview() {
                 </div>
               </div>
             </div>
+
+            {/* AI Change Summary — generated in the background after the
+                deterministic checks; the card reflects that lifecycle */}
+            {(report.summary || report.summary_pending) && (
+              <div className="bg-surface-container border border-outline-variant p-6 rounded-xl space-y-3 glow-card">
+                <h3 className="font-code text-sm font-bold uppercase text-on-surface-variant flex items-center gap-2">
+                  <span className="material-symbols-outlined text-primary text-[18px]">auto_awesome</span>
+                  AI Change Summary
+                </h3>
+                {report.summary ? (
+                  <p className="font-body text-[13px] leading-relaxed text-on-surface">{report.summary}</p>
+                ) : pollingJobId ? (
+                  <div className="flex items-center gap-3">
+                    <div className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full motion-safe:animate-spin shrink-0"></div>
+                    <p className="font-code text-[11px] uppercase tracking-wider text-on-surface-variant animate-pulse">
+                      Generating in the background — the risk checks above are already final
+                    </p>
+                  </div>
+                ) : (
+                  <p className="font-code text-[11px] text-on-surface-variant">
+                    Summary was not generated. Re-analyze to retry with the configured LLM.
+                  </p>
+                )}
+              </div>
+            )}
 
             {/* Quick Stats */}
             <div className="grid grid-cols-3 gap-gutter">

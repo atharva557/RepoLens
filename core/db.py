@@ -187,6 +187,8 @@ class MongoStore:
         self.db.profiles.create_index([("key", ASCENDING)], unique=True)
         self.db.quality_reports.create_index([("key", ASCENDING)], unique=True)
         self.db.configs.create_index([("key", ASCENDING)], unique=True)
+        self.db.recent_pulls.create_index([("key", ASCENDING)], unique=True)
+        self.db.activity_base.create_index([("key", ASCENDING)], unique=True)
 
     def save_commits(self, repo_key: str, commits: list[dict]) -> int:
         coll = self.db.commits

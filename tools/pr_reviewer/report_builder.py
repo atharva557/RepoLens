@@ -99,5 +99,6 @@ def build_report(pr: dict, risk: dict, similarity: dict, summary: str | None,
         "similarity": similarity.get("max_score", 0.0),
         "files_changed": risk["files_changed"],
         "lines_added": risk["lines_added"],
+        "summary": summary,
         "has_summary": bool(summary),
     }
