@@ -470,7 +470,11 @@ export default function Dashboard() {
     setError(null);
     // 60s client TTL: any trigger invalidates the cache, so within a session
     // the only staleness source is upstream GitHub drift (server-cached too)
-    const soft = (p) => getJSON(p, { ttl: 60000 }).catch((e) => ({ error: String(e), unavailable: true }));
+    // `status` rides along: 404 means "not generated yet" and triggers the
+    // matching POST below. Sniffing the message for "404" never worked — the
+    // message is the server's `detail` text, which has no status code in it.
+    const soft = (p) => getJSON(p, { ttl: 60000 })
+      .catch((e) => ({ error: e.message, status: e.status, unavailable: true }));
 
     try {
       // one parallel round-trip for the whole page — activity used to be
@@ -486,7 +490,7 @@ export default function Dashboard() {
 
       if (activityData.unavailable) {
         const msg = activityData.error || "";
-        if (msg.includes("404") || msg.includes("no cached commits") || msg.includes("POST /analyze first")) {
+        if (activityData.status === 404) {
           const parsed = getParsedSettings();
           const res = await postJSON("/analyze", { repo, refresh: false, max_commits: parsed.max_commits, top: parsed.top });
           navigate(`/loading?job=${res.job_id}&repo=${repo}&next=/dashboard`);
@@ -496,7 +500,7 @@ export default function Dashboard() {
       }
 
       let finalInsights = insightsData;
-      if (insightsData.unavailable && insightsData.error && (insightsData.error.includes("404") || insightsData.error.includes("no insights"))) {
+      if (insightsData.unavailable && insightsData.status === 404) {
         try {
           const res = await postJSON(`/repos/${repo}/insights`);
           finalInsights = { generating: true, jobId: res.job_id, bullets: ["AI insights are being calculated in the background…"] };
@@ -507,7 +511,7 @@ export default function Dashboard() {
       }
 
       let finalQuality = qualityData;
-      if (qualityData.unavailable && qualityData.error && (qualityData.error.includes("404") || qualityData.error.includes("POST /commit-quality"))) {
+      if (qualityData.unavailable && qualityData.status === 404) {
         try {
           const parsed = getParsedSettings();
           const res = await postJSON("/commit-quality", { repo, max_commits: parsed.max_commits, top: parsed.top });

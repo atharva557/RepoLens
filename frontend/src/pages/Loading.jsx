@@ -70,7 +70,11 @@ export default function Loading() {
         })
         .catch((e) => {
           clearInterval(pollIntervalRef.current);
-          setError(`Job not found (404). The server might have restarted. Details: ${e.message}`);
+          // only a real 404 means the job record is gone; anything else
+          // (network drop, 500) was being mislabelled as "server restarted"
+          setError(e.status === 404
+            ? `Job ${jobId} is no longer known to the server — it may have restarted. Retry to run it again.`
+            : `Could not read job status: ${e.message}`);
         });
     };
 

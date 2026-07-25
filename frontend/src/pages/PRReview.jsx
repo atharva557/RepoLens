@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useNavigate, useLocation, Link } from "react-router-dom";
-import { getJSON, postJSON } from "../lib/api";
+import { getJSON, isNotFound, postJSON } from "../lib/api";
 
 function parsePrInput(input) {
   let cleaned = input.trim();
@@ -98,8 +98,9 @@ export default function PRReview() {
       applyReport(data);
       setLoading(false);
     } catch (e) {
-      if (e.message.includes("404")) {
-        // Trigger POST automatically if not found
+      if (isNotFound(e)) {
+        // never reviewed yet — that's the normal first visit, not an error:
+        // kick off the review and poll it
         triggerAnalysis(targetRepo, targetPr);
       } else {
         setError(e.message);
@@ -142,7 +143,7 @@ export default function PRReview() {
       const res = await postJSON(`/repos/${targetRepo}/pr-reviews/${targetPr}`);
       setPollingJobId(res.job_id);
     } catch (e) {
-      if (e.message.includes("400") || e.message.includes("TOKEN") || e.message.includes("token")) {
+      if (e.status === 400) {   // the API's "GITHUB_TOKEN is not configured"
         setTokenError(true);
       } else {
         setError(e.message);

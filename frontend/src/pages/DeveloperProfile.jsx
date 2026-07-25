@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useMemo, useContext } from "react";
 import { useNavigate, Link } from "react-router-dom";
-import { getJSON, postJSON } from "../lib/api";
+import { getJSON, isNotFound, postJSON } from "../lib/api";
 import SyncBadge from "../components/SyncBadge";
 import { ThemeContext } from "../lib/theme";
 import { getHeatmapColorStyle } from "../lib/settings";
@@ -37,6 +37,9 @@ export default function DeveloperProfile() {
 
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
+  // "no profile yet" (404) is an actionable state, not a failure — tracked
+  // from the HTTP status, which the `detail` message never carries
+  const [notFound, setNotFound] = useState(false);
   const [loading, setLoading] = useState(true);
   const [triggeringBuild, setTriggeringBuild] = useState(false);
   const [tokenError, setTokenError] = useState(false);
@@ -58,6 +61,7 @@ export default function DeveloperProfile() {
   const loadProfile = useCallback(() => {
     setLoading(true);
     setError(null);
+    setNotFound(false);
     setTokenError(false);
     getJSON(`/profiles/${user}`)
       .then((profileData) => {
@@ -66,23 +70,22 @@ export default function DeveloperProfile() {
         setTimeout(() => setGaugeAnimated(true), 100);
       })
       .catch(async (e) => {
-        const msg = String(e);
-        if (msg.includes("404") || msg.includes("no profile") || msg.includes("POST /profiles")) {
+        if (isNotFound(e)) {   // never built — the normal first visit
+          setNotFound(true);   // keeps the "build this profile" card available
           setTriggeringBuild(true);
           try {
             const res = await postJSON(`/profiles/${user}`);
             navigate(`/loading?job=${res.job_id}&user=${user}&next=/profile`);
           } catch (postErr) {
-            const pmsg = String(postErr);
-            if (pmsg.includes("400") || pmsg.includes("token") || pmsg.includes("TOKEN")) {
+            if (postErr.status === 400) {  // "GITHUB_TOKEN is not configured"
               setTokenError(true);
             }
-            setError(pmsg);
+            setError(postErr.message);
             setTriggeringBuild(false);
             setLoading(false);
           }
         } else {
-          setError(msg);
+          setError(e.message);
           setLoading(false);
         }
       });
@@ -114,7 +117,7 @@ export default function DeveloperProfile() {
       const res = await postJSON(`/profiles/${user}`);
       navigate(`/loading?job=${res.job_id}&user=${user}&next=/profile`);
     } catch (e) {
-      if (e.message.includes("400") || e.message.includes("TOKEN") || e.message.includes("token")) {
+      if (e.status === 400) {   // "GITHUB_TOKEN is not configured"
         setTokenError(true);
       } else {
         alert(`Failed to trigger profile: ${e.message}`);
@@ -270,7 +273,7 @@ export default function DeveloperProfile() {
     );
   }
 
-  if (error && (error.includes("404") || error.includes("not found"))) {
+  if (notFound) {
     return (
       <div className="min-h-screen flex items-center justify-center p-6">
         <Card className="p-8 text-center space-y-6 max-w-[28rem] w-full">

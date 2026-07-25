@@ -47,19 +47,49 @@ export function invalidateCache(prefix = "") {
   }
 }
 
+/**
+ * Error carrying the HTTP status alongside the server's `detail` message.
+ *
+ * The status MUST survive: "not analyzed yet" (404) is normal control flow
+ * that pages turn into a POST + job poll, and it is only distinguishable from
+ * a real failure by the code. Throwing a bare Error forced callers to sniff
+ * the message for "404" — but the message is FastAPI's `detail` string, which
+ * never contains the number, so those branches silently never fired.
+ * Check `err.status === 404`, never `err.message.includes("404")`.
+ */
+export class ApiError extends Error {
+  constructor(message, status, body) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    this.body = body;
+  }
+}
+
+/** True when a failure means "this resource hasn't been generated yet". */
+export function isNotFound(err) {
+  return err instanceof ApiError && err.status === 404;
+}
+
+async function _parse(res) {
+  const body = await res.json().catch(() => null);
+  if (res.ok) return body;
+  if (res.status === 502) {
+    throw new ApiError(
+      "Backend server is currently unavailable (502 Bad Gateway). Please try again later.",
+      502, body);
+  }
+  throw new ApiError((body && body.detail) || `${res.status} ${res.statusText}`,
+                     res.status, body);
+}
+
 export async function getJSON(path, { ttl } = {}) {
   if (ttl) {
     const hit = _cache.get(path);
     if (hit && Date.now() - hit.at < ttl) return hit.data;
   }
   const res = await fetch(API_BASE + path);
-  const body = await res.json().catch(() => null);
-  if (!res.ok) {
-    if (res.status === 502) {
-      throw new Error("Backend server is currently unavailable (502 Bad Gateway). Please try again later.");
-    }
-    throw new Error((body && body.detail) || `${res.status} ${res.statusText}`);
-  }
+  const body = await _parse(res);
   if (!path.startsWith("/jobs")) _cache.set(path, { data: body, at: Date.now() });
   return body;
 }
@@ -74,13 +104,7 @@ export async function postJSON(path, payload) {
     headers: payload ? { "Content-Type": "application/json", ...CSRF_HEADERS } : CSRF_HEADERS,
     body: payload ? JSON.stringify(payload) : undefined,
   });
-  const body = await res.json().catch(() => null);
-  if (!res.ok) {
-    if (res.status === 502) {
-      throw new Error("Backend server is currently unavailable (502 Bad Gateway). Please try again later.");
-    }
-    throw new Error((body && body.detail) || `${res.status} ${res.statusText}`);
-  }
+  const body = await _parse(res);
   invalidateCache();
   return body;
 }
@@ -91,13 +115,7 @@ export async function putJSON(path, payload) {
     headers: { "Content-Type": "application/json", ...CSRF_HEADERS },
     body: JSON.stringify(payload || {}),
   });
-  const body = await res.json().catch(() => null);
-  if (!res.ok) {
-    if (res.status === 502) {
-      throw new Error("Backend server is currently unavailable (502 Bad Gateway). Please try again later.");
-    }
-    throw new Error((body && body.detail) || `${res.status} ${res.statusText}`);
-  }
+  const body = await _parse(res);
   invalidateCache();
   return body;
 }

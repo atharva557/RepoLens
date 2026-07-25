@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useNavigate, Link } from "react-router-dom";
-import { getJSON, postJSON } from "../lib/api";
+import { getJSON, isNotFound, postJSON } from "../lib/api";
 import { loadRepoSettings } from "../lib/settings";
 
 function timeAgo(dateString) {
@@ -26,6 +26,9 @@ export default function BugHotspots() {
 
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
+  // "never analyzed" (404) is a distinct, actionable state, not a failure —
+  // tracked from the HTTP status because the message never carries the code
+  const [notFound, setNotFound] = useState(false);
   const [loading, setLoading] = useState(true);
   const [selectedRow, setSelectedRow] = useState(null);
   const [search, setSearch] = useState("");
@@ -49,6 +52,7 @@ export default function BugHotspots() {
   const loadHotspots = useCallback(() => {
     setLoading(true);
     setError(null);
+    setNotFound(false);
     Promise.all([
       getJSON(`/repos/${repo}/hotspots?top=50`, { ttl: 60000 }),
       getJSON(`/repos/${repo}/activity?recent=10`, { ttl: 60000 }).catch(() => null),
@@ -62,7 +66,8 @@ export default function BugHotspots() {
         setLoading(false);
       })
       .catch((e) => {
-        setError(String(e));
+        setNotFound(isNotFound(e));
+        setError(e.message);
         setLoading(false);
       });
   }, [repo]);
@@ -128,7 +133,7 @@ export default function BugHotspots() {
     );
   }
 
-  if (error && (error.includes("404") || error.includes("not found") || error.includes("not analyzed"))) {
+  if (notFound) {
     return (
       <div className="min-h-[calc(100vh-52px)] flex items-center justify-center bg-background text-on-surface p-6">
         <div className="max-w-[28rem] w-full bg-surface-container border border-outline-variant/30 p-8 text-center space-y-6 rounded-lg">
