@@ -520,6 +520,66 @@ class MemoryIdentity:
                                "at": datetime.now(timezone.utc)})
 
 
+# --------------------------------------------------------------------------- #
+# per-user credentials -> per-request Settings (spec §2.5 / §8.2)
+# --------------------------------------------------------------------------- #
+# which Settings field each provider's key lives in (core/llm.py reads these)
+_LLM_KEY_FIELD = {
+    "openai": "openai_api_key",
+    "claude": "anthropic_api_key",
+    "gemini": "gemini_api_key",
+}
+
+
+def user_settings(settings, identity, user_id):
+    """Overlay a user's OWN stored credentials onto the global settings.
+
+    This is where the encrypted per-user secrets are finally *used*. Without
+    it a multiuser deployment stored every user's OAuth token and BYO LLM key
+    and then ran every analysis on the server's global credentials — so
+    `PUT /config` was (correctly) refused with "manage keys per-user via
+    /api/v1/me" while /api/v1/me led nowhere.
+
+    Returns a *copy*: the app-wide Settings object is shared by every request
+    and mutating it would leak one user's key into another user's job. Any
+    field the user hasn't configured falls back to the global value, so a
+    server-level GITHUB_TOKEN still works for accounts without their own.
+    """
+    from dataclasses import replace
+
+    if identity is None or user_id is None:
+        return settings
+
+    overrides: dict = {}
+    try:
+        token = identity.get_github_token(user_id)
+    except Exception as exc:  # unreadable ciphertext must not 500 the request
+        token = None
+        print(f"  [warn] could not read stored GitHub token: {type(exc).__name__}")
+    if token:
+        overrides["github_token"] = token
+
+    try:
+        cfg = identity.get_llm_config(user_id, with_key=True)
+    except Exception as exc:
+        cfg = None
+        print(f"  [warn] could not read stored LLM config: {type(exc).__name__}")
+    if cfg and cfg.get("api_key"):
+        provider = (cfg.get("provider") or "").lower()
+        key_field = _LLM_KEY_FIELD.get(provider)
+        if key_field:
+            overrides["llm_provider"] = provider
+            overrides[key_field] = cfg["api_key"]
+            # the global LLM_MODEL belongs to the global provider; carrying it
+            # across would hand e.g. a local model id to Anthropic. Empty lets
+            # core.llm pick that provider's default.
+            overrides["llm_model"] = cfg.get("model") or ""
+            if cfg.get("base_url"):
+                overrides["local_llm_base_url"] = cfg["base_url"]
+
+    return replace(settings, **overrides) if overrides else settings
+
+
 def open_identity(settings):
     """None when MULTIUSER=false; a schema-ensured identity store when true.
 

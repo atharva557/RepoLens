@@ -35,7 +35,7 @@ from config.settings import RUNTIME_ENV_KEYS, Settings, persist_env
 from core.activity import build_activity_base, window_activity
 from core.analysis import run_hotspot_analysis
 from core.db import open_store, report_age_hours
-from core.identity import open_identity
+from core.identity import open_identity, user_settings
 from core.github_client import get_recent_pulls, get_repo_meta
 from core.github_client import repo_key as canonical_repo_key
 from core.insights import run_repo_insights
@@ -203,6 +203,18 @@ def create_app(settings: Settings | None = None, store=None, identity=None,
         if not settings.github_token:
             raise HTTPException(400, "GITHUB_TOKEN is not configured")
 
+    def _effective_settings(request: Request) -> Settings:
+        """Config for THIS request: in multiuser mode the signed-in user's own
+        GitHub token / LLM key overlaid on the global settings (a copy — see
+        core.identity.user_settings). Single-user mode returns the global
+        object unchanged, so nothing about that path changes."""
+        if not settings.multiuser:
+            return settings
+        user = current_user(request)
+        if user is None:
+            return settings
+        return user_settings(settings, request.app.state.identity, user["id"])
+
     def _trigger_params(request: Request, params: dict) -> dict:
         """Multiuser: analysis triggers require a session and are attributed
         to the user (jobs.created_by, spec §6.4). Single-user: unchanged."""
@@ -241,6 +253,32 @@ def create_app(settings: Settings | None = None, store=None, identity=None,
         identity = request.app.state.identity
         return (set(identity.user_repo_keys(user["id"])),
                 set(identity.user_profile_names(user["id"])))
+
+    def _require_scope(request: Request, *, repo: str | None = None,
+                       profile: str | None = None) -> None:
+        """Authorize a per-key READ in multiuser mode.
+
+        Scoping only the discovery lists was not access control: the hidden
+        keys are guessable ('owner/repo'), so any stranger could read another
+        account's hotspots, profiles and reports by naming them directly.
+        Every keyed read now proves the requester tracks that key.
+
+        Anonymous -> 401 (actionable: sign in). Signed in but not theirs ->
+        404, identical to a key that was never analyzed, so the response
+        cannot be used to enumerate what other accounts have looked at.
+        Single-user mode is unaffected."""
+        if not settings.multiuser:
+            return
+        if current_user(request) is None:
+            raise HTTPException(401, "not signed in")
+        visible_repos, visible_profiles = _visible_scope(request)
+        if repo is not None:
+            # triggers track both raw path keys and canonical 'owner/repo'
+            # forms, so accept either spelling of the same repo
+            if not ({repo, canonical_repo_key(repo)} & (visible_repos or set())):
+                raise HTTPException(404, f"no data for '{repo}'")
+        if profile is not None and profile not in (visible_profiles or set()):
+            raise HTTPException(404, f"no profile for '{profile}'")
 
     # ------------------------------------------------------------------ meta
     @app.get("/")
@@ -325,7 +363,9 @@ def create_app(settings: Settings | None = None, store=None, identity=None,
         try:
             from core.llm import get_llm
 
-            llm = get_llm(s)
+            # report the provider that would actually run this caller's jobs —
+            # in multiuser that is their own BYO key, not the server's
+            llm = get_llm(_effective_settings(request))
             checks["llm"] = {"provider": llm.describe(), "available": llm.available()}
         except Exception as exc:
             checks["llm"] = {"provider": s.llm_provider, "available": False,
@@ -358,6 +398,15 @@ def create_app(settings: Settings | None = None, store=None, identity=None,
         job = request.app.state.jobs.get(job_id)
         if job is None:
             raise HTTPException(404, f"no such job '{job_id}'")
+        if settings.multiuser:
+            # job ids are short random hex, but the record carries the
+            # requester's identity and the analysis result — owner-only
+            user = current_user(request)
+            if user is None:
+                raise HTTPException(401, "not signed in")
+            if (job.get("params") or {}).get("created_by") not in (
+                    user["github_login"], user["email"]):
+                raise HTTPException(404, f"no such job '{job_id}'")
         return job
 
     # ------------------------------------------------------- analysis triggers
@@ -367,7 +416,8 @@ def create_app(settings: Settings | None = None, store=None, identity=None,
         params = _trigger_params(request, {"repo": req.repo})
         _track_for_user(request, repo=canonical_repo_key(req.repo))
         return _accepted(st.jobs, "analyze", params,
-                         tasks, _analyze_job, req, st.settings, st.store)
+                         tasks, _analyze_job, req,
+                         _effective_settings(request), st.store)
 
     @app.post("/commit-quality", status_code=202)
     def commit_quality(req: CommitQualityRequest, request: Request, tasks: BackgroundTasks):
@@ -375,26 +425,32 @@ def create_app(settings: Settings | None = None, store=None, identity=None,
         params = _trigger_params(request, {"repo": req.repo})
         _track_for_user(request, repo=canonical_repo_key(req.repo))
         return _accepted(st.jobs, "commit_quality", params,
-                         tasks, _commit_quality_job, req, st.settings, st.store)
+                         tasks, _commit_quality_job, req,
+                         _effective_settings(request), st.store)
 
     @app.post("/profiles/{username}", status_code=202)
     def build_profile(username: str, request: Request, tasks: BackgroundTasks):
         st = request.app.state
-        _require_token(st.settings)
         params = _trigger_params(request, {"username": username})
+        # resolved AFTER the session check so a user's own OAuth token counts
+        # toward "is a token configured" — a multiuser deployment need not
+        # carry a server-wide GITHUB_TOKEN at all
+        job_settings = _effective_settings(request)
+        _require_token(job_settings)
         _track_for_user(request, profile=username)
         return _accepted(st.jobs, "profile", params,
-                         tasks, _profile_job, username, st.settings, st.store)
+                         tasks, _profile_job, username, job_settings, st.store)
 
     @app.post("/repos/{repo_key:path}/pr-reviews/{number}", status_code=202)
     def review_pr(repo_key: str, number: int, request: Request, tasks: BackgroundTasks):
         st = request.app.state
-        _require_token(st.settings)
         spec = f"{repo_key}#{number}"
         params = _trigger_params(request, {"pr": spec})
+        job_settings = _effective_settings(request)
+        _require_token(job_settings)
         _track_for_user(request, repo=repo_key)
         return _accepted(st.jobs, "pr_review", params,
-                         tasks, _pr_review_job, spec, st.settings, st.store)
+                         tasks, _pr_review_job, spec, job_settings, st.store)
 
     # ------------------------------------------------------- discovery layer
     # what's in the store — the dashboard's landing-page data. In multiuser
@@ -440,6 +496,7 @@ def create_app(settings: Settings | None = None, store=None, identity=None,
 
     @app.get("/repos/{repo_key:path}/pr-reviews")
     def list_pr_reviews(repo_key: str, request: Request):
+        _require_scope(request, repo=repo_key)
         rows = request.app.state.store.list_reports("pr_review", fields=("level",))
         out = []
         for r in rows:
@@ -459,6 +516,7 @@ def create_app(settings: Settings | None = None, store=None, identity=None,
         history is saved). Re-reading the full commit list per request made
         big repos crawl on every dashboard view."""
         st = request.app.state
+        _require_scope(request, repo=repo_key)
         base = st.store.load_report("activity_base", repo_key)
         if base is None:
             # pre-aggregate-era cache: build the base once from the stored
@@ -478,8 +536,10 @@ def create_app(settings: Settings | None = None, store=None, identity=None,
         """GitHub-side header metadata (description, stars, forks, languages,
         open issues) — store-cached; needs GITHUB_TOKEN for the first fetch."""
         st = request.app.state
+        _require_scope(request, repo=repo_key)
         try:
-            doc = get_repo_meta(repo_key, st.settings, st.store, refresh=refresh)
+            doc = get_repo_meta(repo_key, _effective_settings(request), st.store,
+                                refresh=refresh)
         except Exception as exc:
             raise HTTPException(502, f"GitHub metadata fetch failed: "
                                      f"{type(exc).__name__}: {exc}")
@@ -495,8 +555,9 @@ def create_app(settings: Settings | None = None, store=None, identity=None,
         them or not — store-cached with a short TTL (PULLS_CACHE_HOURS). The
         dashboard joins these against /pr-reviews for the review chips."""
         st = request.app.state
+        _require_scope(request, repo=repo_key)
         try:
-            doc = get_recent_pulls(repo_key, st.settings, st.store,
+            doc = get_recent_pulls(repo_key, _effective_settings(request), st.store,
                                    refresh=refresh, limit=limit)
         except Exception as exc:
             raise HTTPException(502, f"GitHub pulls fetch failed: "
@@ -510,6 +571,7 @@ def create_app(settings: Settings | None = None, store=None, identity=None,
 
     @app.get("/repos/{repo_key:path}/insights")
     def insights(repo_key: str, request: Request):
+        _require_scope(request, repo=repo_key)
         doc = request.app.state.store.load_report("repo_insights", repo_key)
         if doc is None:
             raise HTTPException(404, f"no insights for '{repo_key}' — "
@@ -522,12 +584,14 @@ def create_app(settings: Settings | None = None, store=None, identity=None,
         params = _trigger_params(request, {"repo": repo_key})
         _track_for_user(request, repo=repo_key)
         return _accepted(st.jobs, "insights", params,
-                         tasks, _insights_job, repo_key, st.settings, st.store)
+                         tasks, _insights_job, repo_key,
+                         _effective_settings(request), st.store)
 
     # ------------------------------------------------------------ read layer
     # `:path` keys accept both "owner/repo" and bare local-clone names.
     @app.get("/repos/{repo_key:path}/hotspots")
     def hotspots(repo_key: str, request: Request, top: int = Query(50, ge=0)):
+        _require_scope(request, repo=repo_key)
         doc = request.app.state.store.load_hotspots(repo_key)
         if doc is None:
             raise HTTPException(404, f"no hotspot report for '{repo_key}' — POST /analyze first")
@@ -536,6 +600,7 @@ def create_app(settings: Settings | None = None, store=None, identity=None,
 
     @app.get("/repos/{repo_key:path}/commit-quality")
     def commit_quality_report(repo_key: str, request: Request):
+        _require_scope(request, repo=repo_key)
         doc = request.app.state.store.load_report("commit_quality", repo_key)
         if doc is None:
             raise HTTPException(404, f"no commit-quality report for '{repo_key}' — "
@@ -544,6 +609,7 @@ def create_app(settings: Settings | None = None, store=None, identity=None,
 
     @app.get("/repos/{repo_key:path}/pr-reviews/{number}")
     def pr_review_report(repo_key: str, number: int, request: Request):
+        _require_scope(request, repo=repo_key)
         doc = request.app.state.store.load_report("pr_review", f"{repo_key}#{number}")
         if doc is None:
             raise HTTPException(404, f"no review for {repo_key}#{number}")
@@ -556,6 +622,7 @@ def create_app(settings: Settings | None = None, store=None, identity=None,
         # never block on a multi-minute live build (browsers/proxies time out),
         # and the dashboard already turns this 404 into that POST + job poll.
         st = request.app.state
+        _require_scope(request, profile=username)
         try:
             doc = st.store.load_report("developer_profile", username)
         except Exception as e:

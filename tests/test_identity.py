@@ -326,9 +326,109 @@ def test_triggers_require_session_in_multiuser():
     client, _ = _api_client()
     with client:
         assert client.post("/analyze", json={"repo": "x"}).status_code == 401
-        # reads stay open in this slice (per-repo ACLs are the next step)
+        # unkeyed diagnostics stay open (no per-user data in them)
         assert client.get("/health").status_code == 200
-    print("  ok: multiuser triggers demand a session; reads unaffected")
+    print("  ok: multiuser triggers demand a session; /health unaffected")
+
+
+def test_keyed_reads_are_owner_only_in_multiuser():
+    """Scoping only the discovery lists was not access control: repo keys are
+    guessable, so a direct read must prove ownership too."""
+    if find_spec("fastapi") is None:  # pragma: no cover
+        print("  skip: fastapi not installed (auth API tests)")
+        return
+    from api.auth import SESSION_COOKIE
+
+    client, identity = _api_client()
+    with client:  # the store is opened by the lifespan, not at build time
+        store = client.app.state.store
+        store.save_hotspots("victim/repo", [{"path": "secret/auth.py", "score": 0.9}])
+        store.save_report("developer_profile", "victim", {"primary_type": "Bug Fixer"})
+
+        keyed = ["/repos/victim/repo/hotspots", "/repos/victim/repo/commit-quality",
+                 "/repos/victim/repo/activity", "/repos/victim/repo/insights",
+                 "/repos/victim/repo/pr-reviews", "/profiles/victim"]
+
+        # anonymous: 401 (actionable — sign in), never the data
+        for path in keyed:
+            assert client.get(path).status_code == 401, path
+
+        # signed in, but doesn't track these keys: 404, indistinguishable from
+        # "never analyzed" so it can't enumerate other accounts' work
+        mallory = identity.create_password_user("m@example.com", "hash")
+        client.cookies.set(SESSION_COOKIE, identity.create_session(mallory["id"]))
+        for path in keyed:
+            assert client.get(path).status_code == 404, path
+
+        # the owner still reads their own data normally
+        identity.track_repo(mallory["id"], "victim/repo")
+        identity.track_profile(mallory["id"], "victim")
+        body = client.get("/repos/victim/repo/hotspots").json()
+        assert body["rows"][0]["path"] == "secret/auth.py"
+        assert client.get("/profiles/victim").json()["primary_type"] == "Bug Fixer"
+    print("  ok: keyed reads are owner-only (401 anon / 404 stranger / 200 owner)")
+
+
+def test_jobs_are_owner_only_in_multiuser():
+    if find_spec("fastapi") is None:  # pragma: no cover
+        print("  skip: fastapi not installed (auth API tests)")
+        return
+    import api.main as api_main
+    from api.auth import SESSION_COOKIE
+
+    client, identity = _api_client()
+    orig = api_main.run_hotspot_analysis
+    api_main.run_hotspot_analysis = lambda *a, **k: {
+        "repo": "x", "commits": 1, "bugfix_commits": 0, "files_scored": 0,
+        "ml_used": False, "scores": []}
+    try:
+        with client:
+            alice = identity.create_password_user("a@example.com", "hash")
+            client.cookies.set(SESSION_COOKIE, identity.create_session(alice["id"]))
+            job_id = client.post("/analyze", json={"repo": "x"}).json()["job_id"]
+            assert client.get(f"/jobs/{job_id}").status_code == 200
+
+            client.cookies.clear()                       # anonymous
+            assert client.get(f"/jobs/{job_id}").status_code == 401
+            bob = identity.create_password_user("b@example.com", "hash")
+            client.cookies.set(SESSION_COOKIE, identity.create_session(bob["id"]))
+            assert client.get(f"/jobs/{job_id}").status_code == 404
+    finally:
+        api_main.run_hotspot_analysis = orig
+    print("  ok: job status (params + result) is readable only by its creator")
+
+
+def test_user_settings_overlays_stored_credentials():
+    """The encrypted per-user token/key must actually reach the engine —
+    storing them and then running every job on the server's global config
+    made the whole BYO-key surface a no-op."""
+    from config.settings import Settings
+    from core.identity import user_settings
+
+    identity = MemoryIdentity(FKEY)
+    user = identity.create_password_user("byo@example.com", "hash")
+    base = Settings(github_token="SERVER", llm_provider="local",
+                    llm_model="local-model")
+
+    # nothing stored -> the global config is used unchanged
+    assert user_settings(base, identity, user["id"]) is base
+
+    identity.save_github_token(user["id"], "ghp_user", "read:user")
+    identity.save_llm_config(user["id"], "claude", "sk-ant-user")
+    eff = user_settings(base, identity, user["id"])
+    assert eff.github_token == "ghp_user"
+    assert eff.llm_provider == "claude" and eff.anthropic_api_key == "sk-ant-user"
+    # the global provider's model must not ride along to a different provider
+    assert eff.llm_model == ""
+    # and the shared global object is never mutated (concurrent jobs, other users)
+    assert base.github_token == "SERVER" and base.llm_model == "local-model"
+
+    # an explicit per-user model is honoured
+    identity.save_llm_config(user["id"], "openai", "sk-oai", model="gpt-4o")
+    eff = user_settings(base, identity, user["id"])
+    assert eff.llm_provider == "openai" and eff.llm_model == "gpt-4o"
+    assert eff.openai_api_key == "sk-oai"
+    print("  ok: stored per-user GitHub token + LLM key overlay the global settings")
 
 
 def _run_all():

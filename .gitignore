@@ -19,6 +19,9 @@ CLAUDE.md
 # Runtime data (caches, clones, trained models)
 data/
 
+# Test scratch store (tests/test_identity.py points cache_dir here)
+tests/_identity_tmp/
+
 # OS / editor
 .DS_Store
 Thumbs.db

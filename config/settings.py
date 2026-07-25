@@ -66,14 +66,23 @@ def persist_env(changes: dict[str, str], env_path: str = ".env",
         with open(env_path, encoding="utf-8") as fh:
             lines = fh.read().splitlines()
     remaining = dict(changes)
+    written: set[str] = set()
     out = []
     for line in lines:
         stripped = line.strip()
         name = stripped.partition("=")[0].strip() if "=" in stripped else None
-        if name in remaining and not stripped.startswith("#"):
-            out.append(f"{name}={remaining.pop(name)}")
-        else:
-            out.append(line)
+        if name is not None and not stripped.startswith("#"):
+            if name in remaining:
+                out.append(f"{name}={remaining.pop(name)}")
+                written.add(name)
+                continue
+            if name in written:
+                # A later duplicate of a key we just rewrote would WIN on the
+                # next load (_parse_env_file is last-assignment-wins), silently
+                # reverting the change while the API reported success. Drop the
+                # shadow line instead of leaving a live one behind.
+                continue
+        out.append(line)
     out.extend(f"{name}={value}" for name, value in remaining.items())
     with open(env_path, "w", encoding="utf-8") as fh:
         fh.write("\n".join(out) + "\n")

@@ -230,6 +230,34 @@ def test_update_config_runtime_and_env():
     print("  ok: PUT /config (live apply + .env persist + masking + guards)")
 
 
+def test_persist_env_removes_shadowing_duplicates():
+    """A key listed twice in .env used to survive a save: only the first line
+    was rewritten, and _parse_env_file is last-assignment-wins, so the stale
+    second line silently won on the next load while the API said persisted."""
+    import tempfile
+
+    from config.settings import _parse_env_file, persist_env
+
+    with tempfile.TemporaryDirectory() as td:
+        env_path = os.path.join(td, ".env")
+        with open(env_path, "w", encoding="utf-8") as fh:
+            fh.write("GITHUB_TOKEN=old1\nMONGODB_DB=gitpulse\n"
+                     "GITHUB_TOKEN=old2\n# GITHUB_TOKEN=documented-example\n")
+        persist_env({"GITHUB_TOKEN": "ghp_new"}, env_path=env_path,
+                    example_path=os.devnull)
+
+        with open(env_path, encoding="utf-8") as fh:
+            text = fh.read()
+        assert "GITHUB_TOKEN=ghp_new" in text
+        assert "old1" not in text and "old2" not in text
+        # untouched lines survive, including commented documentation
+        assert "MONGODB_DB=gitpulse" in text
+        assert "# GITHUB_TOKEN=documented-example" in text
+        # and the value actually round-trips through a reload
+        assert _parse_env_file(env_path)["GITHUB_TOKEN"] == "ghp_new"
+    print("  ok: persist_env drops shadowing duplicates (value survives reload)")
+
+
 def test_recent_pulls_endpoint():
     store = FakeStore()
     with _client(store=store) as c:
