@@ -24,6 +24,7 @@ from __future__ import annotations
 import hashlib
 import json
 import secrets
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 
 SESSION_DAYS = 30  # sliding expiry (spec §8.1)
@@ -138,6 +139,8 @@ CREATE INDEX IF NOT EXISTS audit_log_user_at_idx ON audit_log (user_id, at DESC)
 """
 
 _USER_COLS = "id, github_id, github_login, email, gh_token_scopes, created_at"
+# same tuple qualified for joins (see PgIdentity.user_for_session)
+_USER_COLS_U = ", ".join(f"u.{c}" for c in _USER_COLS.split(", "))
 
 
 def _user_row(row) -> dict | None:
@@ -156,36 +159,97 @@ class PgIdentity:
         import psycopg  # lazy import
 
         self.fernet_key = fernet_key
-        self.conn = psycopg.connect(database_url, autocommit=True)
+        self.database_url = database_url
+        self._psycopg = psycopg
+        self.conn = self._connect()
+
+    def _connect(self):
+        return self._psycopg.connect(self.database_url, autocommit=True)
+
+    @contextmanager
+    def _cursor(self):
+        """A cursor on a *live* connection.
+
+        One connection opened at startup served every request forever. When
+        Postgres restarted — or an idle link was dropped by the OS/a proxy —
+        every later call raised on the dead handle, so sign-in stayed broken
+        until someone restarted the API process. Reconnect when the handle is
+        known-dead, and discard one that dies mid-statement so the next call
+        heals itself.
+
+        The failed statement is deliberately NOT replayed: these run with
+        autocommit, so an INSERT may well have committed before the link
+        dropped, and a blind retry would duplicate it. The caller sees one
+        error and the connection is healthy again for the retry.
+        """
+        if self.conn.closed:
+            self.conn = self._connect()
+        try:
+            with self.conn.cursor() as cur:   # the one raw use — do not recurse
+                yield cur
+        except self._psycopg.OperationalError:
+            try:
+                self.conn.close()
+            except Exception:
+                pass
+            raise
 
     def ensure_schema(self) -> None:
-        with self.conn.cursor() as cur:
+        with self._cursor() as cur:
             cur.execute(SCHEMA_SQL)
 
     # ------------------------------------------------------------- users
     def upsert_github_user(self, github_id: int, login: str, email: str | None) -> dict:
-        with self.conn.cursor() as cur:
+        """Resolve a GitHub identity to an account, linking by email.
+
+        An account created with email+password has github_id NULL, so it never
+        conflicts on github_id — the old plain INSERT ... ON CONFLICT
+        (github_id) therefore tried a fresh INSERT and hit the UNIQUE on
+        email, raising a violation the OAuth callback reported as a 502.
+        Anyone who signed up with a password and later clicked "Sign in with
+        GitHub" was locked out. MemoryIdentity enforces no constraints, which
+        is exactly why every test passed.
+        """
+        linked = False
+        with self._cursor() as cur:
+            # 1. GitHub id already known -> refresh login/email and return
             cur.execute(
-                f"""
-                INSERT INTO users (github_id, github_login, email)
-                VALUES (%s, %s, %s)
-                ON CONFLICT (github_id)
-                DO UPDATE SET github_login = EXCLUDED.github_login,
-                              email = COALESCE(EXCLUDED.email, users.email)
-                RETURNING {_USER_COLS}
-                """,
-                (github_id, login, email),
+                f"""UPDATE users SET github_login = %s, email = COALESCE(%s, email)
+                    WHERE github_id = %s RETURNING {_USER_COLS}""",
+                (login, email, github_id),
             )
-            return _user_row(cur.fetchone())
+            row = cur.fetchone()
+            # 2. same email, not linked to GitHub yet -> adopt it (same person)
+            if row is None and email:
+                cur.execute(
+                    f"""UPDATE users SET github_id = %s, github_login = %s
+                        WHERE lower(email) = lower(%s) AND github_id IS NULL
+                        RETURNING {_USER_COLS}""",
+                    (github_id, login, email),
+                )
+                row = cur.fetchone()
+                linked = row is not None
+            # 3. genuinely new account
+            if row is None:
+                cur.execute(
+                    f"""INSERT INTO users (github_id, github_login, email)
+                        VALUES (%s, %s, %s) RETURNING {_USER_COLS}""",
+                    (github_id, login, email),
+                )
+                row = cur.fetchone()
+        user = _user_row(row)
+        if linked:
+            self.audit(user["id"], "github_linked", target=login)
+        return user
 
     def get_user(self, user_id: int) -> dict | None:
-        with self.conn.cursor() as cur:
+        with self._cursor() as cur:
             cur.execute(f"SELECT {_USER_COLS} FROM users WHERE id = %s", (user_id,))
             return _user_row(cur.fetchone())
 
     # -------------------------------------------------- email/password users
     def create_password_user(self, email: str, password_hash: str) -> dict:
-        with self.conn.cursor() as cur:
+        with self._cursor() as cur:
             cur.execute(
                 f"INSERT INTO users (email, password_hash) VALUES (%s, %s) "
                 f"RETURNING {_USER_COLS}",
@@ -198,7 +262,7 @@ class PgIdentity:
     def get_password_user(self, email: str) -> dict | None:
         """User row INCLUDING password_hash — for the login check only;
         every other read path strips the hash (_USER_COLS)."""
-        with self.conn.cursor() as cur:
+        with self._cursor() as cur:
             cur.execute(
                 f"SELECT {_USER_COLS}, password_hash FROM users "
                 f"WHERE lower(email) = lower(%s) AND password_hash IS NOT NULL",
@@ -214,7 +278,7 @@ class PgIdentity:
     # ------------------------------------------------- GitHub token (Fernet)
     def save_github_token(self, user_id: int, token: str, scopes: str = "") -> None:
         enc = encrypt_secret(self.fernet_key, token)
-        with self.conn.cursor() as cur:
+        with self._cursor() as cur:
             cur.execute(
                 "UPDATE users SET gh_token_enc = %s, gh_token_scopes = %s WHERE id = %s",
                 (enc, scopes, user_id),
@@ -222,7 +286,7 @@ class PgIdentity:
         self.audit(user_id, "gh_token_saved", meta={"scopes": scopes})
 
     def get_github_token(self, user_id: int) -> str | None:
-        with self.conn.cursor() as cur:
+        with self._cursor() as cur:
             cur.execute("SELECT gh_token_enc FROM users WHERE id = %s", (user_id,))
             row = cur.fetchone()
         if not row or row[0] is None:
@@ -230,7 +294,7 @@ class PgIdentity:
         return decrypt_secret(self.fernet_key, row[0])
 
     def revoke_github_token(self, user_id: int) -> None:
-        with self.conn.cursor() as cur:
+        with self._cursor() as cur:
             cur.execute(
                 "UPDATE users SET gh_token_enc = NULL, gh_token_scopes = NULL "
                 "WHERE id = %s", (user_id,),
@@ -241,7 +305,7 @@ class PgIdentity:
     def create_session(self, user_id: int) -> str:
         token = new_session_token()
         expires = datetime.now(timezone.utc) + timedelta(days=SESSION_DAYS)
-        with self.conn.cursor() as cur:
+        with self._cursor() as cur:
             cur.execute(
                 "INSERT INTO sessions (token_hash, user_id, expires_at) "
                 "VALUES (%s, %s, %s)",
@@ -251,37 +315,46 @@ class PgIdentity:
         return token  # raw value goes to the cookie; only the hash is stored
 
     def user_for_session(self, token: str) -> dict | None:
-        """Resolve a session cookie to a user; slides the 30-day expiry."""
+        """Resolve a session cookie to a user; slides the 30-day expiry.
+
+        One statement, because this runs on EVERY authenticated request: the
+        previous SELECT -> UPDATE -> SELECT user was three round trips, and
+        the expiry was checked in Python between two of them, so a session
+        expiring in that gap could still be slid back to life.
+        """
         now = datetime.now(timezone.utc)
-        with self.conn.cursor() as cur:
+        token_hash = hash_session(token)
+        with self._cursor() as cur:
             cur.execute(
-                "SELECT user_id, expires_at FROM sessions WHERE token_hash = %s",
-                (hash_session(token),),
+                f"""
+                WITH slid AS (
+                    UPDATE sessions SET last_seen_at = %s, expires_at = %s
+                    WHERE token_hash = %s AND expires_at > %s
+                    RETURNING user_id
+                )
+                SELECT {_USER_COLS_U} FROM users u JOIN slid ON u.id = slid.user_id
+                """,
+                (now, now + timedelta(days=SESSION_DAYS), token_hash, now),
             )
             row = cur.fetchone()
             if row is None:
+                # unknown, or present but expired — clear the dead row out
+                cur.execute(
+                    "DELETE FROM sessions WHERE token_hash = %s AND expires_at <= %s",
+                    (token_hash, now),
+                )
                 return None
-            user_id, expires_at = row
-            if expires_at <= now:
-                cur.execute("DELETE FROM sessions WHERE token_hash = %s",
-                            (hash_session(token),))
-                return None
-            cur.execute(
-                "UPDATE sessions SET last_seen_at = %s, expires_at = %s "
-                "WHERE token_hash = %s",
-                (now, now + timedelta(days=SESSION_DAYS), hash_session(token)),
-            )
-        return self.get_user(user_id)
+        return _user_row(row)
 
     def delete_session(self, token: str) -> None:
-        with self.conn.cursor() as cur:
+        with self._cursor() as cur:
             cur.execute("DELETE FROM sessions WHERE token_hash = %s",
                         (hash_session(token),))
 
     # ------------------------------------------------------------ user_repos
     def track_repo(self, user_id: int, repo_key: str, role: str = "tracker") -> None:
         # re-tracking refreshes added_at — the list is "most recently searched"
-        with self.conn.cursor() as cur:
+        with self._cursor() as cur:
             cur.execute(
                 "INSERT INTO user_repos (user_id, repo_key, role) VALUES (%s, %s, %s) "
                 "ON CONFLICT (user_id, repo_key) "
@@ -291,13 +364,13 @@ class PgIdentity:
         self.audit(user_id, "repo_track", target=repo_key)
 
     def untrack_repo(self, user_id: int, repo_key: str) -> None:
-        with self.conn.cursor() as cur:
+        with self._cursor() as cur:
             cur.execute("DELETE FROM user_repos WHERE user_id = %s AND repo_key = %s",
                         (user_id, repo_key))
         self.audit(user_id, "repo_untrack", target=repo_key)
 
     def user_repo_keys(self, user_id: int) -> list[str]:
-        with self.conn.cursor() as cur:
+        with self._cursor() as cur:
             cur.execute(
                 "SELECT repo_key FROM user_repos WHERE user_id = %s "
                 "ORDER BY added_at DESC, repo_key",
@@ -307,7 +380,7 @@ class PgIdentity:
 
     # --------------------------------------------------------- user_profiles
     def track_profile(self, user_id: int, username: str) -> None:
-        with self.conn.cursor() as cur:
+        with self._cursor() as cur:
             cur.execute(
                 "INSERT INTO user_profiles (user_id, username) VALUES (%s, %s) "
                 "ON CONFLICT (user_id, username) DO UPDATE SET added_at = now()",
@@ -316,7 +389,7 @@ class PgIdentity:
         self.audit(user_id, "profile_track", target=username)
 
     def user_profile_names(self, user_id: int) -> list[str]:
-        with self.conn.cursor() as cur:
+        with self._cursor() as cur:
             cur.execute(
                 "SELECT username FROM user_profiles WHERE user_id = %s "
                 "ORDER BY added_at DESC, username",
@@ -328,7 +401,7 @@ class PgIdentity:
     def save_llm_config(self, user_id: int, provider: str, api_key: str,
                         model: str = "", base_url: str = "") -> None:
         enc = encrypt_secret(self.fernet_key, api_key)
-        with self.conn.cursor() as cur:
+        with self._cursor() as cur:
             cur.execute(
                 """
                 INSERT INTO llm_configs (user_id, provider, model, api_key_enc, base_url)
@@ -343,7 +416,7 @@ class PgIdentity:
         self.audit(user_id, "llm_key_saved", meta={"provider": provider})
 
     def get_llm_config(self, user_id: int, *, with_key: bool = False) -> dict | None:
-        with self.conn.cursor() as cur:
+        with self._cursor() as cur:
             cur.execute(
                 "SELECT provider, model, base_url, api_key_enc FROM llm_configs "
                 "WHERE user_id = %s", (user_id,),
@@ -357,14 +430,14 @@ class PgIdentity:
         return cfg
 
     def delete_llm_config(self, user_id: int) -> None:
-        with self.conn.cursor() as cur:
+        with self._cursor() as cur:
             cur.execute("DELETE FROM llm_configs WHERE user_id = %s", (user_id,))
         self.audit(user_id, "llm_key_deleted")
 
     # ------------------------------------------------------------- audit
     def audit(self, user_id: int | None, action: str, target: str = "",
               meta: dict | None = None) -> None:
-        with self.conn.cursor() as cur:
+        with self._cursor() as cur:
             cur.execute(
                 "INSERT INTO audit_log (user_id, action, target, meta) "
                 "VALUES (%s, %s, %s, %s)",
@@ -401,13 +474,25 @@ class MemoryIdentity:
             if u["github_id"] == github_id:
                 u["github_login"] = login
                 u["email"] = email or u["email"]
-                return dict(u)
+                return self.get_user(u["id"])
+        # mirror PgIdentity: adopt an existing password account with the same
+        # email instead of creating a second one. Postgres enforces this with
+        # a UNIQUE(email); this twin has no constraints, so without the same
+        # branch here the suite would keep passing while OAuth 502'd for real.
+        if email:
+            for u in self.users.values():
+                if u["github_id"] is None \
+                        and (u.get("email") or "").lower() == email.lower():
+                    u["github_id"] = github_id
+                    u["github_login"] = login
+                    self.audit(u["id"], "github_linked", target=login)
+                    return self.get_user(u["id"])
         u = {"id": self._next_id, "github_id": github_id, "github_login": login,
              "email": email, "gh_token_scopes": None, "gh_token_enc": None,
              "created_at": datetime.now(timezone.utc)}
         self.users[self._next_id] = u
         self._next_id += 1
-        return dict(u)
+        return self.get_user(u["id"])
 
     def get_user(self, user_id) -> dict | None:
         u = self.users.get(user_id)
@@ -580,6 +665,45 @@ def user_settings(settings, identity, user_id):
     return replace(settings, **overrides) if overrides else settings
 
 
+def _mask_dsn(url: str) -> str:
+    """postgresql://user:pass@host/db -> postgresql://***@host/db."""
+    import re
+
+    return re.sub(r"//[^/@]+@", "//***@", url or "")
+
+
+def _pg_hint(database_url: str, exc: Exception) -> str:
+    """Turn a psycopg connection failure into something actionable.
+
+    A raw OperationalError here is a wall of libpq text, and it arrives at
+    server startup where it reads as "the app is broken" rather than
+    "Postgres needs one more setup step".
+    """
+    dsn = _mask_dsn(database_url)
+    text = str(exc).lower()
+    if isinstance(exc, ModuleNotFoundError):
+        import sys as _sys
+
+        return (f"MULTIUSER=true needs the Postgres driver, which is not "
+                f"installed in {_sys.executable}. Install it with: "
+                f"{_sys.executable} -m pip install \"psycopg[binary]\"")
+    if "does not exist" in text:
+        name = (database_url or "").rstrip("/").rsplit("/", 1)[-1] or "gitpulse"
+        return (f"Postgres is reachable but the database in DATABASE_URL "
+                f"({dsn}) does not exist. Create it once with: "
+                f"createdb -U postgres {name}   (or in psql: CREATE DATABASE {name};)")
+    if "password" in text or "authentication" in text or "role" in text:
+        return (f"Postgres refused the credentials in DATABASE_URL ({dsn}). "
+                f"Set the full connection string in .env, e.g. "
+                f"DATABASE_URL=postgresql://postgres:YOUR_PASSWORD@localhost:5432/gitpulse")
+    if "could not connect" in text or "refused" in text or "timeout" in text:
+        return (f"Cannot reach Postgres at {dsn}. Check the server is running "
+                f"and the host/port in DATABASE_URL are right "
+                f"(Windows: services.msc -> postgresql-x64-NN).")
+    return (f"Could not open the identity database at {dsn}: "
+            f"{type(exc).__name__}: {exc}")
+
+
 def open_identity(settings):
     """None when MULTIUSER=false; a schema-ensured identity store when true.
 
@@ -601,7 +725,12 @@ def open_identity(settings):
         print("  [backend] identity: MEMORY (dev only — users, sessions and "
               "keys reset on every server restart)")
         return MemoryIdentity(settings.fernet_key)
-    identity = PgIdentity(settings.database_url, settings.fernet_key)
-    identity.ensure_schema()
-    print("  [backend] identity: postgres (multiuser)")
+    try:
+        identity = PgIdentity(settings.database_url, settings.fernet_key)
+        identity.ensure_schema()
+    except Exception as exc:
+        # still fatal (identity has no safe fallback) — just legible
+        raise RuntimeError(_pg_hint(settings.database_url, exc)) from exc
+    print(f"  [backend] identity: postgres (multiuser) "
+          f"-> {_mask_dsn(settings.database_url)}")
     return identity

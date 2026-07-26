@@ -46,4 +46,4 @@ Two design principles show up everywhere:
 | 09 | [Frontend](09-frontend.md) | React dashboard: pages, API client conventions, job polling |
 | 10 | [Configuration](10-configuration.md) | Every `.env` knob with its default and effect |
 | 11 | [Testing](11-testing.md) | The network-free suites and the fakes that make them possible |
-| 12 | [Identity plane (Postgres)](12-identity-postgres.md) | Multi-user slice: OAuth login, sessions, encrypted tokens, audit — `MULTIUSER=true` |
+| 12 | [Identity plane (Postgres)](12-identity-postgres.md) | Multi-user slice: email/password + OAuth login, sessions, encrypted tokens, per-user scoping, audit — `MULTIUSER=true` |

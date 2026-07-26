@@ -23,18 +23,30 @@ secrets, audit trail). Analysis output is document-shaped. Each store does
 what it's best at; the join key between the planes is the repo key
 (`owner/repo`).
 
-## The five tables (`core/identity.py::SCHEMA_SQL`, spec §6.4)
+## The six tables (`core/identity.py::SCHEMA_SQL`, spec §6.4)
 
 | Table | Holds |
 |---|---|
-| `users` | GitHub identity (`github_id` unique), optional `password_hash` (unused — OAuth-only for now), Fernet-encrypted GitHub token + scopes |
+| `users` | GitHub identity (`github_id` unique), `email` (**unique**), `password_hash` for email/password accounts, Fernet-encrypted GitHub token + scopes |
 | `sessions` | **SHA-256 hash** of the cookie value (never the raw token), sliding 30-day expiry, `last_seen_at` |
 | `user_repos` | who tracks which repo (`role`: tracker/owner) — joins Mongo's reports by repo key |
+| `user_profiles` | which GitHub usernames a user has profiled — powers per-user `GET /profiles` |
 | `llm_configs` | per-user BYO LLM key (Fernet-encrypted), provider/model/base_url |
-| `audit_log` | login/logout, token save/revoke, repo track/untrack, LLM key save/delete |
+| `audit_log` | login/logout, token save/revoke, repo/profile track, LLM key save/delete, `github_linked` |
 
 Schema bootstrap is idempotent (`CREATE TABLE IF NOT EXISTS`), run
-automatically by `open_identity()` at startup.
+automatically by `open_identity()` at startup — existing databases pick up
+new tables on the next start.
+
+**One account, two ways in.** `email` is `UNIQUE`, and the two sign-in paths
+can name the same person, so `upsert_github_user` resolves in three steps:
+match on `github_id` (refresh login/email) → else adopt the existing row with
+that email if it has no GitHub link yet (audited as `github_linked`) → else
+insert. Without the middle step, signing up with a password and later
+clicking "Sign in with GitHub" hit the `UNIQUE(email)` constraint and failed
+the callback. `MemoryIdentity` mirrors the same branch deliberately: it
+enforces no constraints, so a twin that skipped it would keep the suite green
+while the real backend broke.
 
 ## Secret discipline (spec §2.5) — *hash what you check, encrypt what you use*
 
@@ -73,7 +85,9 @@ strips it.
 GET /api/v1/auth/github/login      302 → github.com/oauth/authorize
                                    (client id, scope read:user, state nonce)
 GET /api/v1/auth/github/callback   verify state → exchange code for token
-                                   → upsert users row (github_id is identity)
+                                   → upsert users row (github_id is identity;
+                                     adopts a password account with the same
+                                     email — see "One account, two ways in")
                                    → encrypt+store token → create session
                                    → Set-Cookie (httpOnly, SameSite=Lax)
                                    → 302 to DASHBOARD_ORIGIN
@@ -90,6 +104,36 @@ DELETE /api/v1/me/github-token     revoke the stored token
   semantics are identical without the extra dependency).
 - Routes always exist and answer **503** while `MULTIUSER=false` — the same
   pattern as the webhook without its secret.
+
+## Resolving a session (`user_for_session`)
+
+This runs on **every authenticated request**, so it is one statement: a CTE
+that slides `expires_at`/`last_seen_at` and joins the user row in the same
+round trip, with `expires_at > now` in the `UPDATE`'s own `WHERE`. The
+earlier SELECT → check-in-Python → UPDATE → SELECT version cost three round
+trips and left a gap in which a session that expired between the check and
+the update could be slid back to life. A miss (unknown *or* expired) deletes
+the dead row on the way out, so expired sessions don't accumulate.
+
+## Surviving a database that goes away
+
+The store keeps one autocommit connection. It used to be opened once at
+startup and used forever, so a Postgres restart — or an idle link dropped by
+the OS or a proxy — broke every later call until someone restarted the API
+process. Every statement now goes through a `_cursor()` helper that reopens a
+known-closed connection and discards one that dies mid-statement, so the next
+call heals itself.
+
+The failed statement is deliberately **not** replayed: these run with
+autocommit, so an `INSERT` may already have committed before the link
+dropped, and a blind retry would duplicate it. The caller sees one error and
+a healthy connection.
+
+Startup failures are translated instead of raising raw libpq text
+(`_pg_hint`): missing driver, missing database, bad credentials, and
+unreachable server each get the specific command that fixes them, with the
+password masked out of the DSN. It is still fatal — identity has no safe
+fallback — just legible.
 
 ## Enforcement in this slice
 
@@ -108,19 +152,39 @@ get empty lists. Single-user mode stays global.
 
 Deep reads (`/repos/{key}/...`, `/profiles/{u}`) and the HMAC-verified
 webhook are unchanged — a user who knows a key can still open it directly.
+**Per-user credentials are consumed** (`core.identity.user_settings`): each
+request resolves the signed-in user's decrypted GitHub token and BYO LLM key
+onto a *copy* of the global settings, so a job runs on its owner's
+credentials and one user's key never leaks into another's run. Anything a
+user hasn't configured falls back to the server's value, so a global
+`GITHUB_TOKEN` still covers accounts without their own.
+
 **Deferred to the next slice** (per spec §7.12/§8.3): hard per-repo access
 rules on those reads (`require_repo_access`), private-repo ownership, quotas,
-the per-request LLM resolution that consumes `llm_configs`, and OAuth scope
-escalation for comment posting.
+and OAuth scope escalation for comment posting.
 
-## Testing (`tests/test_identity.py`)
+## Testing (`tests/test_identity.py` — 18 tests)
 
 `MemoryIdentity` is an in-process twin of `PgIdentity` (same interface, real
 Fernet/SHA-256 helpers), so the whole slice tests network- and DB-free:
-crypto discipline, upsert idempotency, session expiry, encrypted LLM configs,
-the 503 gate, the full OAuth→cookie→`/me`→CSRF→logout flow (exchange stubbed),
-and trigger enforcement. Suite 9 of 9; skips cleanly without `cryptography`
-or `fastapi`.
+crypto discipline (Fernet round-trip, SHA-256 sessions, scrypt
+hash/verify/tamper), upsert idempotency, session expiry, encrypted LLM
+configs, hash-stripping discipline, the 503 gate, the memory-backend gate,
+the full signup→session→logout→login and OAuth→cookie→`/me`→CSRF→logout flows
+(exchange stubbed), and trigger enforcement. Skips cleanly without
+`cryptography` or `fastapi`.
+
+**Four of the 18 need a real Postgres and are opt-in**, because the twin
+enforces no constraints and therefore cannot reproduce the failures that
+matter — the `UNIQUE(email)` collision, an expired row actually being
+deleted, or a dropped connection. Point `TEST_DATABASE_URL` at a *throwaway*
+database (every run truncates it) to include them; without it they print a
+skip line and the suite stays network-free:
+
+```bash
+set TEST_DATABASE_URL=postgresql://postgres:pw@localhost:5432/gitpulse_test
+python tests/test_identity.py
+```
 
 ## The dashboard side
 
@@ -159,3 +223,8 @@ GITHUB_OAUTH_CLIENT_SECRET=...
 # 3. run — tables are created automatically
 python -m uvicorn api.main:app
 ```
+
+The driver (`psycopg[binary]`, in `requirements.txt`) must be installed in the
+*same* interpreter that runs the server. If any of this is missing or wrong,
+startup fails with the specific fix rather than a libpq stack trace — see
+"Surviving a database that goes away" above.

@@ -11,11 +11,11 @@ in [docs/](docs/README.md); this document is the "why" layer above it.*
 
 | | |
 |---|---|
-| Engine | ~5,300 lines of Python 3.13 (stdlib-first; every heavy dep optional + lazy-imported) |
-| Interfaces | interactive CLI · FastAPI backend (28 endpoints) · React 19 + Vite dashboard (~620 lines) |
+| Engine | ~6,800 lines of Python 3.13 excl. tests (stdlib-first; every heavy dep optional + lazy-imported) |
+| Interfaces | interactive CLI · FastAPI backend (32 endpoints) · React 19 + Vite dashboard (~5,500 lines JS/JSX) |
 | Storage | MongoDB (analytics documents) · PostgreSQL (identity plane, opt-in) · ChromaDB (vectors) · JSON files (zero-install fallback) |
 | ML/AI | XGBoost second-opinion classifier (trained) · sentence-transformers embeddings (pretrained) · pluggable LLM (LM Studio / OpenAI / Claude / Gemini — optional garnish) |
-| Tests | 58 tests, 9 suites, all network- and DB-free via in-process fakes |
+| Tests | 103 tests, 11 suites, network- and DB-free via in-process fakes (4 opt-in Postgres tests skip by default) |
 | Status | v0.4 shipped + unreleased: identity plane, DB-first caching, job progress, PR-risk calibration |
 
 Four tools on one shared pipeline: **Bug Hotspot Predictor**, **PR Review
@@ -193,21 +193,33 @@ Single-user mode is built for localhost: no auth by default, CORS `*`,
 disabled without its secret, comment-posting opt-in. The multiuser slice
 adds login-gated triggers, `created_by` job attribution, CORS pinned to the
 dashboard origin with credentials, encrypted tokens, and an audit trail.
+Per-request credential resolution **is** wired: `core.identity.user_settings`
+overlays the signed-in user's decrypted GitHub token and BYO LLM key onto a
+*copy* of the global settings, so a job runs on its owner's credentials and
+one user's key can't leak into another's run.
+
 **Deliberately not yet built** (deferred, spec §7.12/§8.3): per-repo read
-ACLs, quotas, per-request token/LLM resolution (jobs still run with the
-server's token), clone-cache eviction. Consequence: safe to host for
-yourself; not yet for strangers.
+ACLs, private-repo ownership, quotas, OAuth scope escalation for comment
+posting, clone-cache eviction. Consequence: safe to host for yourself; not
+yet for strangers.
 
 ## 8. Testing philosophy
 
-58 tests / 9 suites, every one runnable standalone (`python tests/test_x.py`)
-or via pytest, **all network- and DB-free**: `FakeProvider` for LLMs,
+103 tests / 11 suites, every one runnable standalone (`python tests/test_x.py`)
+or via pytest, **network- and DB-free by default**: `FakeProvider` for LLMs,
 `FakeStore` for the database, `MemoryIdentity` (real Fernet/SHA-256, no
 Postgres) for auth, synthetic commit dicts for git, a stubbed OAuth exchange
 for login. This works because analysis logic is pure functions over plain
 data and every external system hides behind a constructor-injected interface.
 Every audit finding becomes a regression test (docs/config hotspot false
 positive, Mongo timezone crash, the always-HIGH PR calibration).
+
+The one place fakes were *not* enough: `MemoryIdentity` enforces no
+constraints, so it happily accepted a GitHub sign-in that real Postgres
+rejected on `UNIQUE(email)` — a green suite over a broken OAuth callback.
+Four opt-in tests (`TEST_DATABASE_URL`, skipped otherwise) now run against a
+throwaway database to cover the constraints, the connection lifecycle, and
+real expiry. **Fake the transport, not the constraint.**
 
 ## 9. Honest limitations & the road ahead
 
@@ -218,7 +230,8 @@ positive, Mongo timezone crash, the always-HIGH PR calibration).
   path is a small fine-tuned transformer behind the same interface.
 - **Reports have no history** (latest-only by design) and job state dies
   with the process (by design, single-worker).
-- **Multiuser is a slice, not a product**: settings are still global per
-  server; per-user LLM keys are stored (encrypted) but not yet consumed.
-- Sequence next: commit the backlog → performance fixes (§6) → v0.5
-  evaluation → per-request identity resolution.
+- **Multiuser is a slice, not a product**: per-user credentials and
+  discovery scoping work, but deep reads are still open by key — anyone with
+  a repo key can open its report — and there are no quotas.
+- Sequence next: per-repo read ACLs → quotas → OAuth scope escalation for
+  comment posting.

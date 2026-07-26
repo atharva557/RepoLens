@@ -319,8 +319,15 @@ python tests/test_dev_profiler.py    # developer classifier, profile assembly
 python tests/test_embeddings.py      # LiteIndex similarity + factory fallback
 python tests/test_pr_reviewer.py     # PR risk checks, similarity, report builder
 python tests/test_api.py             # FastAPI layer (skips if fastapi not installed)
+python tests/test_github_cache.py    # GitHub metadata freshness / refetch policy
+python tests/test_hotspot_eval.py    # temporal hold-out validation of the score
+python tests/test_identity.py        # multi-user auth, sessions, encrypted keys
 # or:  pytest tests/
 ```
+
+11 suites, 103 tests. Four tests in `test_identity.py` need a real Postgres
+and skip unless `TEST_DATABASE_URL` points at a throwaway database — see
+[docs/11-testing.md](docs/11-testing.md).
 
 ## Project layout (v0.1 subset)
 
@@ -329,6 +336,7 @@ test_1/
 ├── cli.py                     # CLI entry point
 ├── api/
 │   ├── main.py                # FastAPI app: read endpoints + background triggers (v0.4)
+│   ├── auth.py                # signup/login, GitHub OAuth, session cookie (v2)
 │   ├── webhook.py             # GitHub PR webhook -> auto Tool 3
 │   └── jobs.py                # in-memory background-job registry
 ├── config/settings.py         # .env-driven configuration
@@ -339,6 +347,10 @@ test_1/
 │   ├── llm.py                 # pluggable LLM provider (local/openai/claude/gemini)
 │   ├── embeddings.py          # SimilarityIndex: ChromaIndex + LiteIndex fallback (Tool 3)
 │   ├── paths.py               # shared file classification (code/doc/config/test)
+│   ├── activity.py            # dashboard aggregations (activity_base + windowing)
+│   ├── insights.py            # LLM insight bullets for the dashboard
+│   ├── progress.py            # phase-report callbacks (CLI prints, API job progress)
+│   ├── identity.py            # accounts/sessions/encrypted keys (Postgres, v2)
 │   └── analysis.py            # bug-hotspot orchestration
 ├── pipeline/
 │   ├── fetch_commits.py       # git -> classify -> cache
@@ -353,6 +365,8 @@ test_1/
 │   ├── dev_profiler/          # Tool 2: classifier, llm_analyzer, profile_builder, runner
 │   └── pr_reviewer/           # Tool 3: risk_scorer, similarity, llm_summarizer, report_builder, runner
 ├── train_repos.txt            # list of repos to train the ML model on
+├── frontend/                  # React dashboard (Vite + Tailwind + Recharts)
+├── docs/                      # technical documentation (see docs/README.md)
 ├── scripts/                   # thin wrappers (setup_indexes, pull_repo, run_analysis)
-└── tests/                     # 8 suites, all network-free (stdlib + FakeProvider + FakeStore)
+└── tests/                     # 11 suites, network-free (stdlib + FakeProvider + FakeStore)
 ```

@@ -29,6 +29,9 @@ layers, never the reverse.
 │                core/analysis       Tool 1 orchestration        │
 │                core/activity       dashboard aggregations      │
 │                core/insights       LLM insight bullets         │
+│                core/progress       phase-report callbacks      │
+│                core/identity       accounts/sessions (Postgres,│
+│                                    MULTIUSER=true only)        │
 └────────────────────────────────────────────────────────────────┘
 ```
 
@@ -118,6 +121,7 @@ test_1/
 ├── cli.py                     # interactive CLI entry point
 ├── api/
 │   ├── main.py                # FastAPI app factory + all routes
+│   ├── auth.py                # v2 auth routes: signup/login, OAuth, session cookie
 │   ├── jobs.py                # in-memory background-job registry
 │   └── webhook.py             # GitHub PR webhook: HMAC verify + dispatch
 ├── config/settings.py         # .env-driven Settings dataclass
@@ -137,7 +141,8 @@ test_1/
 │                              #         report_builder, runner
 ├── frontend/                  # React dashboard (Vite + Tailwind + Recharts)
 ├── scripts/                   # thin single-action wrappers
-├── tests/                     # 8 network-free suites
+├── tests/                     # 11 network-free suites
+├── docs/                      # this technical documentation
 ├── data/                      # runtime artifacts: cache/, models/, chroma/  (gitignore-able)
 └── train_repos.txt            # repo list for optional XGBoost training
 ```

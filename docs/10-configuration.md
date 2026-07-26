@@ -97,7 +97,8 @@ able to silently reshape analysis tuning.
 | Variable | Default | Effect |
 |---|---|---|
 | `MULTIUSER` | `false` | `true` enables `/api/v1/auth` + session-guarded triggers; **requires Postgres** |
-| `DATABASE_URL` | `postgresql://localhost:5432/gitpulse` | Postgres connection string |
+| `IDENTITY_BACKEND` | `postgres` | `postgres` \| `memory`. `memory` is a **dev-only** escape hatch — accounts, sessions and stored keys live in process memory and reset on every restart; it exists so login can be demoed before Postgres is set up |
+| `DATABASE_URL` | `postgresql://localhost:5432/gitpulse` | Postgres connection string (`IDENTITY_BACKEND=postgres` only). A bad/unreachable value fails startup with the specific fix, password masked |
 | `FERNET_KEY` | *(unset)* | encrypts stored GitHub/LLM tokens — required in multiuser mode, never commit |
 | `SESSION_SECRET` | *(unset)* | session/CSRF signing |
 | `GITHUB_OAUTH_CLIENT_ID` / `GITHUB_OAUTH_CLIENT_SECRET` | *(unset)* | from a registered GitHub OAuth App |

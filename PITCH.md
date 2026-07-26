@@ -119,8 +119,8 @@ We ran it on famous open-source projects, blind:
 ## Numbers for the pitch deck
 
 - **4 analysis tools** on one shared engine
-- **~5,300 lines** of engine code, **28 API endpoints**, a React dashboard
-- **58 automated tests** — all runnable with zero setup, no internet needed
+- **~6,800 lines** of engine code, **32 API endpoints**, a React dashboard
+- **103 automated tests** — all runnable with zero setup, no internet needed
 - Validated on **Flask, Express, and Requests** — three of the most-used
   open-source projects in the world
 - Works with **MongoDB + PostgreSQL + a vector database**, yet also runs

@@ -7,6 +7,39 @@ This project follows the milestone roadmap in `../GitPulse_Revised_Sections.md`.
 
 ## [Unreleased]
 
+- **Fixed: GitHub sign-in locked out anyone who already had a password
+  account.** `users.email` is `UNIQUE` and a password account has
+  `github_id` NULL, so `INSERT ... ON CONFLICT (github_id)` never matched it
+  and fell through to an INSERT that violated the email constraint — the
+  OAuth callback reported it as a 502. `upsert_github_user` now resolves in
+  three explicit steps (match `github_id` → adopt an unlinked row with the
+  same email, audited as `github_linked` → insert), so the two sign-in paths
+  converge on one account. Every test passed throughout, because
+  `MemoryIdentity` enforces no constraints; the twin now mirrors the same
+  branch, and four **opt-in real-Postgres tests** (`TEST_DATABASE_URL`,
+  skipped by default) cover what only the real schema can show.
+- **Fixed: a dropped Postgres connection broke sign-in until the API process
+  was restarted.** One autocommit connection was opened at startup and used
+  forever, so a database restart or an idle link reaped by the OS/a proxy
+  left every later call raising on a dead handle. All statements now go
+  through a `_cursor()` helper that reopens a known-closed connection and
+  discards one that dies mid-statement. The failed statement is deliberately
+  *not* replayed — under autocommit an INSERT may already have committed, and
+  a blind retry would duplicate it.
+- **Fixed: the session-expiry race, and three round trips on every
+  authenticated request.** `user_for_session` was SELECT → check expiry in
+  Python → UPDATE → SELECT user; a session that expired between the check and
+  the update was slid back to life. It is now a single CTE that slides
+  `expires_at`/`last_seen_at` with `expires_at > now` in its own `WHERE` and
+  joins the user row in the same statement, and a miss deletes the dead row
+  so expired sessions don't accumulate.
+- **Postgres startup failures are now actionable.** A raw `OperationalError`
+  at server start is a wall of libpq text that reads as "the app is broken"
+  rather than "Postgres needs one more setup step". `_pg_hint` maps the four
+  real cases — driver not installed in *this* interpreter, database missing,
+  bad credentials, server unreachable — to the specific command that fixes
+  each, with the password masked out of the DSN. Still fatal (identity has no
+  safe fallback), just legible.
 - **Fixed: ML training labels disagreed with the evaluator and the live
   scorer.** `dataset.py` labeled *any* file touched by a future bug-fix
   commit as positive — docs/config included — while `evaluate.py`'s ground

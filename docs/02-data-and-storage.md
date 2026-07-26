@@ -13,8 +13,12 @@ The key is used everywhere: as the cache key in the store, in API URLs
 (`GET /repos/pallets/flask/hotspots` — routes use `:path` params so the slash
 survives), and as the JSON filename slug (`/` → `__`).
 
-Remote URLs are cloned once into `data/cache/clones/<name>` by
+Remote URLs are cloned once into `data/cache/clones/<owner>__<repo>` by
 `ensure_local_clone()`; subsequent runs reuse (and fetch-update) the clone.
+The directory is keyed on the **full** repo key (`_clone_dest()`, same `/` →
+`__` slug the JSON store uses), not the bare repo name — otherwise
+`pallets/flask` and `yourfork/flask` would share one `clones/flask` and the
+second repo analyzed would silently reuse the first one's history.
 
 ## The commit dict — the project's central data shape
 
@@ -57,7 +61,7 @@ store.ensure_indexes()            # Mongo: create indexes; JSON: no-op
 
 # commit history (the shared cache)
 store.save_commits(repo_key, commits)   # replace-all semantics
-store.load_commits(repo_key)            # [] if none
+store.load_commits(repo_key)            # [] if none; ALWAYS newest-first
 
 # Tool 1 reports (dedicated shape: {repo, generated_at, rows})
 store.save_hotspots(repo_key, rows)
@@ -68,6 +72,15 @@ store.save_report(kind, key, doc)       # wraps as {key, generated_at, **doc}
 store.load_report(kind, key)            # None if none
 store.list_reports(kind, fields=())     # small discovery summaries
 ```
+
+**Ordering contract:** `load_commits` returns **newest-first** from both
+backends. Consumers depend on it — `pipeline/build_bug_index.py` takes the
+first N qualifying commits and fingerprints the first/last SHA. JsonStore gets
+this for free (commits are saved in git-log order and the file preserves it);
+Mongo returns documents in unordered *natural* order, so `MongoStore` sorts
+explicitly (`.sort([("date", -1)])`, backed by the `(repo, date desc)` index).
+Without the explicit sort it worked only by accident of delete-then-insert
+and was one compaction away from indexing the oldest diffs instead.
 
 ### Report kinds in use
 
@@ -137,7 +150,7 @@ open_store(settings)   # settings.store_backend: "auto" | "mongo" | "json"
 
 | Path | Contents |
 |---|---|
-| `data/cache/clones/<repo>/` | local clones of remote URLs |
+| `data/cache/clones/<owner>__<repo>/` | local clones of remote URLs |
 | `data/cache/<kind>/*.json` | JsonStore documents (when Mongo is absent) |
 | `data/models/hotspot_xgb.json` | trained XGBoost model + metadata (optional) |
 | `data/chroma/` | persistent ChromaDB collection for Tool 3 similarity (optional) |

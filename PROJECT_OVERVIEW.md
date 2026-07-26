@@ -11,9 +11,9 @@ an interactive CLI and a FastAPI web backend, with results persisted in MongoDB.
 
 | | |
 |---|---|
-| **Codebase** | ~3,800 lines of Python (~3,000 excl. tests) across 40+ modules |
-| **Tests** | 41 tests in 8 suites — all network-free, all passing |
-| **Status** | v0.4 — all four tools + API layer shipped; React dashboard next |
+| **Codebase** | ~9,800 lines of Python (~6,800 excl. tests) across 67 modules, plus a ~5,500-line React dashboard |
+| **Tests** | 103 tests in 11 suites — network-free, all passing |
+| **Status** | v0.4 shipped (four tools + API + React dashboard); unreleased: multi-user identity plane, hold-out evaluation |
 | **Stack** | Python 3.13 · GitPython · MongoDB · FastAPI · XGBoost (optional) · pluggable LLM (optional) |
 
 ---
@@ -210,10 +210,11 @@ server.
 
 ## 8. Testing
 
-41 tests across 8 suites, each runnable standalone (`python tests/test_x.py`)
-or via pytest. **All network-free**: an in-process `FakeProvider` stands in for
-the LLM, a `FakeStore` for the database, synthetic commit histories for git,
-and stubbed engine entry points for the API. Coverage includes:
+103 tests across 11 suites, each runnable standalone (`python tests/test_x.py`)
+or via pytest. **Network-free by default**: an in-process `FakeProvider` stands
+in for the LLM, a `FakeStore` for the database, `MemoryIdentity` for auth,
+synthetic commit histories for git, and stubbed engine entry points for the
+API. Coverage includes:
 
 - classifier word-boundary behavior ("fix" ≠ "prefix"), recency weighting,
   feature extraction, explanations, and the docs/config false-positive regression
@@ -226,6 +227,11 @@ and stubbed engine entry points for the API. Coverage includes:
 - PR risk checks, spec parsing, report building
 - API: read layer, job lifecycle (success + failure), token gates, webhook
   security (secret gate, HMAC verification, event/action filtering, dispatch)
+- GitHub metadata cache freshness (stale refetch, forced refresh, fallback)
+- hotspot hold-out evaluation (truth gating, thin-data flagging)
+- multi-user auth: crypto discipline, sessions, per-user scoping — plus four
+  **opt-in** tests against a real Postgres (`TEST_DATABASE_URL`, skipped
+  otherwise) for the constraints an in-memory fake cannot enforce
 
 ---
 

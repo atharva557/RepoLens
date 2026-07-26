@@ -431,6 +431,127 @@ def test_user_settings_overlays_stored_credentials():
     print("  ok: stored per-user GitHub token + LLM key overlay the global settings")
 
 
+# --------------------------------------------------------------------------- #
+# real Postgres (opt-in): set TEST_DATABASE_URL to a throwaway database, e.g.
+#   set TEST_DATABASE_URL=postgresql://postgres:pw@localhost:5432/gitpulse_test
+# Skipped otherwise, so the suite stays network-free by default. MemoryIdentity
+# enforces no constraints, so these are the only tests that exercise the real
+# schema — the UNIQUE(email) that broke OAuth-over-password only exists here.
+# --------------------------------------------------------------------------- #
+def _pg_url():
+    return os.environ.get("TEST_DATABASE_URL", "").strip()
+
+
+def _fresh_pg():
+    """A PgIdentity on an empty schema, or None when unavailable."""
+    from core.identity import PgIdentity
+
+    url = _pg_url()
+    if not url or find_spec("psycopg") is None:
+        return None
+    ident = PgIdentity(url, FKEY)
+    ident.ensure_schema()
+    with ident._cursor() as cur:  # throwaway DB: start every run clean
+        cur.execute("TRUNCATE audit_log, llm_configs, user_profiles, "
+                    "user_repos, sessions, users RESTART IDENTITY CASCADE")
+    return ident
+
+
+def test_postgres_roundtrip():
+    ident = _fresh_pg()
+    if ident is None:
+        print("  skip: set TEST_DATABASE_URL to run the real-Postgres tests")
+        return
+
+    # password signup -> login lookup -> session -> sliding resolve
+    user = ident.create_password_user("pg@example.com", hash_password("s3cret-pw"))
+    assert ident.get_password_user("PG@example.com")["id"] == user["id"]
+    assert verify_password("s3cret-pw", ident.get_password_user("pg@example.com")["password_hash"])
+    token = ident.create_session(user["id"])
+    resolved = ident.user_for_session(token)
+    assert resolved["id"] == user["id"] and resolved["email"] == "pg@example.com"
+    assert "password_hash" not in resolved      # never leaves the login path
+    ident.delete_session(token)
+    assert ident.user_for_session(token) is None
+    assert ident.user_for_session("not-a-real-token") is None
+
+    # encrypted secrets round-trip through the real BYTEA columns
+    ident.save_github_token(user["id"], "ghp_pg", "read:user")
+    assert ident.get_github_token(user["id"]) == "ghp_pg"
+    ident.save_llm_config(user["id"], "claude", "sk-ant-pg", model="m")
+    assert ident.get_llm_config(user["id"], with_key=True)["api_key"] == "sk-ant-pg"
+    assert "api_key" not in ident.get_llm_config(user["id"])
+
+    # tracking + ordering (most recently searched first)
+    ident.track_repo(user["id"], "owner/one")
+    ident.track_repo(user["id"], "owner/two")
+    assert set(ident.user_repo_keys(user["id"])) == {"owner/one", "owner/two"}
+    ident.track_profile(user["id"], "octocat")
+    assert ident.user_profile_names(user["id"]) == ["octocat"]
+    print("  ok: Postgres round-trip (accounts, sessions, secrets, tracking)")
+
+
+def test_postgres_oauth_links_existing_password_account():
+    """The bug MemoryIdentity could never show: users.email is UNIQUE, so a
+    GitHub sign-in for an address that already has a password account used to
+    raise a unique violation and 502 the OAuth callback."""
+    ident = _fresh_pg()
+    if ident is None:
+        print("  skip: set TEST_DATABASE_URL to run the real-Postgres tests")
+        return
+
+    existing = ident.create_password_user("dual@example.com", hash_password("pw-12345678"))
+    linked = ident.upsert_github_user(4242, "dualuser", "dual@example.com")
+    assert linked["id"] == existing["id"], "must adopt the account, not duplicate it"
+    assert linked["github_id"] == 4242 and linked["github_login"] == "dualuser"
+
+    # the password path still works after linking, and re-auth is idempotent
+    assert ident.get_password_user("dual@example.com")["id"] == existing["id"]
+    again = ident.upsert_github_user(4242, "renamed", "dual@example.com")
+    assert again["id"] == existing["id"] and again["github_login"] == "renamed"
+
+    with ident._cursor() as cur:
+        cur.execute("SELECT count(*) FROM users WHERE lower(email) = 'dual@example.com'")
+        assert cur.fetchone()[0] == 1
+    print("  ok: GitHub sign-in links an existing password account (no duplicate)")
+
+
+def test_postgres_expired_session_is_rejected_and_cleared():
+    ident = _fresh_pg()
+    if ident is None:
+        print("  skip: set TEST_DATABASE_URL to run the real-Postgres tests")
+        return
+
+    user = ident.create_password_user("exp@example.com", hash_password("pw-12345678"))
+    token = ident.create_session(user["id"])
+    with ident._cursor() as cur:  # force it into the past
+        cur.execute("UPDATE sessions SET expires_at = %s WHERE token_hash = %s",
+                    (datetime.now(timezone.utc) - timedelta(seconds=1),
+                     hash_session(token)))
+    assert ident.user_for_session(token) is None
+    with ident._cursor() as cur:
+        cur.execute("SELECT count(*) FROM sessions WHERE token_hash = %s",
+                    (hash_session(token),))
+        assert cur.fetchone()[0] == 0, "expired row should be cleared on access"
+    print("  ok: expired Postgres sessions are rejected and deleted")
+
+
+def test_postgres_reconnects_after_a_dropped_connection():
+    """A dead handle used to break sign-in until the API process restarted."""
+    ident = _fresh_pg()
+    if ident is None:
+        print("  skip: set TEST_DATABASE_URL to run the real-Postgres tests")
+        return
+
+    user = ident.create_password_user("rc@example.com", hash_password("pw-12345678"))
+    token = ident.create_session(user["id"])
+    ident.conn.close()                       # simulate a restart / dropped link
+    assert ident.conn.closed
+    assert ident.user_for_session(token)["id"] == user["id"]
+    assert not ident.conn.closed
+    print("  ok: identity store reconnects after the connection drops")
+
+
 def _run_all():
     fns = [v for k, v in sorted(globals().items())
            if k.startswith("test_") and callable(v)]

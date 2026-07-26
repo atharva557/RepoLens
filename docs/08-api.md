@@ -43,8 +43,8 @@ are small summaries; full reports live in the store.
 | `POST /profiles/{user}` | trigger | Tool 2 — requires `GITHUB_TOKEN`; always rebuilds (skips profile cache) |
 | `POST /repos/{o}/{r}/pr-reviews/{n}` | trigger | Tool 3 — requires `GITHUB_TOKEN` |
 | `POST /repos/{key}/insights` | trigger | LLM insight bullets (`core/insights.py`) |
-| `GET /repos` | discovery | per-repo summary of everything in the store (dashboard landing page) |
-| `GET /profiles` · `GET /repos/{key}/pr-reviews` | discovery | stored profiles / reviews lists |
+| `GET /repos` | discovery | per-repo summary for the dashboard landing page. Single-user: everything in the store. Multiuser: **only what the requesting user analyzed** (empty for anonymous) |
+| `GET /profiles` · `GET /repos/{key}/pr-reviews` | discovery | stored profiles / reviews lists — `/profiles` is scoped per user the same way |
 | `GET /repos/{key}/hotspots` | read | Tool 1 report (`?top=` limit) |
 | `GET /repos/{key}/commit-quality` | read | Tool 4 report |
 | `GET /repos/{key}/pr-reviews/{n}` | read | Tool 3 report |
@@ -58,6 +58,29 @@ are small summaries; full reports live in the store.
 
 Repo keys contain slashes (`owner/repo`), so repo routes use `:path` params —
 `GET /repos/pallets/flask/hotspots` works without URL-encoding.
+
+## What changes under `MULTIUSER=true`
+
+The route table above is the single-user contract. With the identity plane on
+(see [12-identity-postgres.md](12-identity-postgres.md)):
+
+- **Triggers require a session.** `POST /analyze`, `/commit-quality`,
+  `/profiles/{u}`, pr-reviews and insights answer `401` without one, and the
+  job records `created_by`.
+- **Each trigger records what the user searched** — repo keys into
+  `user_repos`, profile usernames into `user_profiles` — which is what makes
+  the discovery endpoints per-user.
+- **Analyses run on the caller's own credentials.** `core.identity.user_settings`
+  overlays that user's decrypted GitHub token and BYO LLM key onto a *copy* of
+  the global settings, so one user's key never leaks into another's job;
+  anything they haven't configured falls back to the server's value.
+- **`PUT /config` is `403`** — keys are per-user via `/api/v1/me`.
+- **CORS** pins to `DASHBOARD_ORIGIN` with credentials, and mutating routes
+  require the `X-GitPulse-Client: dashboard` CSRF header.
+
+Deep reads (`GET /repos/{key}/...`, `/profiles/{u}`) and the HMAC-verified
+webhook are deliberately unchanged in this slice — hard per-repo ACLs are the
+next one.
 
 ## Background jobs (`api/jobs.py`)
 
