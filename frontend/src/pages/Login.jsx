@@ -22,7 +22,7 @@ export default function Login() {
     setError(null);
     try {
       await postJSON(`/api/v1/auth/${mode === "signup" ? "signup" : "login"}`,
-                     { email: email.trim(), password });
+        { email: email.trim(), password });
       await refresh(); // flips AuthContext to signed-in; the wall unmounts
     } catch (err) {
       setError(String(err.message || err));

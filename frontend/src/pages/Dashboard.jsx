@@ -130,7 +130,7 @@ function CommitQualityModal({ quality, activity, onClose, onRerun, triggeringQua
               </div>
 
               {/* Radar Chart */}
-              <div className="w-[300px] h-[250px]">
+              <div className="w-full max-w-[300px] h-[250px]">
                 <ResponsiveContainer width="100%" height="100%">
                   <RadarChart
                     cx="50%" cy="50%" outerRadius="70%"

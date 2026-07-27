@@ -145,9 +145,8 @@ export default function Home() {
         {/* ── Hero ── */}
         <div className="text-center flex flex-col items-center w-full">
           <h1
-            className="text-primary glow-text"
+            className="text-primary glow-text text-5xl md:text-[72px]"
             style={{
-              fontSize: "72px",
               fontWeight: "bold",
               letterSpacing: "-1px",
               lineHeight: 1,
@@ -156,9 +155,8 @@ export default function Home() {
             RepoLens
           </h1>
           <p
-            className="text-on-surface-variant"
+            className="text-on-surface-variant text-sm md:text-base"
             style={{
-              fontSize: "16px",
               maxWidth: "480px",
               margin: "24px auto 0",
               lineHeight: 1.75,
@@ -251,14 +249,15 @@ export default function Home() {
                 type="submit"
                 disabled={submitting || !url.trim()}
                 aria-label="Analyze Repository"
-                className={`px-[24px] py-[16px] flex items-center gap-[8px] transition-all disabled:opacity-50 disabled:cursor-not-allowed hover:opacity-90 active:scale-95 bg-primary text-on-primary ${isLight ? "" : "glow-primary"}`}
+                className={`px-4 md:px-[24px] py-[16px] flex items-center gap-[8px] transition-all disabled:opacity-50 disabled:cursor-not-allowed hover:opacity-90 active:scale-95 bg-primary text-on-primary ${isLight ? "" : "glow-primary"}`}
                 style={{
                   fontWeight: "bold",
                   fontSize: "14px",
                   flexShrink: 0,
                 }}
               >
-                <span>{submitting ? "Analyzing..." : "Analyze"}</span>
+                <span className="hidden sm:inline">{submitting ? "Analyzing..." : "Analyze"}</span>
+                <span className="sm:hidden">{submitting ? "..." : "Go"}</span>
                 <span className="material-symbols-outlined text-[16px]">
                   arrow_forward
                 </span>
@@ -618,10 +617,10 @@ export default function Home() {
         }}
       >
         <div
-          className="max-w-[640px] mx-auto w-full flex justify-between font-code text-[10px] uppercase tracking-tighter"
+          className="max-w-[640px] mx-auto w-full flex flex-col sm:flex-row justify-between font-code text-[10px] uppercase tracking-tighter gap-2 sm:gap-0"
           style={{ color: "rgba(255,255,255,0.35)" }}
         >
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-4 justify-center sm:justify-start">
             <span className="flex items-center gap-1.5">
               <span
                 className={`w-2 h-2 rounded-full ${health?.status === "ok"
@@ -635,7 +634,7 @@ export default function Home() {
               STORE: {health?.store || "LOCAL_JSON"}
             </span>
           </div>
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-4 justify-center sm:justify-end">
             <span className="hidden md:inline">
               API VERSION: {health?.version || "0.4"}
             </span>

@@ -480,7 +480,7 @@ export default function PRReview() {
             )}
 
             {/* Quick Stats */}
-            <div className="grid grid-cols-3 gap-gutter">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-gutter">
               <div className="bg-surface-container border border-outline-variant p-4 rounded-xl glow-card">
                 <p className="font-code text-[10px] text-on-surface-variant uppercase mb-1">Files Changed</p>
                 <p className="font-stat text-2xl font-bold">{report.files_changed || 0}</p>

@@ -9,6 +9,7 @@ export default function Navbar() {
   const repo = searchParams.get("repo");
   const user = searchParams.get("user");
   const [showSettings, setShowSettings] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   // session (multiuser mode); `user` above is a URL param, hence `account`
   const { mode, user: account, logout } = useContext(AuthContext);
 
@@ -62,7 +63,7 @@ export default function Navbar() {
     <header className={`fixed top-0 left-0 right-0 z-50 backdrop-blur-xl border-b h-[52px] transition-colors duration-300 ${headerBg}`}>
       <div className="flex justify-between items-center w-full px-gutter max-w-container-max mx-auto h-full">
         {/* Brand */}
-        <Link 
+        <Link
           to={"/" + getQueryString({ repo, user })}
           className="font-code text-heading-md font-bold flex items-center gap-2"
         >
@@ -74,11 +75,11 @@ export default function Navbar() {
           </span>
         </Link>
 
-        {/* Navigation Items */}
-        <nav className="flex items-center gap-4 md:gap-6">
+        {/* Navigation Items (Desktop) */}
+        <nav className="hidden md:flex items-center gap-4 md:gap-6">
           {navItems.map((item) => {
             const isActive = path === item.path;
-            
+
             let linkClass = "font-label text-label transition-colors duration-200 py-1 px-2 rounded-sm ";
             linkClass += isActive
               ? "text-primary font-bold border-b-2 border-primary pb-0.5 rounded-none"
@@ -118,9 +119,8 @@ export default function Navbar() {
 
           <button
             onClick={() => setShowSettings(true)}
-            className={`bg-surface-container-high border h-9 px-3 rounded-[4px] flex items-center gap-2 text-label font-bold text-on-surface-variant hover:bg-surface-container-highest hover:border-primary transition-all group cursor-pointer ${
-              showSettings ? "bg-primary/10 border-primary" : "border-outline-variant"
-            }`}
+            className={`bg-surface-container-high border h-9 px-3 rounded-[4px] flex items-center gap-2 text-label font-bold text-on-surface-variant hover:bg-surface-container-highest hover:border-primary transition-all group cursor-pointer ${showSettings ? "bg-primary/10 border-primary" : "border-outline-variant"
+              }`}
             aria-label="Settings"
           >
             <span className="material-symbols-outlined text-[18px] group-hover:text-primary transition-colors">
@@ -130,8 +130,44 @@ export default function Navbar() {
           </button>
 
           <SettingsDrawer open={showSettings} onClose={() => setShowSettings(false)} />
+
+          {/* Mobile Menu Toggle */}
+          <button
+            className="md:hidden flex items-center justify-center text-on-surface-variant hover:text-primary transition-colors h-9 w-9 rounded bg-surface-container-high border border-outline-variant hover:border-primary"
+            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+            aria-label="Toggle Menu"
+          >
+            <span className="material-symbols-outlined text-[18px]">
+              {mobileMenuOpen ? "close" : "menu"}
+            </span>
+          </button>
         </div>
       </div>
+
+      {/* Mobile Menu Dropdown */}
+      {mobileMenuOpen && (
+        <div className="md:hidden absolute top-[52px] left-0 right-0 bg-surface border-b border-outline-variant shadow-lg py-2 px-4 flex flex-col gap-1 z-40">
+          {navItems.map((item) => {
+            const isActive = path === item.path;
+
+            let linkClass = "font-label text-label transition-colors duration-200 py-3 px-4 rounded-sm flex items-center w-full ";
+            linkClass += isActive
+              ? "text-primary font-bold bg-primary/5 border-l-2 border-primary"
+              : "text-on-surface-variant hover:text-primary hover:bg-surface-container-high";
+
+            return (
+              <Link
+                key={item.label}
+                to={item.to}
+                className={linkClass}
+                onClick={() => setMobileMenuOpen(false)}
+              >
+                {item.label}
+              </Link>
+            );
+          })}
+        </div>
+      )}
     </header>
   );
 }
