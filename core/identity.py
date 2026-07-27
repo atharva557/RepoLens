@@ -29,12 +29,27 @@ from datetime import datetime, timedelta, timezone
 
 SESSION_DAYS = 30  # sliding expiry (spec §8.1)
 
+# Email verification codes (signup OTP)
+OTP_DIGITS = 6
+OTP_TTL_MINS = 10           # short enough that a stolen code is near-useless
+OTP_MAX_ATTEMPTS = 5        # a 6-digit code is 10^6 guesses without this
+OTP_RESEND_COOLDOWN_SECS = 60
+
 
 # --------------------------------------------------------------------------- #
 # crypto helpers (spec §2.5)
 # --------------------------------------------------------------------------- #
 def new_session_token() -> str:
     return secrets.token_urlsafe(32)
+
+
+def new_otp_code(digits: int = OTP_DIGITS) -> str:
+    """A cryptographically random numeric code, zero-padded to `digits`.
+
+    secrets.randbelow, never random.* — the Mersenne Twister is reconstructible
+    from a handful of prior outputs, and these codes gate account creation.
+    """
+    return f"{secrets.randbelow(10 ** digits):0{digits}d}"
 
 
 def hash_session(token: str) -> str:
@@ -136,6 +151,26 @@ CREATE TABLE IF NOT EXISTS audit_log (
   at       TIMESTAMPTZ DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS audit_log_user_at_idx ON audit_log (user_id, at DESC);
+
+-- Pending signup verifications. No FK to users: the account does not exist
+-- yet (verify-then-create), so this row IS the pending signup — it carries
+-- the scrypt hash of the chosen password until the code checks out.
+--
+-- `code` is stored as sent. Unlike a password it is single-use, expires in
+-- minutes and is never valid anywhere else, so the exposure a hash would
+-- close is one short-lived code per pending signup; hashing it is a one-line
+-- change here and in verify_email_otp if that trade stops being acceptable.
+-- One pending signup per address: re-requesting replaces the row (and so
+-- invalidates the previous code).
+CREATE TABLE IF NOT EXISTS email_otps (
+  email         TEXT PRIMARY KEY,
+  code          TEXT NOT NULL,
+  password_hash TEXT,
+  attempts      INT  NOT NULL DEFAULT 0,
+  sent_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+  expires_at    TIMESTAMPTZ NOT NULL
+);
+CREATE INDEX IF NOT EXISTS email_otps_expires_at_idx ON email_otps (expires_at);
 """
 
 _USER_COLS = "id, github_id, github_login, email, gh_token_scopes, created_at"
@@ -274,6 +309,87 @@ class PgIdentity:
         user = _user_row(row[:6])
         user["password_hash"] = row[6]
         return user
+
+    # ------------------------------------------------ signup verification
+    def start_email_otp(self, email: str, code: str, password_hash: str = "",
+                        ttl_mins: int = OTP_TTL_MINS) -> None:
+        """Record a pending signup, replacing any earlier one for this address.
+
+        Re-requesting a code invalidates the previous one (same PK), so a
+        resend can never leave two live codes for one address.
+        """
+        expires = datetime.now(timezone.utc) + timedelta(minutes=ttl_mins)
+        with self._cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO email_otps (email, code, password_hash, expires_at)
+                VALUES (lower(%s), %s, %s, %s)
+                ON CONFLICT (email) DO UPDATE
+                  SET code = EXCLUDED.code,
+                      password_hash = EXCLUDED.password_hash,
+                      expires_at = EXCLUDED.expires_at,
+                      sent_at = now(),
+                      attempts = 0
+                """,
+                (email, code, password_hash or None, expires),
+            )
+
+    def peek_email_otp(self, email: str) -> dict | None:
+        """Metadata only (never the code) — used for the resend cooldown."""
+        with self._cursor() as cur:
+            cur.execute(
+                "SELECT sent_at, expires_at, attempts FROM email_otps "
+                "WHERE email = lower(%s)", (email,),
+            )
+            row = cur.fetchone()
+        if row is None:
+            return None
+        return {"sent_at": row[0], "expires_at": row[1], "attempts": row[2]}
+
+    def verify_email_otp(self, email: str, code: str) -> tuple[str, str | None]:
+        """(status, password_hash) where status is one of
+        ok | none | expired | locked | invalid.
+
+        A correct code deletes the row, so it is single-use; a wrong one
+        increments `attempts` and locks the pending signup at
+        OTP_MAX_ATTEMPTS. compare_digest rather than `==` keeps the check
+        constant-time regardless of how the code is stored.
+        """
+        now = datetime.now(timezone.utc)
+        with self._cursor() as cur:
+            cur.execute(
+                "SELECT code, password_hash, expires_at, attempts FROM email_otps "
+                "WHERE email = lower(%s)", (email,),
+            )
+            row = cur.fetchone()
+            if row is None:
+                return ("none", None)
+            stored, password_hash, expires_at, attempts = row
+            if expires_at <= now:
+                cur.execute("DELETE FROM email_otps WHERE email = lower(%s)", (email,))
+                return ("expired", None)
+            if attempts >= OTP_MAX_ATTEMPTS:
+                return ("locked", None)
+            if not secrets.compare_digest(stored, code or ""):
+                cur.execute(
+                    "UPDATE email_otps SET attempts = attempts + 1 "
+                    "WHERE email = lower(%s)", (email,),
+                )
+                return ("invalid", None)
+            cur.execute("DELETE FROM email_otps WHERE email = lower(%s)", (email,))
+        return ("ok", password_hash)
+
+    def clear_email_otp(self, email: str) -> None:
+        """Abandon a pending signup (e.g. the address bounced)."""
+        with self._cursor() as cur:
+            cur.execute("DELETE FROM email_otps WHERE email = lower(%s)", (email,))
+
+    def purge_expired_otps(self) -> int:
+        """Housekeeping — expired rows are also cleared lazily on verify."""
+        with self._cursor() as cur:
+            cur.execute("DELETE FROM email_otps WHERE expires_at <= %s",
+                        (datetime.now(timezone.utc),))
+            return cur.rowcount or 0
 
     # ------------------------------------------------- GitHub token (Fernet)
     def save_github_token(self, user_id: int, token: str, scopes: str = "") -> None:
@@ -459,6 +575,7 @@ class MemoryIdentity:
         self.fernet_key = fernet_key
         self.users: dict[int, dict] = {}
         self.sessions: dict[str, dict] = {}   # token_hash -> row
+        self.otps: dict[str, dict] = {}       # lower(email) -> pending signup
         self.repos: dict[tuple[int, str], dict] = {}     # -> {role, seq}
         self.profiles: dict[tuple[int, str], int] = {}   # -> seq
         self.llm: dict[int, dict] = {}
@@ -517,6 +634,54 @@ class MemoryIdentity:
                     and u.get("password_hash"):
                 return dict(u)
         return None
+
+    # ------------------------------------------------ signup verification
+    # Mirrors PgIdentity exactly — same lowercasing, same single-use delete,
+    # same attempt cap. A twin that is merely "close enough" is how the
+    # OAuth-over-password lockout stayed green in this suite for weeks.
+    def start_email_otp(self, email, code, password_hash="",
+                        ttl_mins=OTP_TTL_MINS) -> None:
+        now = datetime.now(timezone.utc)
+        self.otps[(email or "").lower()] = {
+            "code": code,
+            "password_hash": password_hash or None,
+            "attempts": 0,
+            "sent_at": now,
+            "expires_at": now + timedelta(minutes=ttl_mins),
+        }
+
+    def peek_email_otp(self, email) -> dict | None:
+        row = self.otps.get((email or "").lower())
+        if row is None:
+            return None
+        return {k: row[k] for k in ("sent_at", "expires_at", "attempts")}
+
+    def verify_email_otp(self, email, code) -> tuple[str, str | None]:
+        key = (email or "").lower()
+        row = self.otps.get(key)
+        if row is None:
+            return ("none", None)
+        if row["expires_at"] <= datetime.now(timezone.utc):
+            del self.otps[key]
+            return ("expired", None)
+        if row["attempts"] >= OTP_MAX_ATTEMPTS:
+            return ("locked", None)
+        if not secrets.compare_digest(row["code"], code or ""):
+            row["attempts"] += 1
+            return ("invalid", None)
+        password_hash = row["password_hash"]
+        del self.otps[key]
+        return ("ok", password_hash)
+
+    def clear_email_otp(self, email) -> None:
+        self.otps.pop((email or "").lower(), None)
+
+    def purge_expired_otps(self) -> int:
+        now = datetime.now(timezone.utc)
+        dead = [k for k, v in self.otps.items() if v["expires_at"] <= now]
+        for k in dead:
+            del self.otps[k]
+        return len(dead)
 
     def save_github_token(self, user_id, token, scopes="") -> None:
         self.users[user_id]["gh_token_enc"] = encrypt_secret(self.fernet_key, token)

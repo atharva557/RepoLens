@@ -104,8 +104,34 @@ able to silently reshape analysis tuning.
 | `GITHUB_OAUTH_CLIENT_ID` / `GITHUB_OAUTH_CLIENT_SECRET` | *(unset)* | from a registered GitHub OAuth App |
 | `DASHBOARD_ORIGIN` | `http://localhost:5173` | the CORS allow-origin (with credentials) in multiuser mode |
 
+## Outbound email — signup verification codes (`core/mailer.py`)
+
+Only used by the two-step signup under `MULTIUSER=true`. **Until `SMTP_HOST`,
+`SMTP_USER` and `SMTP_PASSWORD` are all set, the console backend is selected**
+and codes are printed to the server console instead of being emailed — so
+signup works with no mail account at all. Nothing here is required to run the
+app. All three are required together because a host with no login is never a
+working config: a half-filled `.env` would otherwise fail every send instead
+of falling back.
+
+| Variable | Default | Effect |
+|---|---|---|
+| `SMTP_HOST` | *(unset)* | e.g. `smtp.gmail.com` |
+| `SMTP_PORT` | `587` | `465` = implicit TLS (`SMTP_SSL`), `587` = STARTTLS. A server offering neither fails the send rather than authenticating in the clear |
+| `SMTP_USER` | *(unset)* | full address, e.g. `you@gmail.com` |
+| `SMTP_PASSWORD` | *(unset)* | Gmail: a 16-character **App Password** (needs 2FA on the account), not the account password. Ends are stripped so a trailing newline in `.env` can't cause a silent auth failure |
+| `SMTP_FROM` | `SMTP_USER` | `From:` address — usually has to match the authenticated account |
+| `SMTP_TIMEOUT` | `15` | seconds; sends run in a `BackgroundTasks` worker, so this bounds a hung handshake |
+| `OTP_TTL_MINS` | `10` | how long a verification code stays valid |
+| `APP_NAME` | `RepoLens` | `From:` display name and subject line |
+
+Gmail caps around 500/day and mail from a residential IP often lands in spam.
+For real deliverability, swap the transport for a provider's HTTP API — that
+is one `send()` method, since the message building is stdlib either way.
+
 ## Inspecting the resolved config
 
 - CLI option 9 (`config`) or `GET /config` — all values, secrets masked.
 - `GET /test` — live checks: store round-trip, LLM availability, which
-  similarity backend would be picked, token/webhook presence.
+  similarity backend would be picked, token/webhook presence, and which mail
+  backend is selected (configuration only — nothing is sent).

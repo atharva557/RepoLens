@@ -160,6 +160,18 @@ class Settings:
     github_oauth_client_secret: str = ""
     dashboard_origin: str = "http://localhost:5173"  # CORS allow-origin when multiuser
 
+    # Outbound email — signup verification codes (core/mailer.py). With
+    # SMTP_HOST unset the console backend prints codes instead of sending
+    # them, so signup works on a laptop with no mail account.
+    app_name: str = "RepoLens"           # From: display name + subject line
+    smtp_host: str = ""                  # empty -> console backend
+    smtp_port: int = 587                 # 465 = implicit TLS, 587 = STARTTLS
+    smtp_user: str = ""
+    smtp_password: str = ""              # Gmail: a 16-char App Password
+    smtp_from: str = ""                  # defaults to SMTP_USER
+    smtp_timeout: int = 15
+    otp_ttl_mins: int = 10
+
     @classmethod
     def load(cls, env_path: str = ".env") -> "Settings":
         env = {**_parse_env_file(env_path), **os.environ}
@@ -234,12 +246,24 @@ class Settings:
             github_oauth_client_id=get("GITHUB_OAUTH_CLIENT_ID", ""),
             github_oauth_client_secret=get("GITHUB_OAUTH_CLIENT_SECRET", ""),
             dashboard_origin=get("DASHBOARD_ORIGIN", "http://localhost:5173"),
+            app_name=get("APP_NAME", "RepoLens"),
+            smtp_host=get("SMTP_HOST", "").strip(),
+            smtp_port=get_num("SMTP_PORT", 587, int),
+            smtp_user=get("SMTP_USER", "").strip(),
+            # ends stripped (a trailing newline in .env is a classic silent
+            # auth failure); internal spaces survive, so a Gmail App Password
+            # pasted as "abcd efgh ijkl mnop" is passed through as typed
+            smtp_password=get("SMTP_PASSWORD", "").strip(),
+            smtp_from=get("SMTP_FROM", "").strip(),
+            smtp_timeout=get_num("SMTP_TIMEOUT", 15, int),
+            otp_ttl_mins=get_num("OTP_TTL_MINS", 10, int),
         )
 
     def summary(self) -> str:
         masked = {f.name: getattr(self, f.name) for f in fields(self)}
         for secret in ("github_token", "github_webhook_secret",
                        "anthropic_api_key", "openai_api_key", "gemini_api_key",
-                       "fernet_key", "session_secret", "github_oauth_client_secret"):
+                       "fernet_key", "session_secret", "github_oauth_client_secret",
+                       "smtp_password"):
             masked[secret] = "***" if getattr(self, secret) else "(unset)"
         return "\n".join(f"  {k} = {v}" for k, v in masked.items())

@@ -32,6 +32,8 @@ layers, never the reverse.
 │                core/progress       phase-report callbacks      │
 │                core/identity       accounts/sessions (Postgres,│
 │                                    MULTIUSER=true only)        │
+│                core/mailer         signup codes over SMTP      │
+│                                    (stdlib; console fallback)  │
 └────────────────────────────────────────────────────────────────┘
 ```
 
@@ -121,7 +123,7 @@ test_1/
 ├── cli.py                     # interactive CLI entry point
 ├── api/
 │   ├── main.py                # FastAPI app factory + all routes
-│   ├── auth.py                # v2 auth routes: signup/login, OAuth, session cookie
+│   ├── auth.py                # v2 auth routes: signup (OTP)/login, OAuth, session cookie
 │   ├── jobs.py                # in-memory background-job registry
 │   └── webhook.py             # GitHub PR webhook: HMAC verify + dispatch
 ├── config/settings.py         # .env-driven Settings dataclass

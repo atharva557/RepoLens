@@ -32,7 +32,8 @@ what it's best at; the join key between the planes is the repo key
 | `user_repos` | who tracks which repo (`role`: tracker/owner) — joins Mongo's reports by repo key |
 | `user_profiles` | which GitHub usernames a user has profiled — powers per-user `GET /profiles` |
 | `llm_configs` | per-user BYO LLM key (Fernet-encrypted), provider/model/base_url |
-| `audit_log` | login/logout, token save/revoke, repo/profile track, LLM key save/delete, `github_linked` |
+| `audit_log` | login/logout, token save/revoke, repo/profile track, LLM key save/delete, `github_linked`, `email_verified` |
+| `email_otps` | pending signup verifications — one row per address (`email` is the PK), the code, the scrypt hash of the chosen password, `attempts`, `sent_at`, `expires_at`. **No FK to `users`**: the account does not exist yet |
 
 Schema bootstrap is idempotent (`CREATE TABLE IF NOT EXISTS`), run
 automatically by `open_identity()` at startup — existing databases pick up
@@ -66,18 +67,87 @@ Two sign-in paths share one session plane (cookie, `/me`, logout, CSRF):
 **Email + password** — the dashboard's Login wall (`frontend/src/pages/Login.jsx`):
 
 ```
-POST /api/v1/auth/signup   {email, password}  validate (email shape, ≥8 chars)
-                           → salted-scrypt hash (core.identity.hash_password)
-                           → users row (github_id NULL) → session + cookie (201)
-POST /api/v1/auth/login    {email, password}  verify_password (constant-time)
-                           → session + cookie. Wrong email and wrong password
-                           are ONE generic 401 — never confirm an email exists
+POST /api/v1/auth/signup          {email, password}  validate (shape, ≥8 chars)
+                                  → salted-scrypt hash (identity.hash_password)
+                                  → email_otps row (code + hash) → email the
+                                    code → 202. NOTHING is written to users
+POST /api/v1/auth/signup/verify   {email, code}  consume the code (single use)
+                                  → users row (github_id NULL) from the parked
+                                    hash → session + cookie (201)
+POST /api/v1/auth/login           {email, password}  verify_password (constant-time)
+                                  → session + cookie. Wrong email and wrong
+                                    password are ONE generic 401 — never
+                                    confirm an email exists
 ```
 
 Hash format `scrypt$n$r$p$salt$hash` — parameters ride in the string so they
 can be raised later without invalidating existing accounts. The hash is
 selected only by `get_password_user` (the login check); every other user read
 strips it.
+
+**Verify before create.** The account materializes only once the address is
+proven, so an unverified signup can never squat the `UNIQUE(email)` that the
+GitHub path also depends on ("One account, two ways in" above), and there is
+no `email_verified` flag for every later read path to remember to check. The
+chosen password is hashed at step 1 and parked on the pending row, so the
+plaintext lives for exactly one request.
+
+Rejections are distinct on purpose, so the UI can say what actually happened:
+
+| | |
+|---|---|
+| `404` | no pending signup for that address — ask for a code first |
+| `401` | wrong code (counts an attempt) |
+| `410` | expired (`OTP_TTL_MINS`, default 10) — the row is cleared on access |
+| `429` | locked after `OTP_MAX_ATTEMPTS` (5) wrong codes, **or** a resend inside the 60s cooldown |
+
+Codes are `secrets.randbelow`, never `random.*` — the Mersenne Twister is
+reconstructible from prior outputs, and these gate account creation. The
+attempt cap is what makes a 6-digit code defensible at all: without it, 10⁶
+guesses against a local API is a matter of minutes.
+
+Re-POSTing `/signup` **is** the resend: `email` is the primary key, so a new
+code overwrites the old one and two live codes for one address cannot exist.
+Abuse is bounded from both ends — per-address by `sent_at` in Postgres, and
+per-caller by an in-process IP counter (20/hour) so the route can't be used as
+an email cannon.
+
+> **Codes are stored as sent, not hashed** — a deliberate call for this
+> milestone. Unlike a password, a code is single-use, expires in minutes and is
+> valid nowhere else, so a database dump exposes at most one live code per
+> pending signup. Hashing it is a one-line change in `start_email_otp` and
+> `verify_email_otp` if that trade stops being acceptable.
+
+Signup is the one place that **does** confirm whether an address is already
+registered (`409`), unlike login's deliberately generic `401`. A signup form
+that silently does nothing for a taken address is a dead end for the user;
+that usability is the accepted cost.
+
+**Sending the code** (`core/mailer.py`) is stdlib `smtplib` + `email.message`,
+no new dependency — the same call as stdlib `urllib` over `authlib` for the
+OAuth exchange. Two backends behind one interface, like `MongoStore`/`JsonStore`
+and `PgIdentity`/`MemoryIdentity`:
+
+- **`SmtpMailer`** — implicit TLS on port 465, STARTTLS on 587. If a server
+  offers neither, the send fails rather than putting the password on the wire.
+- **`ConsoleMailer`** — selected automatically until `SMTP_HOST`, `SMTP_USER`
+  and `SMTP_PASSWORD` are *all* set. Prints the code, so signup runs on a
+  laptop with no mail account.
+
+Sends go through `BackgroundTasks`: handlers are sync `def`, so FastAPI runs
+them in its threadpool, and a hanging SMTP handshake would otherwise tie up a
+worker. Every failure arrives as a `MailError` — the background task must
+never raise — carrying one flag that changes behaviour:
+
+| | |
+|---|---|
+| `bad_address=True` | the server refused the recipient (a typo). The pending row is **dropped**, so the user can correct it and retry without waiting out the cooldown |
+| `bad_address=False` | our problem — bad credentials, unreachable server, greylisting. The row is **kept**, so a resend reuses the same pending signup |
+
+Gmail works via an App Password (needs 2FA on the account) at
+`smtp.gmail.com:587`, capped around 500/day. For real deliverability the
+transport swaps for a provider's HTTP API — that is one `send()` and nothing
+else, because the message building is all stdlib either way.
 
 **GitHub OAuth** — login and token-acquisition in one step; nobody pastes a token:
 
@@ -163,20 +233,29 @@ user hasn't configured falls back to the server's value, so a global
 rules on those reads (`require_repo_access`), private-repo ownership, quotas,
 and OAuth scope escalation for comment posting.
 
-## Testing (`tests/test_identity.py` — 18 tests)
+## Testing (`tests/test_identity.py` — 23 tests, `tests/test_mailer.py` — 6)
 
 `MemoryIdentity` is an in-process twin of `PgIdentity` (same interface, real
 Fernet/SHA-256 helpers), so the whole slice tests network- and DB-free:
 crypto discipline (Fernet round-trip, SHA-256 sessions, scrypt
 hash/verify/tamper), upsert idempotency, session expiry, encrypted LLM
 configs, hash-stripping discipline, the 503 gate, the memory-backend gate,
-the full signup→session→logout→login and OAuth→cookie→`/me`→CSRF→logout flows
-(exchange stubbed), and trigger enforcement. Skips cleanly without
+the full signup→code→verify→session→logout→login and
+OAuth→cookie→`/me`→CSRF→logout flows (exchange stubbed), every OTP rejection
+path (wrong/locked/expired/replayed, and that none of them creates an
+account), the resend cooldown, and trigger enforcement. Skips cleanly without
 `cryptography` or `fastapi`.
 
-**Four of the 18 need a real Postgres and are opt-in**, because the twin
+The API tests inject a `ConsoleMailer(quiet=True)` and read the code back out
+of `mailer.sent` — so the signup flow is tested end to end with no SMTP server
+and no code ever hard-coded into a test. `tests/test_mailer.py` covers the
+transport separately against a fake connection: message shape, STARTTLS vs
+implicit TLS, backend selection, and the exception→`kind` mapping.
+
+**Five of the 23 need a real Postgres and are opt-in**, because the twin
 enforces no constraints and therefore cannot reproduce the failures that
-matter — the `UNIQUE(email)` collision, an expired row actually being
+matter — the `UNIQUE(email)` collision, `email_otps`' `PRIMARY KEY(email)`
+making a resend replace rather than duplicate, an expired row actually being
 deleted, or a dropped connection. Point `TEST_DATABASE_URL` at a *throwaway*
 database (every run truncates it) to include them; without it they print a
 skip line and the suite stays network-free:

@@ -39,6 +39,7 @@ from core.identity import open_identity, user_settings
 from core.github_client import get_recent_pulls, get_repo_meta
 from core.github_client import repo_key as canonical_repo_key
 from core.insights import run_repo_insights
+from core.mailer import open_mailer
 from tools.commit_quality.runner import run_commit_quality_report
 from tools.dev_profiler.runner import run_developer_profile
 from tools.pr_reviewer.runner import run_pr_review
@@ -87,7 +88,8 @@ def _masked_config(s: Settings) -> dict:
     masked = {f.name: getattr(s, f.name) for f in fields(s)}
     for secret in ("github_token", "github_webhook_secret",
                    "anthropic_api_key", "openai_api_key", "gemini_api_key",
-                   "fernet_key", "session_secret", "github_oauth_client_secret"):
+                   "fernet_key", "session_secret", "github_oauth_client_secret",
+                   "smtp_password"):
         masked[secret] = "***" if getattr(s, secret) else ""
     # a DATABASE_URL may embed credentials (postgresql://user:pass@host/db)
     masked["database_url"] = re.sub(r"//[^/@]+@", "//***@", s.database_url)
@@ -152,9 +154,10 @@ def _insights_job(repo_key: str, settings, store, progress=None) -> dict:
 # app factory
 # --------------------------------------------------------------------------- #
 def create_app(settings: Settings | None = None, store=None, identity=None,
-               env_path: str | None = None) -> FastAPI:
-    """Build the app. `settings`/`store`/`identity`/`env_path` overrides exist
-    for tests (`env_path` keeps PUT /config away from the real .env)."""
+               env_path: str | None = None, mailer=None) -> FastAPI:
+    """Build the app. `settings`/`store`/`identity`/`mailer`/`env_path`
+    overrides exist for tests (`env_path` keeps PUT /config away from the real
+    .env; `mailer` keeps signup off the network)."""
     # resolved eagerly (not in lifespan): the CORS middleware needs the origin
     # list at build time
     settings = settings or Settings.load(_env_path())
@@ -166,6 +169,8 @@ def create_app(settings: Settings | None = None, store=None, identity=None,
         app.state.store.ensure_indexes()
         # None when MULTIUSER=false; a hard requirement (Postgres) when true
         app.state.identity = identity if identity is not None else open_identity(settings)
+        # always present: falls back to the console backend when SMTP is unset
+        app.state.mailer = mailer if mailer is not None else open_mailer(settings)
         app.state.jobs = JobRegistry()
         yield
 
@@ -389,6 +394,9 @@ def create_app(settings: Settings | None = None, store=None, identity=None,
                              "auto_post": s.webhook_post_comment}
         checks["multiuser"] = {"enabled": s.multiuser,
                                "identity": getattr(st.identity, "backend", None)}
+        # configuration only — no connection is opened and nothing is sent
+        checks["mail"] = {"backend": getattr(st.mailer, "backend", None),
+                          "host": getattr(st.mailer, "host", "")}
         checks["ok"] = bool(checks["store"].get("ok"))
         return checks
 

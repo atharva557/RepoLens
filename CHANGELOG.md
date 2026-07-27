@@ -7,6 +7,40 @@ This project follows the milestone roadmap in `../GitPulse_Revised_Sections.md`.
 
 ## [Unreleased]
 
+- **Signup now verifies the email address with a one-time code.**
+  `POST /api/v1/auth/signup` validates the form, parks the scrypt hash of the
+  chosen password on an `email_otps` row, emails a 6-digit code and returns
+  `202` — it creates **nothing**. `POST /api/v1/auth/signup/verify` exchanges
+  a valid code for the account and a session (`201`). Verify-then-create was
+  chosen over an `email_verified` flag so an unverified signup can never squat
+  the `UNIQUE(email)` that the GitHub path also depends on, and so no later
+  read path has to remember to check a flag. Rejections stay distinct
+  (`404` none / `401` wrong / `410` expired / `429` locked or too soon) so the
+  UI can say what actually happened. Codes come from `secrets.randbelow`, are
+  single-use, expire in `OTP_TTL_MINS` (10), and lock after 5 wrong attempts —
+  without that cap a 6-digit code is 10⁶ guesses against a local API.
+  Re-POSTing `/signup` is the resend: `email` is the primary key, so a new
+  code replaces the old one and two live codes cannot coexist. Abuse is
+  bounded per-address by `sent_at` and per-caller by an in-process IP counter
+  (20/hour).
+  *Codes are stored as sent, not hashed — a deliberate call for this
+  milestone, since a code is single-use, short-lived and valid nowhere else;
+  hashing it is a one-line change in `start_email_otp`/`verify_email_otp`.*
+- **New `core/mailer.py` — outbound email on the stdlib**, no new dependency
+  (`smtplib` + `email.message`, the same call as urllib over authlib for the
+  OAuth exchange). Two backends behind one `send()`, like
+  `MongoStore`/`JsonStore` and `PgIdentity`/`MemoryIdentity`: `SmtpMailer`
+  (implicit TLS on 465, STARTTLS on 587, and a hard failure rather than a
+  cleartext login if a server offers neither) and `ConsoleMailer`, which
+  prints the code so signup runs on a laptop with no mail account.
+  SMTP is selected only once `SMTP_HOST`, `SMTP_USER` and `SMTP_PASSWORD` are
+  all set — a host with no login is never a working config, and a half-filled
+  `.env` should print codes rather than fail every send. Sends go through
+  `BackgroundTasks` because handlers are sync `def` and a hung SMTP handshake
+  would otherwise tie up a threadpool worker; every failure arrives as a
+  `MailError` since that task may not raise. A refused recipient is flagged
+  `bad_address` and drops the pending row, so a typo'd address can be
+  corrected immediately instead of waiting out the resend cooldown.
 - **Fixed: GitHub sign-in locked out anyone who already had a password
   account.** `users.email` is `UNIQUE` and a password account has
   `github_id` NULL, so `INSERT ... ON CONFLICT (github_id)` never matched it

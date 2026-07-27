@@ -172,20 +172,38 @@ def test_signup_login_api_flow():
                            json={"email": "a@b.com", "password": "short"}
                            ).status_code == 422
 
-        # signup signs the user in (cookie set) and normalizes the email
+        # step 1 emails a code, normalizes the email and creates NOTHING
         r = client.post("/api/v1/auth/signup", headers=csrf,
                         json={"email": " A@B.com ", "password": "longenough"})
+        assert r.status_code == 202
+        assert r.json()["email"] == "a@b.com"
+        assert import_auth().SESSION_COOKIE not in r.cookies
+        assert identity.get_password_user("a@b.com") is None, \
+            "no account may exist before the address is verified"
+        code = _emailed_code(client)
+
+        # step 2 exchanges the code for the account and a session
+        r = client.post("/api/v1/auth/signup/verify", headers=csrf,
+                        json={"email": "A@b.com", "code": code})
         assert r.status_code == 201
         assert import_auth().SESSION_COOKIE in r.cookies
         assert r.json()["user"]["email"] == "a@b.com"
         me = client.get("/api/v1/me").json()
         assert me["user"]["email"] == "a@b.com"
         assert me["user"]["github_login"] is None
+        assert "email_verified" in [a["action"] for a in identity.audit_log]
 
-        # duplicate email refused
+        # the code is single-use — replaying it cannot mint a second account
+        assert client.post("/api/v1/auth/signup/verify", headers=csrf,
+                           json={"email": "a@b.com", "code": code}
+                           ).status_code == 404
+
+        # duplicate email refused at step 1, before any code is sent
+        before = len(client.app.state.mailer.sent)
         assert client.post("/api/v1/auth/signup", headers=csrf,
                            json={"email": "a@b.com", "password": "longenough2"}
                            ).status_code == 409
+        assert len(client.app.state.mailer.sent) == before
 
         # logout, then log back in; wrong password = one generic 401
         assert client.post("/api/v1/auth/logout", headers=csrf).status_code == 200
@@ -202,7 +220,180 @@ def test_signup_login_api_flow():
         assert r.status_code == 200
         assert client.get("/api/v1/me").json()["user"]["email"] == "a@b.com"
         assert "login_failed" in [a["action"] for a in identity.audit_log]
-    print("  ok: signup -> session; login (generic 401) -> session; CSRF gates")
+    print("  ok: signup -> code -> verify -> session; login (generic 401); CSRF gates")
+
+
+def test_signup_otp_rejects_wrong_expired_and_locked_codes():
+    """The code is the only thing standing between a stranger and an account
+    on someone else's address, so every rejection path is worth pinning."""
+    if find_spec("fastapi") is None:  # pragma: no cover
+        print("  skip: fastapi not installed (auth API tests)")
+        return
+    from core.identity import OTP_MAX_ATTEMPTS
+
+    client, identity = _api_client()
+    csrf = {"X-GitPulse-Client": "dashboard"}
+    with client:
+        # verifying an address with no pending signup
+        assert client.post("/api/v1/auth/signup/verify", headers=csrf,
+                           json={"email": "ghost@b.com", "code": "123456"}
+                           ).status_code == 404
+        # both fields are required
+        assert client.post("/api/v1/auth/signup/verify", headers=csrf,
+                           json={"email": "ghost@b.com"}).status_code == 422
+
+        client.post("/api/v1/auth/signup", headers=csrf,
+                    json={"email": "wrong@b.com", "password": "longenough"})
+        code = _emailed_code(client)
+        bad = "000000" if code != "000000" else "111111"
+
+        # a wrong code is 401, and the attempt counter is what stops a
+        # 6-digit code being brute-forced in a few seconds
+        for _ in range(OTP_MAX_ATTEMPTS):
+            assert client.post("/api/v1/auth/signup/verify", headers=csrf,
+                               json={"email": "wrong@b.com", "code": bad}
+                               ).status_code == 401
+        assert client.post("/api/v1/auth/signup/verify", headers=csrf,
+                           json={"email": "wrong@b.com", "code": bad}
+                           ).status_code == 429
+        # once locked, even the RIGHT code is refused
+        assert client.post("/api/v1/auth/signup/verify", headers=csrf,
+                           json={"email": "wrong@b.com", "code": code}
+                           ).status_code == 429
+        assert identity.get_password_user("wrong@b.com") is None
+
+        # an expired code is 410 — distinct from "wrong", so the UI can say
+        # "that code expired" instead of accusing the user of mistyping
+        client.post("/api/v1/auth/signup", headers=csrf,
+                    json={"email": "stale@b.com", "password": "longenough"})
+        stale_code = _emailed_code(client)
+        identity.otps["stale@b.com"]["expires_at"] = (
+            datetime.now(timezone.utc) - timedelta(seconds=1))
+        assert client.post("/api/v1/auth/signup/verify", headers=csrf,
+                           json={"email": "stale@b.com", "code": stale_code}
+                           ).status_code == 410
+        assert "stale@b.com" not in identity.otps, "expired row should be cleared"
+    print("  ok: wrong (401) / locked (429) / expired (410) codes never create an account")
+
+
+def test_signup_resend_replaces_the_code_after_a_cooldown():
+    if find_spec("fastapi") is None:  # pragma: no cover
+        print("  skip: fastapi not installed (auth API tests)")
+        return
+    from core.identity import OTP_RESEND_COOLDOWN_SECS
+
+    client, identity = _api_client()
+    csrf = {"X-GitPulse-Client": "dashboard"}
+    with client:
+        client.post("/api/v1/auth/signup", headers=csrf,
+                    json={"email": "resend@b.com", "password": "longenough"})
+        first = _emailed_code(client)
+
+        # hammering the button doesn't send a second mail
+        before = len(client.app.state.mailer.sent)
+        assert client.post("/api/v1/auth/signup", headers=csrf,
+                           json={"email": "resend@b.com", "password": "longenough"}
+                           ).status_code == 429
+        assert len(client.app.state.mailer.sent) == before
+
+        # past the cooldown a resend issues a NEW code and kills the old one,
+        # so two live codes can never exist for one address
+        identity.otps["resend@b.com"]["sent_at"] -= timedelta(
+            seconds=OTP_RESEND_COOLDOWN_SECS + 1)
+        assert client.post("/api/v1/auth/signup", headers=csrf,
+                           json={"email": "resend@b.com", "password": "longenough"}
+                           ).status_code == 202
+        second = _emailed_code(client)
+        assert client.post("/api/v1/auth/signup/verify", headers=csrf,
+                           json={"email": "resend@b.com", "code": first}
+                           ).status_code == 401
+        assert client.post("/api/v1/auth/signup/verify", headers=csrf,
+                           json={"email": "resend@b.com", "code": second}
+                           ).status_code == 201
+    print("  ok: resend is cooldown-gated and invalidates the previous code")
+
+
+def test_otp_store_lifecycle():
+    """Directly against the store, so the Postgres twin below can assert the
+    identical sequence — the memory twin drifting from real SQL is exactly how
+    the OAuth-over-password lockout stayed green here for weeks."""
+    from core.identity import OTP_MAX_ATTEMPTS, new_otp_code
+
+    ident = MemoryIdentity(FKEY)
+    assert ident.peek_email_otp("nobody@x.com") is None
+    assert ident.verify_email_otp("nobody@x.com", "123456") == ("none", None)
+
+    code = new_otp_code()
+    assert len(code) == 6 and code.isdigit()
+    ident.start_email_otp("Case@X.com", code, "scrypt$hash", ttl_mins=10)
+
+    # stored lower-cased, so the address is one identity however it's typed
+    assert ident.peek_email_otp("case@x.com") is not None
+    assert ident.peek_email_otp("CASE@X.COM")["attempts"] == 0
+
+    # wrong code counts an attempt but leaves the pending signup alive
+    assert ident.verify_email_otp("case@x.com", "999999")[0] == "invalid"
+    assert ident.peek_email_otp("case@x.com")["attempts"] == 1
+
+    # right code returns the parked hash and consumes the row
+    assert ident.verify_email_otp("CASE@x.com", code) == ("ok", "scrypt$hash")
+    assert ident.peek_email_otp("case@x.com") is None
+    assert ident.verify_email_otp("case@x.com", code) == ("none", None)
+
+    # attempts lock, and the lock outlasts a correct guess
+    ident.start_email_otp("lock@x.com", "424242", "h")
+    for _ in range(OTP_MAX_ATTEMPTS):
+        assert ident.verify_email_otp("lock@x.com", "000000")[0] == "invalid"
+    assert ident.verify_email_otp("lock@x.com", "424242")[0] == "locked"
+
+    # expiry is enforced on read and clears the row
+    ident.start_email_otp("old@x.com", "121212", "h", ttl_mins=10)
+    ident.otps["old@x.com"]["expires_at"] = (datetime.now(timezone.utc)
+                                             - timedelta(seconds=1))
+    assert ident.verify_email_otp("old@x.com", "121212") == ("expired", None)
+    assert ident.peek_email_otp("old@x.com") is None
+
+    # explicit abandon (used when a send bounces) and bulk purge
+    ident.start_email_otp("bounce@x.com", "131313", "h")
+    ident.clear_email_otp("BOUNCE@x.com")
+    assert ident.peek_email_otp("bounce@x.com") is None
+    ident.start_email_otp("dead@x.com", "141414", "h", ttl_mins=0)
+    assert ident.purge_expired_otps() == 1
+    print("  ok: OTP store (case-folding, single use, attempt lock, expiry, purge)")
+
+
+def test_undeliverable_address_clears_the_pending_signup():
+    """A bounced code can never arrive, so the pending row must go — otherwise
+    a typo'd address is stuck behind the resend cooldown for a minute."""
+    if find_spec("fastapi") is None:  # pragma: no cover
+        print("  skip: fastapi not installed (auth API tests)")
+        return
+    from core.mailer import MailError
+
+    client, identity = _api_client()
+    csrf = {"X-GitPulse-Client": "dashboard"}
+    with client:
+        def refuse(msg):
+            raise MailError("no such user", bad_address=True)
+
+        client.app.state.mailer.send = refuse
+        r = client.post("/api/v1/auth/signup", headers=csrf,
+                        json={"email": "typo@b.com", "password": "longenough"})
+        assert r.status_code == 202          # the caller is told either way
+        assert identity.peek_email_otp("typo@b.com") is None, \
+            "an undeliverable address should not hold the cooldown"
+
+    # our own failures keep the row, so a resend can reuse the pending signup
+    client2, identity2 = _api_client()
+    with client2:
+        def fail(msg):
+            raise MailError("bad credentials")   # our config, not their typo
+
+        client2.app.state.mailer.send = fail
+        client2.post("/api/v1/auth/signup", headers=csrf,
+                     json={"email": "held@b.com", "password": "longenough"})
+        assert identity2.peek_email_otp("held@b.com") is not None
+    print("  ok: a refused recipient drops the pending signup; our failures keep it")
 
 
 def import_auth():
@@ -235,6 +426,7 @@ def _api_client(multiuser=True):
 
     import api.main as api_main
     from config.settings import Settings
+    from core.mailer import ConsoleMailer
 
     settings = Settings()
     settings.multiuser = multiuser
@@ -247,8 +439,22 @@ def _api_client(multiuser=True):
 
     # only multiuser mode has an identity plane (create_app resolves None)
     identity = MemoryIdentity(FKEY) if multiuser else None
-    app = api_main.create_app(settings=settings, identity=identity)
+    # no network, no console noise — but .sent is inspectable, which is how
+    # the tests below read back the code that was "emailed"
+    mailer = ConsoleMailer(quiet=True)
+    app = api_main.create_app(settings=settings, identity=identity, mailer=mailer)
     return TestClient(app), identity
+
+
+def _emailed_code(client) -> str:
+    """The verification code from the most recent message the mailer took."""
+    import re as _re
+
+    msg = client.app.state.mailer.sent[-1]
+    body = msg.get_body(preferencelist=("plain",)).get_content()
+    match = _re.search(r"\b(\d{6})\b", body)
+    assert match, f"no 6-digit code in the message body: {body!r}"
+    return match.group(1)
 
 
 def test_auth_routes_disabled_without_multiuser():
@@ -452,8 +658,11 @@ def _fresh_pg():
     ident = PgIdentity(url, FKEY)
     ident.ensure_schema()
     with ident._cursor() as cur:  # throwaway DB: start every run clean
+        # email_otps has no FK to users (the account doesn't exist yet), so
+        # CASCADE would not reach it — it has to be named explicitly
         cur.execute("TRUNCATE audit_log, llm_configs, user_profiles, "
-                    "user_repos, sessions, users RESTART IDENTITY CASCADE")
+                    "user_repos, sessions, email_otps, users "
+                    "RESTART IDENTITY CASCADE")
     return ident
 
 
@@ -534,6 +743,57 @@ def test_postgres_expired_session_is_rejected_and_cleared():
                     (hash_session(token),))
         assert cur.fetchone()[0] == 0, "expired row should be cleared on access"
     print("  ok: expired Postgres sessions are rejected and deleted")
+
+
+def test_postgres_otp_roundtrip():
+    """The same sequence test_otp_store_lifecycle runs against MemoryIdentity.
+    Only here does the real PRIMARY KEY(email) prove that a resend REPLACES
+    the pending row rather than quietly leaving two live codes."""
+    from core.identity import OTP_MAX_ATTEMPTS, new_otp_code
+
+    ident = _fresh_pg()
+    if ident is None:
+        print("  skip: set TEST_DATABASE_URL to run the real-Postgres tests")
+        return
+
+    assert ident.peek_email_otp("nobody@pg.com") is None
+    assert ident.verify_email_otp("nobody@pg.com", "123456") == ("none", None)
+
+    code = new_otp_code()
+    ident.start_email_otp("Case@PG.com", code, "scrypt$hash")
+    assert ident.peek_email_otp("case@pg.com")["attempts"] == 0
+
+    assert ident.verify_email_otp("case@pg.com", "999999")[0] == "invalid"
+    assert ident.peek_email_otp("CASE@pg.com")["attempts"] == 1
+    assert ident.verify_email_otp("CASE@pg.com", code) == ("ok", "scrypt$hash")
+    assert ident.peek_email_otp("case@pg.com") is None      # single use
+
+    # a resend overwrites in place — one pending signup per address
+    ident.start_email_otp("dup@pg.com", "111111", "h")
+    ident.start_email_otp("dup@pg.com", "222222", "h")
+    with ident._cursor() as cur:
+        cur.execute("SELECT count(*) FROM email_otps WHERE email = 'dup@pg.com'")
+        assert cur.fetchone()[0] == 1
+    assert ident.verify_email_otp("dup@pg.com", "111111")[0] == "invalid"
+    assert ident.verify_email_otp("dup@pg.com", "222222")[0] == "ok"
+
+    # attempts lock in SQL too, and the lock survives a correct guess
+    ident.start_email_otp("lock@pg.com", "424242", "h")
+    for _ in range(OTP_MAX_ATTEMPTS):
+        assert ident.verify_email_otp("lock@pg.com", "000000")[0] == "invalid"
+    assert ident.verify_email_otp("lock@pg.com", "424242")[0] == "locked"
+
+    # expiry: rejected, and the dead row is cleared on access
+    ident.start_email_otp("old@pg.com", "121212", "h")
+    with ident._cursor() as cur:
+        cur.execute("UPDATE email_otps SET expires_at = %s WHERE email = 'old@pg.com'",
+                    (datetime.now(timezone.utc) - timedelta(seconds=1),))
+    assert ident.verify_email_otp("old@pg.com", "121212") == ("expired", None)
+    assert ident.peek_email_otp("old@pg.com") is None
+
+    ident.clear_email_otp("lock@pg.com")
+    assert ident.peek_email_otp("lock@pg.com") is None
+    print("  ok: Postgres OTP round-trip (case-folding, single use, lock, expiry)")
 
 
 def test_postgres_reconnects_after_a_dropped_connection():

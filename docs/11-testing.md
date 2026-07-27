@@ -36,7 +36,8 @@ the real backends.
 | `test_api.py` | read layer + 404 messages, job lifecycle (success and failure), `GITHUB_TOKEN` gates, webhook security (secret gate, HMAC verification, event/action filtering, dispatch), discovery endpoints, CORS. Skips itself cleanly if `fastapi` isn't installed. |
 | `test_github_cache.py` | GitHub-data freshness policy for `get_repo_meta`: fresh cache served without a call, **stale cache refetches itself**, `refresh=True` forces a refetch, local keys / missing token never hit GitHub, and a failed refresh falls back to the stale copy rather than blanking the dashboard. `GitHubAPI` stubbed. |
 | `test_hotspot_eval.py` | v0.5 temporal hold-out evaluation: truth gated to pre-existing code files, methods deliberately disagree (bug-history finds the future bug at rank 1, churn doesn't), unusable snapshots skipped, honest thin-data flagging. |
-| `test_identity.py` | multi-user slice: crypto discipline (Fernet round-trip, SHA-256 sessions, scrypt hash/verify/tamper), user upsert idempotency, session expiry, encrypted LLM configs, hash-stripping discipline, the `MULTIUSER=false` 503 gate, full signup→login and OAuth→cookie→`/me`→CSRF→logout flows (exchange stubbed via `MemoryIdentity`), trigger enforcement, per-user credential overlay. Skips without `cryptography`/`fastapi`. Plus 4 **opt-in real-Postgres tests** — see below. |
+| `test_identity.py` | multi-user slice: crypto discipline (Fernet round-trip, SHA-256 sessions, scrypt hash/verify/tamper), user upsert idempotency, session expiry, encrypted LLM configs, hash-stripping discipline, the `MULTIUSER=false` 503 gate, full signup→code→verify→login and OAuth→cookie→`/me`→CSRF→logout flows (exchange stubbed via `MemoryIdentity`), every OTP rejection path (wrong `401` / locked `429` / expired `410` / replayed — none of which may create an account), the resend cooldown, trigger enforcement, per-user credential overlay. Skips without `cryptography`/`fastapi`. Plus 5 **opt-in real-Postgres tests** — see below. |
+| `test_mailer.py` | outbound mail: the OTP message is `multipart/alternative` with the code in both parts, STARTTLS on 587 vs implicit TLS on 465, backend selection (SMTP needs host **and** credentials — anything missing falls back to console, and `open_mailer` never raises at startup), **every `smtplib` failure surfacing as a `MailError`** since the background task may not raise, and a refused recipient being flagged `bad_address` so signup drops the pending code. Fake SMTP connection; no network. |
 
 ## Where a fake stops being enough
 
@@ -46,7 +47,7 @@ is also its blind spot: a GitHub sign-in for an address that already had a
 password account passed every test while failing against real Postgres on
 `UNIQUE(email)`.
 
-So `test_identity.py` carries four tests that run against a **real database**
+So `test_identity.py` carries five tests that run against a **real database**
 and skip by default. Set `TEST_DATABASE_URL` to a *throwaway* database — each
 run truncates every table — to include them:
 
@@ -58,8 +59,10 @@ python tests/test_identity.py
 They cover what only the real schema can show: the full round-trip through
 real `BYTEA`/`TIMESTAMPTZ` columns, OAuth adopting an existing password
 account instead of duplicating it, an expired session actually being deleted
-on access, and the store reconnecting after its connection drops. Unset, they
-print a skip line and the suite stays network-free.
+on access, `email_otps`' `PRIMARY KEY(email)` making a resend *replace* the
+pending code rather than leaving two live ones, and the store reconnecting
+after its connection drops. Unset, they print a skip line and the suite stays
+network-free.
 
 The general rule: **fake the transport, not the constraint.** When the
 behavior under test *is* the constraint, the test needs the real backend, even

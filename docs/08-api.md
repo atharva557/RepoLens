@@ -54,7 +54,7 @@ are small summaries; full reports live in the store.
 | `GET /repos/{key}/pulls` | read | the repo's last-N GitHub PRs (any state, reviewed or not; `?limit=`, default 5) — store-cached with a short TTL (`PULLS_CACHE_HOURS`, default 1h) since PR lists churn fast; `?refresh=true` forces a refetch. The dashboard joins these against `/pr-reviews` for review chips |
 | `GET /repos/{key}/insights` | read | cached LLM insight bullets |
 | `POST /webhook/github` | webhook | GitHub PR events → auto Tool 3 |
-| `POST /api/v1/auth/signup` · `/login`, `GET /api/v1/auth/github/login` · `/callback`, `POST /api/v1/auth/logout`, `GET /api/v1/me`, `PUT/DELETE /api/v1/me/llm`, `DELETE /api/v1/me/github-token` | auth (v2) | multi-user identity — email+password (signup signs in; login answers one generic `401`) and GitHub OAuth share the same session plane. `503` while `MULTIUSER=false`; see [12-identity-postgres.md](12-identity-postgres.md) |
+| `POST /api/v1/auth/signup` · `/signup/verify` · `/login`, `GET /api/v1/auth/github/login` · `/callback`, `POST /api/v1/auth/logout`, `GET /api/v1/me`, `PUT/DELETE /api/v1/me/llm`, `DELETE /api/v1/me/github-token` | auth (v2) | multi-user identity — email+password and GitHub OAuth share the same session plane. Signup is two steps: `/signup` emails a code and creates nothing (`202`, also the resend — 60s cooldown), `/signup/verify` exchanges it for the account + session (`201`). Login answers one generic `401`. `503` while `MULTIUSER=false`; see [12-identity-postgres.md](12-identity-postgres.md) |
 
 Repo keys contain slashes (`owner/repo`), so repo routes use `:path` params —
 `GET /repos/pallets/flask/hotspots` works without URL-encoding.
