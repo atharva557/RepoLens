@@ -15,6 +15,13 @@ export default function Navbar() {
 
   const path = location.pathname;
 
+  // Mirrors App.jsx's Gate: nav links point at routes, so they should only
+  // show when those routes actually render. `mode === "single"` matters —
+  // with MULTIUSER=false there is no account at all, and keying purely off
+  // `account` would leave single-user deployments with no navigation. While
+  // mode is "loading" this stays false, so nothing flashes before the probe.
+  const isLoggedIn = mode === "single" || Boolean(account);
+
   // Build query string helper
   const getQueryString = (params) => {
     const newParams = new URLSearchParams();
@@ -133,21 +140,24 @@ export default function Navbar() {
 
           <SettingsDrawer open={showSettings} onClose={() => setShowSettings(false)} />
 
-          {/* Mobile Menu Toggle */}
-          <button
-            className="md:hidden flex items-center justify-center text-on-surface-variant hover:text-primary transition-colors h-9 w-9 rounded bg-surface-container-high border border-outline-variant hover:border-primary"
-            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-            aria-label="Toggle Menu"
-          >
-            <span className="material-symbols-outlined text-[18px]">
-              {mobileMenuOpen ? "close" : "menu"}
-            </span>
-          </button>
+          {/* Mobile Menu Toggle — same gate as the desktop nav, or a signed-out
+              visitor gets a hamburger full of links that only reach the wall */}
+          {isLoggedIn && (
+            <button
+              className="md:hidden flex items-center justify-center text-on-surface-variant hover:text-primary transition-colors h-9 w-9 rounded bg-surface-container-high border border-outline-variant hover:border-primary"
+              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+              aria-label="Toggle Menu"
+            >
+              <span className="material-symbols-outlined text-[18px]">
+                {mobileMenuOpen ? "close" : "menu"}
+              </span>
+            </button>
+          )}
         </div>
       </div>
 
       {/* Mobile Menu Dropdown */}
-      {mobileMenuOpen && (
+      {isLoggedIn && mobileMenuOpen && (
         <div className="md:hidden absolute top-[52px] left-0 right-0 bg-surface border-b border-outline-variant shadow-lg py-2 px-4 flex flex-col gap-1 z-40">
           {navItems.map((item) => {
             const isActive = path === item.path;
