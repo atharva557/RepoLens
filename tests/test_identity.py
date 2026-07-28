@@ -697,6 +697,22 @@ def test_postgres_roundtrip():
     assert set(ident.user_repo_keys(user["id"])) == {"owner/one", "owner/two"}
     ident.track_profile(user["id"], "octocat")
     assert ident.user_profile_names(user["id"]) == ["octocat"]
+
+    # the inverse join, used to pick PR-review notification recipients.
+    # Compared as SETS on purpose: Postgres orders by the database collation
+    # and MemoryIdentity by code point, and they disagree on 'pg@' vs 'pg2@'
+    # — so order is deliberately not part of the contract.
+    assert ident.emails_tracking_repo("owner/one") == ["pg@example.com"]
+    assert ident.emails_tracking_repo("nobody/repo") == []
+    # a second tracker shows up once; an account with no email is skipped
+    other = ident.create_password_user("pg2@example.com", hash_password("pw-12345678"))
+    ident.track_repo(other["id"], "owner/one")
+    ident.track_repo(other["id"], "owner/one")     # re-track must not duplicate
+    anon = ident.upsert_github_user(9931, "noemail", None)
+    ident.track_repo(anon["id"], "owner/one")
+    recipients = ident.emails_tracking_repo("owner/one")
+    assert set(recipients) == {"pg@example.com", "pg2@example.com"}
+    assert len(recipients) == 2, "re-tracking must not duplicate a recipient"
     print("  ok: Postgres round-trip (accounts, sessions, secrets, tracking)")
 
 

@@ -124,6 +124,15 @@ of falling back.
 | `SMTP_TIMEOUT` | `15` | seconds; sends run in a `BackgroundTasks` worker, so this bounds a hung handshake |
 | `OTP_TTL_MINS` | `10` | how long a verification code stays valid |
 | `APP_NAME` | `RepoLens` | `From:` display name and subject line |
+| `PR_REVIEW_EMAIL` | `false` | email a finished Tool 3 report. **Off by default** — outward-facing, the same stance `GITPULSE_WEBHOOK_POST` takes on commenting on the PR |
+| `NOTIFY_EMAIL` | *(unset)* | single-user: the only recipient (unset ⇒ nothing sent). Multiuser: an operator address that gets every review on top of the repo's trackers |
+
+**Who receives a PR review.** In multiuser mode, everyone tracking that repo
+(`user_repos`) — which is exactly the set already permitted to read the report,
+so a notification can never surface a repo the recipient couldn't open anyway.
+Single-user mode has no accounts, so `NOTIFY_EMAIL` is the whole list. Both the
+webhook path and `POST /repos/{key}/pr-reviews/{n}` notify; the report is
+persisted either way, and a mail failure never fails the review.
 
 Gmail caps around 500/day and mail from a residential IP often lands in spam.
 For real deliverability, swap the transport for a provider's HTTP API — that

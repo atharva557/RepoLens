@@ -494,6 +494,28 @@ class PgIdentity:
             )
             return [r[0] for r in cur.fetchall()]
 
+    def emails_tracking_repo(self, repo_key: str) -> list[str]:
+        """Addresses to notify about a repo — the inverse of user_repo_keys.
+
+        Accounts with no email (GitHub OAuth can withhold it) are skipped
+        rather than yielding a NULL recipient.
+
+        The ORDER BY only makes the result stable run-to-run; the *order
+        itself* is not part of the contract, because Postgres sorts by the
+        database's collation while MemoryIdentity's sorted() uses code points
+        — they disagree on e.g. 'pg@x.com' vs 'pg2@x.com'. Recipients are a
+        set; nothing downstream may depend on their sequence.
+        """
+        with self._cursor() as cur:
+            cur.execute(
+                "SELECT DISTINCT u.email FROM users u "
+                "JOIN user_repos r ON r.user_id = u.id "
+                "WHERE r.repo_key = %s AND u.email IS NOT NULL AND u.email <> '' "
+                "ORDER BY u.email",
+                (repo_key,),
+            )
+            return [r[0] for r in cur.fetchall()]
+
     # --------------------------------------------------------- user_profiles
     def track_profile(self, user_id: int, username: str) -> None:
         with self._cursor() as cur:
@@ -733,6 +755,11 @@ class MemoryIdentity:
         rows = [(v["seq"], k) for (uid, k), v in self.repos.items()
                 if uid == user_id]
         return [k for _, k in sorted(rows, reverse=True)]
+
+    def emails_tracking_repo(self, repo_key) -> list[str]:
+        emails = {(self.users.get(uid) or {}).get("email")
+                  for (uid, key) in self.repos if key == repo_key}
+        return sorted(e for e in emails if e)
 
     def track_profile(self, user_id, username) -> None:
         self._seq += 1

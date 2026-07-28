@@ -36,17 +36,28 @@ def pr_spec_from_payload(payload: dict) -> str | None:
     return f"{repo}#{number}"
 
 
-def review_pr_from_payload(payload: dict, settings, store, progress=None) -> dict:
-    """Run Tool 3 for the PR in the payload (background-task entry point)."""
+def review_pr_from_payload(payload: dict, settings, store, identity=None,
+                           mailer=None, progress=None) -> dict:
+    """Run Tool 3 for the PR in the payload (background-task entry point).
+
+    Two opt-in delivery channels hang off the finished report: a comment on
+    the PR (GITPULSE_WEBHOOK_POST) and email to whoever tracks the repo
+    (PR_REVIEW_EMAIL). Both default off; the report is persisted either way.
+    """
     spec = pr_spec_from_payload(payload)
     if spec is None:
         raise ValueError("payload has no repository/pull_request number")
     report = run_pr_review(spec, settings, store,
                            post=settings.webhook_post_comment, progress=progress)
+
+    from core.notify import notify_pr_review
+
+    emailed = notify_pr_review(report, settings, identity, mailer)
     # keep the job result small — the full report is in the store
     return {
         "pr": spec,
         "level": report.get("level"),
         "warnings": report.get("warnings"),
         "posted": report.get("posted"),
+        "emailed": emailed,
     }

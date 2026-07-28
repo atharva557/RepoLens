@@ -140,9 +140,14 @@ def _profile_job(username: str, settings, store, progress=None) -> dict:
     }
 
 
-def _pr_review_job(spec: str, settings, store, progress=None) -> dict:
+def _pr_review_job(spec: str, settings, store, identity=None, mailer=None,
+                   progress=None) -> dict:
     report = run_pr_review(spec, settings, store, post=False, progress=progress)
-    return {"pr": spec, "level": report.get("level"), "warnings": report.get("warnings")}
+    from core.notify import notify_pr_review
+
+    emailed = notify_pr_review(report, settings, identity, mailer)
+    return {"pr": spec, "level": report.get("level"),
+            "warnings": report.get("warnings"), "emailed": emailed}
 
 
 def _insights_job(repo_key: str, settings, store, progress=None) -> dict:
@@ -458,7 +463,8 @@ def create_app(settings: Settings | None = None, store=None, identity=None,
         _require_token(job_settings)
         _track_for_user(request, repo=repo_key)
         return _accepted(st.jobs, "pr_review", params,
-                         tasks, _pr_review_job, spec, job_settings, st.store)
+                         tasks, _pr_review_job, spec, job_settings, st.store,
+                         st.identity, st.mailer)
 
     # ------------------------------------------------------- discovery layer
     # what's in the store — the dashboard's landing-page data. In multiuser
@@ -676,7 +682,8 @@ def create_app(settings: Settings | None = None, store=None, identity=None,
         pr = (payload.get("repository") or {}).get("full_name", "?")
         number = (payload.get("pull_request") or {}).get("number", "?")
         return _accepted(st.jobs, "webhook_pr_review", {"pr": f"{pr}#{number}"}, tasks,
-                         review_pr_from_payload, payload, st.settings, st.store)
+                         review_pr_from_payload, payload, st.settings, st.store,
+                         st.identity, st.mailer)
 
     return app
 

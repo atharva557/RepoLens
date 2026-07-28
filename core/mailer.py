@@ -59,6 +59,90 @@ def build_otp_message(from_addr: str, to_addr: str, code: str,
     return msg
 
 
+_LEVEL_COLOR = {"HIGH": "#c0392b", "MEDIUM": "#b8860b", "LOW": "#2d7a4f"}
+
+
+def build_pr_review_message(from_addr: str, to_addr: str, report: dict,
+                            app_name: str = "RepoLens") -> EmailMessage:
+    """Render a Tool 3 report as mail.
+
+    Reads only fields the runner always sets, so a report missing its optional
+    LLM summary still produces a complete email.
+    """
+    repo = report.get("repo") or "?"
+    number = report.get("pr")
+    spec = f"{repo}#{number}" if number is not None else repo
+    level = (report.get("level") or "UNKNOWN").upper()
+    warnings = report.get("warnings") or []
+    oks = report.get("oks") or []
+    url = report.get("url") or ""
+    summary = (report.get("summary") or "").strip()
+    headline = (f"{len(warnings)} warning{'s' if len(warnings) != 1 else ''}"
+                if warnings else "no warnings")
+
+    msg = EmailMessage()
+    msg["Subject"] = f"[{level}] {spec} — {headline}"
+    msg["From"] = formataddr((app_name, from_addr))
+    msg["To"] = to_addr
+    if url:
+        # lets a reply-all thread on the PR rather than at the sender
+        msg["X-RepoLens-PR"] = url
+
+    stats = (f"risk {report.get('risk_score', '?')} · "
+             f"{report.get('files_changed', '?')} file(s) · "
+             f"+{report.get('lines_added', '?')} lines")
+
+    lines = [f"{spec} — risk level {level}", stats, ""]
+    if warnings:
+        lines += ["Warnings:"] + [f"  - {w}" for w in warnings] + [""]
+    if oks:
+        lines += ["Looks good:"] + [f"  - {o}" for o in oks] + [""]
+    if summary:
+        lines += ["Summary:", summary, ""]
+    if url:
+        lines += [f"Open the PR: {url}", ""]
+    lines.append(f"-- {app_name}")
+    msg.set_content("\n".join(lines))
+
+    def _ul(items):
+        return ("<ul style='margin:0 0 16px;padding-left:20px'>"
+                + "".join(f"<li style='margin:4px 0'>{_esc(i)}</li>" for i in items)
+                + "</ul>")
+
+    colour = _LEVEL_COLOR.get(level, "#555")
+    html = [
+        f"<div style=\"font-family:system-ui,sans-serif;max-width:640px;padding:24px\">",
+        f"  <p style='margin:0 0 4px'><span style='background:{colour};color:#fff;"
+        f"padding:2px 10px;border-radius:3px;font-weight:700;font-size:13px'>"
+        f"{level}</span> &nbsp;<strong>{_esc(spec)}</strong></p>",
+        f"  <p style='margin:0 0 20px;color:#666;font-size:13px'>{_esc(stats)}</p>",
+    ]
+    if warnings:
+        html.append("  <p style='margin:0 0 6px;font-weight:600'>Warnings</p>")
+        html.append(_ul(warnings))
+    if oks:
+        html.append("  <p style='margin:0 0 6px;font-weight:600'>Looks good</p>")
+        html.append(_ul(oks))
+    if summary:
+        html.append("  <p style='margin:0 0 6px;font-weight:600'>Summary</p>")
+        html.append(f"  <p style='margin:0 0 16px;font-size:14px;line-height:1.5'>"
+                    f"{_esc(summary)}</p>")
+    if url:
+        html.append(f"  <p style='margin:0 0 16px'><a href='{_esc(url)}'>"
+                    f"Open the pull request</a></p>")
+    html.append(f"  <p style='color:#888;font-size:12px;margin:0'>Sent by {app_name}"
+                f"</p>\n</div>")
+    msg.add_alternative("\n".join(html), subtype="html")
+    return msg
+
+
+def _esc(value) -> str:
+    """Report text is remote input (PR titles, file paths, LLM output) and goes
+    into an HTML part — escape it rather than trusting it."""
+    return (str(value).replace("&", "&amp;").replace("<", "&lt;")
+            .replace(">", "&gt;").replace('"', "&quot;"))
+
+
 class SmtpMailer:
     """One connection per send — fine at verification-code volume."""
 

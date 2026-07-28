@@ -430,7 +430,9 @@ def test_webhook_security_and_dispatch():
     settings = Settings(github_webhook_secret="whsec", github_token="tok")
     seen = []
 
-    def fake_review(pl, st, store, progress=None):
+    # identity/mailer ride along so the webhook can email the finished report
+    # (PR_REVIEW_EMAIL); both are None on this single-user client
+    def fake_review(pl, st, store, identity=None, mailer=None, progress=None):
         seen.append(pl["pull_request"]["number"])
         return {"pr": "owner/repo#42", "level": "LOW"}
 

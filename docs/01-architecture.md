@@ -32,8 +32,10 @@ layers, never the reverse.
 │                core/progress       phase-report callbacks      │
 │                core/identity       accounts/sessions (Postgres,│
 │                                    MULTIUSER=true only)        │
-│                core/mailer         signup codes over SMTP      │
-│                                    (stdlib; console fallback)  │
+│                core/mailer         SMTP transport (stdlib;     │
+│                                    console fallback)           │
+│                core/notify         who gets told about a       │
+│                                    finished report             │
 └────────────────────────────────────────────────────────────────┘
 ```
 
