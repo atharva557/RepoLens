@@ -47,6 +47,7 @@ export const DEFAULT_GLOBAL_SETTINGS = {
   accentColor: "#f5a524",
   timeRange: "365", // dashboard activity window, in days
   autoAnalyze: false, // auto-run analysis when a GitHub URL is pasted on Home
+  autoEmailReview: false, // email a PR review as soon as it finishes
 };
 
 // pre-drawer versions stored contributionColor: green|blue|orange|yellow

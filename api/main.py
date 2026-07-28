@@ -141,11 +141,16 @@ def _profile_job(username: str, settings, store, progress=None) -> dict:
 
 
 def _pr_review_job(spec: str, settings, store, identity=None, mailer=None,
-                   progress=None) -> dict:
+                   email: bool = False, progress=None) -> dict:
+    """`email` comes from the caller, not config — the dashboard passes the
+    user's "email reviews automatically" preference on each trigger, and the
+    Email button uses the dedicated endpoint instead."""
     report = run_pr_review(spec, settings, store, post=False, progress=progress)
-    from core.notify import notify_pr_review
+    emailed = 0
+    if email:
+        from core.notify import notify_pr_review
 
-    emailed = notify_pr_review(report, settings, identity, mailer)
+        emailed = notify_pr_review(report, settings, identity, mailer)
     return {"pr": spec, "level": report.get("level"),
             "warnings": report.get("warnings"), "emailed": emailed}
 
@@ -454,8 +459,33 @@ def create_app(settings: Settings | None = None, store=None, identity=None,
         return _accepted(st.jobs, "profile", params,
                          tasks, _profile_job, username, job_settings, st.store)
 
+    # registered BEFORE the plain trigger: `repo_key:path` is greedy, so the
+    # more specific route has to be matched first
+    @app.post("/repos/{repo_key:path}/pr-reviews/{number}/email")
+    def email_pr_review(repo_key: str, number: int, request: Request):
+        """Email an already-generated report — what the dashboard's Email
+        button calls. Synchronous on purpose: the user clicked it and wants
+        to be told whether it actually went out."""
+        st = request.app.state
+        _require_scope(request, repo=repo_key)
+        doc = st.store.load_report("pr_review", f"{repo_key}#{number}")
+        if doc is None:
+            raise HTTPException(404, f"no review for {repo_key}#{number} — "
+                                     f"run the review first")
+        from core.notify import notify_pr_review
+
+        sent = notify_pr_review(doc, st.settings, st.identity, st.mailer)
+        if not sent:
+            raise HTTPException(
+                503, "could not send — no recipient resolved. Set SMTP_USER "
+                     "(and SMTP_HOST/SMTP_PASSWORD to deliver for real).")
+        return {"ok": True, "emailed": sent}
+
     @app.post("/repos/{repo_key:path}/pr-reviews/{number}", status_code=202)
-    def review_pr(repo_key: str, number: int, request: Request, tasks: BackgroundTasks):
+    def review_pr(repo_key: str, number: int, request: Request,
+                  tasks: BackgroundTasks, email: bool = False):
+        """`?email=true` mails the report when the run finishes — the
+        dashboard sends the user's "email reviews automatically" preference."""
         st = request.app.state
         spec = f"{repo_key}#{number}"
         params = _trigger_params(request, {"pr": spec})
@@ -464,7 +494,7 @@ def create_app(settings: Settings | None = None, store=None, identity=None,
         _track_for_user(request, repo=repo_key)
         return _accepted(st.jobs, "pr_review", params,
                          tasks, _pr_review_job, spec, job_settings, st.store,
-                         st.identity, st.mailer)
+                         st.identity, st.mailer, email)
 
     # ------------------------------------------------------- discovery layer
     # what's in the store — the dashboard's landing-page data. In multiuser

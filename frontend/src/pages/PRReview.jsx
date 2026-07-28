@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useNavigate, useLocation, Link } from "react-router-dom";
 import { getJSON, isNotFound, postJSON } from "../lib/api";
+import { loadGlobalSettings } from "../lib/settings";
 
 function parsePrInput(input) {
   let cleaned = input.trim();
@@ -83,6 +84,18 @@ export default function PRReview() {
   const reportRef = useRef(null);
 
   const [showMarkdown, setShowMarkdown] = useState(false);
+  // {sending} | {ok, count} | {error} — feedback for the Email button
+  const [emailState, setEmailState] = useState(null);
+
+  const emailReport = async () => {
+    setEmailState({ sending: true });
+    try {
+      const res = await postJSON(`/repos/${repo}/pr-reviews/${pr}/email`);
+      setEmailState({ ok: true, count: res.emailed });
+    } catch (e) {
+      setEmailState({ error: String(e.message || e) });
+    }
+  };
 
   const applyReport = useCallback((data) => {
     reportRef.current = data;
@@ -139,8 +152,14 @@ export default function PRReview() {
     setError(null);
     setTokenError(false);
     setJobError(null);
+    setEmailState(null);
     try {
-      const res = await postJSON(`/repos/${targetRepo}/pr-reviews/${targetPr}`);
+      // the "Email PR reviews" switch travels with the trigger — the server
+      // holds no preference of its own, so the report mails itself only when
+      // this user asked for it
+      const auto = loadGlobalSettings().autoEmailReview ? "?email=true" : "";
+      const res = await postJSON(
+        `/repos/${targetRepo}/pr-reviews/${targetPr}${auto}`);
       setPollingJobId(res.job_id);
     } catch (e) {
       if (e.status === 400) {   // the API's "GITHUB_TOKEN is not configured"
@@ -400,14 +419,37 @@ export default function PRReview() {
               Generated at {new Date(report.generated_at).toLocaleString()}
             </p>
           </div>
-          <div className="flex gap-3">
-            <button
-              onClick={() => triggerAnalysis(repo, pr)}
-              className="h-9 px-4 bg-surface-container hover:bg-surface-container-high border border-outline-variant font-code text-[11px] font-bold rounded-lg transition-all flex items-center gap-2"
-            >
-              <span className="material-symbols-outlined text-[16px]">refresh</span>
-              RE-ANALYZE
-            </button>
+          <div className="flex flex-col items-start md:items-end gap-2">
+            <div className="flex gap-3">
+              <button
+                onClick={emailReport}
+                disabled={emailState?.sending}
+                title="Email this report"
+                className="h-9 px-4 bg-surface-container hover:bg-surface-container-high border border-outline-variant font-code text-[11px] font-bold rounded-lg transition-all flex items-center gap-2 disabled:opacity-50"
+              >
+                <span className="material-symbols-outlined text-[16px]">
+                  {emailState?.ok ? "mark_email_read" : "mail"}
+                </span>
+                {emailState?.sending ? "SENDING…" : emailState?.ok ? "SENT" : "EMAIL"}
+              </button>
+              <button
+                onClick={() => triggerAnalysis(repo, pr)}
+                className="h-9 px-4 bg-surface-container hover:bg-surface-container-high border border-outline-variant font-code text-[11px] font-bold rounded-lg transition-all flex items-center gap-2"
+              >
+                <span className="material-symbols-outlined text-[16px]">refresh</span>
+                RE-ANALYZE
+              </button>
+            </div>
+            {emailState?.ok && (
+              <p className="text-label text-primary">
+                Sent to {emailState.count} recipient{emailState.count === 1 ? "" : "s"}.
+              </p>
+            )}
+            {emailState?.error && (
+              <p className="text-label text-red-400 max-w-[320px] md:text-right break-words">
+                {emailState.error}
+              </p>
+            )}
           </div>
         </section>
 

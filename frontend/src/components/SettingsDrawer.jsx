@@ -281,6 +281,29 @@ export default function SettingsDrawer({ open, onClose }) {
                   />
                 </button>
               </div>
+
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <p className="text-body font-medium">Email PR reviews</p>
+                  <p className="text-label text-on-surface-variant">
+                    Send the report as soon as a review finishes
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={tempSettings.autoEmailReview}
+                  aria-label="Email PR reviews"
+                  onClick={() => set({ autoEmailReview: !tempSettings.autoEmailReview })}
+                  className={`relative w-10 h-5 rounded-full transition-colors flex-shrink-0 ${tempSettings.autoEmailReview ? "bg-primary/30" : "bg-surface-container-highest"
+                    }`}
+                >
+                  <span
+                    className={`absolute top-1 w-3 h-3 rounded-full transition-all duration-200 ${tempSettings.autoEmailReview ? "left-6 bg-primary" : "left-1 bg-on-surface-variant"
+                      }`}
+                  />
+                </button>
+              </div>
             </div>
           </div>
 

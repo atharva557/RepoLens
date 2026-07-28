@@ -111,10 +111,70 @@ def test_mongo_load_commits_sorts_newest_first():
     print("  ok: MongoStore.load_commits sorts newest-first explicitly")
 
 
-def _client(settings=None, store=None, env_path=None):
+def _client(settings=None, store=None, env_path=None, mailer=None):
     return TestClient(create_app(settings=settings or Settings(),
                                  store=store or FakeStore(),
-                                 env_path=env_path or os.devnull))
+                                 env_path=env_path or os.devnull,
+                                 mailer=mailer))
+
+
+def test_email_pr_review_endpoint():
+    """The dashboard's Email button. Its route sits under the same
+    `{repo_key:path}` prefix as the trigger, and `:path` is greedy — so this
+    also pins that `.../pr-reviews/42/email` doesn't get swallowed as a repo
+    key with number="email"."""
+    from core.mailer import ConsoleMailer
+
+    store = FakeStore()
+    store.save_report("pr_review", "owner/repo#42", {
+        "repo": "owner/repo", "pr": 42, "level": "HIGH",
+        "warnings": ["large diff"], "oks": [], "url": "https://x/pull/42"})
+    mailer = ConsoleMailer(quiet=True)
+    settings = Settings(smtp_user="bot@example.com")
+
+    with _client(settings=settings, store=store, mailer=mailer) as c:
+        # a review that was never run can't be emailed
+        assert c.post("/repos/owner/repo/pr-reviews/99/email").status_code == 404
+
+        r = c.post("/repos/owner/repo/pr-reviews/42/email")
+        assert r.status_code == 200, r.text
+        assert r.json() == {"ok": True, "emailed": 1}
+        assert len(mailer.sent) == 1
+        assert mailer.sent[0]["To"] == "bot@example.com"
+        assert "owner/repo#42" in mailer.sent[0]["Subject"]
+
+    # nothing configured to send from -> an actionable 503, not a silent 200
+    with _client(settings=Settings(), store=store,
+                 mailer=ConsoleMailer(quiet=True)) as c:
+        r = c.post("/repos/owner/repo/pr-reviews/42/email")
+        assert r.status_code == 503 and "SMTP_USER" in r.json()["detail"]
+    print("  ok: POST .../pr-reviews/{n}/email sends, 404s, and 503s honestly")
+
+
+def test_pr_review_trigger_emails_only_when_asked():
+    """The server holds no email preference — the dashboard passes the user's
+    "Email PR reviews" switch per trigger, so the default must be silent."""
+    from core.mailer import ConsoleMailer
+
+    seen = {}
+
+    def fake_job(spec, settings, store, identity=None, mailer=None,
+                 email=False, progress=None):
+        seen["email"] = email
+        return {"pr": spec, "level": "LOW"}
+
+    original = api_main._pr_review_job
+    api_main._pr_review_job = fake_job
+    try:
+        settings = Settings(github_token="tok", smtp_user="bot@example.com")
+        with _client(settings=settings, mailer=ConsoleMailer(quiet=True)) as c:
+            c.post("/repos/owner/repo/pr-reviews/42")
+            assert seen["email"] is False, "must not email unless asked"
+            c.post("/repos/owner/repo/pr-reviews/42?email=true")
+            assert seen["email"] is True
+    finally:
+        api_main._pr_review_job = original
+    print("  ok: the trigger emails only when ?email=true")
 
 
 def test_multiuser_discovery_scoping():

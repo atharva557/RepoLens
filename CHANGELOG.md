@@ -17,6 +17,14 @@ This project follows the milestone roadmap in `../GitPulse_Revised_Sections.md`.
   **No configuration of its own**: it reuses the SMTP account already set up
   for signup codes, so there is nothing extra to switch on. With SMTP unset
   the console backend prints reviews exactly as it prints codes.
+  Sending is driven from the UI rather than a config file. The report page has
+  an **Email** button (`POST /repos/{key}/pr-reviews/{n}/email`, synchronous —
+  the user clicked it and wants to know whether it went), and
+  *Settings → Email PR reviews* is a per-user switch that rides along with each
+  trigger as `?email=true`. The server keeps no preference of its own, so a
+  dashboard review is silent unless somebody asked for mail. The webhook is the
+  exception and always sends: nobody is watching an unattended trigger, which
+  is the entire reason it exists.
   Recipients in multiuser mode are everyone tracking that repo
   (`emails_tracking_repo`, the inverse of `user_repo_keys`) — deliberately the
   same set already permitted to read the report, so a notification cannot
