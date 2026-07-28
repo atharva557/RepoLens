@@ -28,8 +28,8 @@ REPORT = {
 
 
 def _settings(**over):
-    base = dict(pr_review_email=True, notify_email="", smtp_from="bot@example.com",
-                smtp_user="", app_name="RepoLens")
+    # no config of its own — it rides on the SMTP account set up for signup
+    base = dict(smtp_from="bot@example.com", smtp_user="", app_name="RepoLens")
     return SimpleNamespace(**{**base, **over})
 
 
@@ -77,23 +77,25 @@ def test_report_text_is_escaped_in_the_html_part():
     print("  ok: report text is HTML-escaped, not injected")
 
 
-def test_notification_is_opt_in():
+def test_single_user_falls_back_to_the_sending_account():
+    """No identity plane means no accounts to look up, so the review goes to
+    the address already configured for sending — no extra .env entry."""
     mailer = ConsoleMailer(quiet=True)
-    # default off: a fresh deployment must not email anyone on the first webhook
-    assert notify_pr_review(REPORT, _settings(pr_review_email=False,
-                                              notify_email="ops@example.com"),
-                            None, mailer) == 0
-    assert mailer.sent == []
+    assert notify_pr_review(REPORT, _settings(), None, mailer) == 1
+    assert mailer.sent[-1]["To"] == "bot@example.com"
 
-    # on, but nobody to send to (single-user with no NOTIFY_EMAIL)
-    assert notify_pr_review(REPORT, _settings(), None, mailer) == 0
-    assert mailer.sent == []
+    # SMTP_FROM is usually blank, in which case SMTP_USER is the account
+    mailer2 = ConsoleMailer(quiet=True)
+    assert notify_pr_review(REPORT, _settings(smtp_from="", smtp_user="me@gmail.com"),
+                            None, mailer2) == 1
+    assert mailer2.sent[-1]["To"] == "me@gmail.com"
 
-    # on, with an address configured
-    assert notify_pr_review(REPORT, _settings(notify_email="ops@example.com"),
-                            None, mailer) == 1
-    assert mailer.sent[-1]["To"] == "ops@example.com"
-    print("  ok: PR_REVIEW_EMAIL is opt-in and silent with no recipients")
+    # nothing configured at all -> nothing sent, rather than a crash
+    assert notify_pr_review(REPORT, _settings(smtp_from="", smtp_user=""),
+                            None, ConsoleMailer(quiet=True)) == 0
+    # and a report with no repo key is a no-op
+    assert notify_pr_review({}, _settings(), None, ConsoleMailer(quiet=True)) == 0
+    print("  ok: single-user falls back to the configured sending account")
 
 
 def test_recipients_are_the_users_tracking_the_repo():
@@ -120,21 +122,16 @@ def test_recipients_are_the_users_tracking_the_repo():
         "alice@example.com", "bob@example.com"}
     assert set(pr_review_recipients(_settings(), ident, "other/repo")) == {
         "alice@example.com"}
-    assert pr_review_recipients(_settings(), ident, "nobody/repo") == []
 
-    # NOTIFY_EMAIL is an operator address added on top, never duplicated
-    assert "ops@example.com" in pr_review_recipients(
-        _settings(notify_email="ops@example.com"), ident, "owner/repo")
-    both = pr_review_recipients(_settings(notify_email="alice@example.com"),
-                                ident, "owner/repo")
-    assert sorted(both) == ["alice@example.com", "bob@example.com"], \
-        "an operator address that already tracks the repo must not double up"
+    # a repo nobody tracks still reaches the operator, via the sending account
+    assert pr_review_recipients(_settings(), ident, "nobody/repo") == [
+        "bot@example.com"]
 
     mailer = ConsoleMailer(quiet=True)
     assert notify_pr_review(REPORT, _settings(), ident, mailer) == 2
     assert sorted(m["To"] for m in mailer.sent) == ["alice@example.com",
                                                     "bob@example.com"]
-    print("  ok: recipients are the repo's trackers (+ NOTIFY_EMAIL, deduped)")
+    print("  ok: recipients are the repo's trackers, else the sending account")
 
 
 def test_one_bad_address_does_not_stop_the_rest():
@@ -154,13 +151,16 @@ def test_one_bad_address_does_not_stop_the_rest():
     assert notify_pr_review(REPORT, _settings(), Ident(), mailer) == 1
     assert [m["To"] for m in mailer.sent] == ["ok@example.com"]
 
-    # and a store that cannot answer at all is survivable too
+    # a store that cannot answer at all is survivable too: the lookup is
+    # logged and we fall back to the sending account, so the review still
+    # reaches the operator rather than vanishing
     class Exploding:
         def emails_tracking_repo(self, key):
             raise RuntimeError("db down")
 
-    assert notify_pr_review(REPORT, _settings(), Exploding(),
-                            ConsoleMailer(quiet=True)) == 0
+    fallback = ConsoleMailer(quiet=True)
+    assert notify_pr_review(REPORT, _settings(), Exploding(), fallback) == 1
+    assert fallback.sent[-1]["To"] == "bot@example.com"
     print("  ok: a refused address or a dead lookup never fails the review")
 
 

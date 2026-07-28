@@ -41,7 +41,7 @@ are small summaries; full reports live in the store.
 | `POST /analyze` | trigger | Tool 1 (`{"repo", "refresh", "max_commits", "top"}`) |
 | `POST /commit-quality` | trigger | Tool 4 |
 | `POST /profiles/{user}` | trigger | Tool 2 — requires `GITHUB_TOKEN`; always rebuilds (skips profile cache) |
-| `POST /repos/{o}/{r}/pr-reviews/{n}` | trigger | Tool 3 — requires `GITHUB_TOKEN`. Emails the finished report when `PR_REVIEW_EMAIL=true`; the job result reports `emailed` (recipient count) |
+| `POST /repos/{o}/{r}/pr-reviews/{n}` | trigger | Tool 3 — requires `GITHUB_TOKEN`. Emails the finished report to the repo's trackers; the job result reports `emailed` (recipient count) |
 | `POST /repos/{key}/insights` | trigger | LLM insight bullets (`core/insights.py`) |
 | `GET /repos` | discovery | per-repo summary for the dashboard landing page. Single-user: everything in the store. Multiuser: **only what the requesting user analyzed** (empty for anonymous) |
 | `GET /profiles` · `GET /repos/{key}/pr-reviews` | discovery | stored profiles / reviews lists — `/profiles` is scoped per user the same way |
@@ -122,13 +122,12 @@ live percent, `reading commit history (git)`, `fetching commits (GitHub)`
    (`review_pr_from_payload`), so webhook reviews are observable via
    `GET /jobs/{id}` like any other run.
 
-The report is always persisted, and two delivery channels hang off it. Both
-are **opt-in and default off**, because both reach outside the machine:
+The report is always persisted, and two delivery channels hang off it:
 
 | | |
 |---|---|
-| `GITPULSE_WEBHOOK_POST` | posts the report back to the PR as a comment |
-| `PR_REVIEW_EMAIL` | emails it (`core/notify.py`) to everyone tracking that repo — in single-user mode, to `NOTIFY_EMAIL` |
+| `GITPULSE_WEBHOOK_POST` | posts the report back to the PR as a comment. **Opt-in, default off** — it writes to someone else's repository |
+| *(always on)* | emails it (`core/notify.py`) to everyone tracking that repo, reusing the SMTP account already configured for signup codes. No accounts, or a repo nobody tracks, falls back to `SMTP_USER` |
 
 Recipients are the repo's trackers precisely because that is already the set
 allowed to read the report, so notifying cannot reveal a repo someone couldn't

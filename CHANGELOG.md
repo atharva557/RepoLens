@@ -7,26 +7,26 @@ This project follows the milestone roadmap in `../GitPulse_Revised_Sections.md`.
 
 ## [Unreleased]
 
-- **Finished PR reviews can be emailed.** Tool 3 already ran automatically on
-  a webhook and persisted its report; the only way to see it was opening the
-  dashboard or enabling the PR comment. `PR_REVIEW_EMAIL=true` adds email as a
-  second delivery channel on both the webhook path and
-  `POST /repos/{key}/pr-reviews/{n}` — subject carries the risk level and
-  warning count (`[HIGH] owner/repo#42 — 2 warnings`), body carries the
-  warnings, the passing checks, the LLM summary when there is one, and a link
-  back to the PR. Off by default, the same stance `GITPULSE_WEBHOOK_POST`
-  takes: a tool that emails people unprompted the first time a webhook fires
-  is one nobody installs twice.
+- **Finished PR reviews are emailed.** Tool 3 already ran automatically on a
+  webhook and persisted its report; the only ways to see one were opening the
+  dashboard or enabling the PR comment. Email is now a second delivery channel
+  on both the webhook path and `POST /repos/{key}/pr-reviews/{n}` — subject
+  carries the risk level and warning count (`[HIGH] owner/repo#42 — 2
+  warnings`), body carries the warnings, the passing checks, the LLM summary
+  when there is one, and a link back to the PR.
+  **No configuration of its own**: it reuses the SMTP account already set up
+  for signup codes, so there is nothing extra to switch on. With SMTP unset
+  the console backend prints reviews exactly as it prints codes.
   Recipients in multiuser mode are everyone tracking that repo
   (`emails_tracking_repo`, the inverse of `user_repo_keys`) — deliberately the
   same set already permitted to read the report, so a notification cannot
-  surface a repo the recipient couldn't open. Single-user mode has no
-  accounts, so `NOTIFY_EMAIL` is the whole list and unset means nothing is
-  sent. Report text is HTML-escaped on the way into the HTML part: warnings
-  carry file paths and the summary is LLM output, none of it ours to trust.
-  A refused address or an identity lookup that raises is logged and skipped —
-  the report is saved before any of this runs, and mail trouble must never
-  turn a successful analysis into a failed job.
+  surface a repo the recipient couldn't open. With no accounts, or a repo
+  nobody tracks, it falls back to `SMTP_USER` so a single-user install still
+  gets its own reviews. Report text is HTML-escaped on the way into the HTML
+  part: warnings carry file paths and the summary is LLM output, none of it
+  ours to trust. A refused address or an identity lookup that raises is logged
+  and skipped — the report is saved before any of this runs, and mail trouble
+  must never turn a successful analysis into a failed job.
   *`emails_tracking_repo` deliberately promises no ordering: Postgres sorts by
   the database collation and `MemoryIdentity` by code point, and they disagree
   on addresses like `pg@x.com` vs `pg2@x.com`. Recipients are a set.*

@@ -171,10 +171,6 @@ class Settings:
     smtp_from: str = ""                  # defaults to SMTP_USER
     smtp_timeout: int = 15
     otp_ttl_mins: int = 10
-    # Email a finished Tool 3 report. Outward-facing, so opt-in — same stance
-    # webhook_post_comment takes on posting the report to the PR itself.
-    pr_review_email: bool = False
-    notify_email: str = ""   # single-user: the only recipient. Unset = no mail
 
     @classmethod
     def load(cls, env_path: str = ".env") -> "Settings":
@@ -261,9 +257,6 @@ class Settings:
             smtp_from=get("SMTP_FROM", "").strip(),
             smtp_timeout=get_num("SMTP_TIMEOUT", 15, int),
             otp_ttl_mins=get_num("OTP_TTL_MINS", 10, int),
-            pr_review_email=str(get("PR_REVIEW_EMAIL", "")).strip().lower()
-            in ("1", "true", "yes", "on"),
-            notify_email=get("NOTIFY_EMAIL", "").strip(),
         )
 
     def summary(self) -> str:
