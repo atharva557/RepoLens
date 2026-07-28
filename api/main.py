@@ -46,6 +46,12 @@ from tools.pr_reviewer.runner import run_pr_review
 
 API_VERSION = "0.4"
 
+# PUT /config fields that are per-account secrets rather than server config.
+# In multiuser mode these are refused here and belong to /api/v1/me instead.
+SECRET_CONFIG_FIELDS = frozenset({
+    "anthropic_api_key", "openai_api_key", "gemini_api_key", "github_token",
+})
+
 
 def _env_path() -> str:
     # same convention as cli.py: fall back to the example file pre-setup
@@ -318,22 +324,32 @@ def create_app(settings: Settings | None = None, store=None, identity=None,
 
     @app.put("/config")
     def update_config(req: ConfigUpdate, request: Request):
-        """Single-user runtime settings: bring-your-own LLM key + GitHub token
-        from the dashboard. Changes apply to the live process immediately
-        (get_llm() re-reads settings per job) and persist to .env so the CLI
-        and the next server start agree. Multiuser deployments manage keys
-        per-user via /api/v1/me (encrypted at rest) — this flat-file path is
-        disabled there on purpose.
+        """Runtime settings from the dashboard. Changes apply to the live
+        process immediately (get_llm() re-reads settings per job) and persist
+        to .env so the CLI and the next server start agree.
+
+        **Secrets** — API keys and the GitHub token — are refused in multiuser
+        mode, where they belong to an account and live encrypted per-user
+        (/api/v1/me). Everything else here is non-secret operational config:
+        which provider to use, which model, where the local server listens.
+        Blanket-403ing the whole endpoint made those unreachable too, and
+        /api/v1/me/llm cannot stand in for them — it requires a paid provider
+        AND an api_key, so a local (LM Studio) deployment in multiuser mode
+        had no way to change its model at all.
         """
         st = request.app.state
         s = st.settings
-        if s.multiuser:
-            raise HTTPException(403, "disabled in multiuser mode — manage keys "
-                                     "per-user via /api/v1/me")
         changes = {k: (v or "").strip() for k, v in
                    req.model_dump(exclude_unset=True).items()}
         if not changes:
             raise HTTPException(400, "no settings provided")
+        if s.multiuser:
+            secrets_sent = sorted(set(changes) & SECRET_CONFIG_FIELDS)
+            if secrets_sent:
+                raise HTTPException(
+                    403, f"{', '.join(secrets_sent)} cannot be set here in "
+                         f"multiuser mode — keys belong to an account and are "
+                         f"stored encrypted per-user via /api/v1/me")
         if "llm_provider" in changes:
             changes["llm_provider"] = changes["llm_provider"].lower()
             if changes["llm_provider"] not in ("local", "openai", "claude", "gemini"):

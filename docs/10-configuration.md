@@ -142,6 +142,12 @@ is one `send()` method, since the message building is stdlib either way.
 ## Inspecting the resolved config
 
 - CLI option 9 (`config`) or `GET /config` — all values, secrets masked.
+- `PUT /config` changes provider / model / local server URL at runtime and
+  persists them to `.env`. In **multiuser mode only the secrets are refused**
+  there (`*_api_key`, `github_token`) — those belong to an account and live
+  encrypted per-user via `/api/v1/me`. Non-secret operational config still
+  applies, because `/api/v1/me/llm` requires a paid provider *and* an API key
+  and so cannot express "local provider, different model".
 - `GET /test` — live checks: store round-trip, LLM availability, which
   similarity backend would be picked, token/webhook presence, and which mail
   backend is selected (configuration only — nothing is sent).

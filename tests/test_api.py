@@ -283,10 +283,28 @@ def test_update_config_runtime_and_env():
             assert c.put("/config", json={"llm_provider": "hal9000"}).status_code == 422
             assert c.put("/config", json={}).status_code == 400
     # multiuser mode manages keys per-user (/api/v1/me, encrypted) — the
-    # flat-file path must refuse
+    # flat-file path must refuse SECRETS
     with TestClient(create_app(settings=Settings(multiuser=True), store=FakeStore(),
                                identity=object(), env_path=os.devnull)) as c:
         assert c.put("/config", json={"github_token": "x"}).status_code == 403
+        assert c.put("/config", json={"openai_api_key": "sk-1"}).status_code == 403
+
+        # ...but a model name is not a key. Refusing the whole endpoint left a
+        # local (LM Studio) multiuser deployment unable to change its model at
+        # all: /api/v1/me/llm demands a paid provider AND an api_key, so it
+        # cannot stand in for non-secret operational config.
+        r = c.put("/config", json={"llm_model": "qwen3-8b"})
+        assert r.status_code == 200, r.text
+        assert r.json()["config"]["llm_model"] == "qwen3-8b"
+        assert c.put("/config", json={"llm_provider": "local"}).status_code == 200
+        assert c.put("/config",
+                     json={"local_llm_base_url": "http://x:1234/v1"}).status_code == 200
+
+        # a mixed payload is still refused, and names the offending field
+        r = c.put("/config", json={"llm_model": "y", "openai_api_key": "sk-1"})
+        assert r.status_code == 403 and "openai_api_key" in r.json()["detail"]
+        # and the rejected payload applied nothing
+        assert c.get("/config").json()["llm_model"] == "qwen3-8b"
     print("  ok: PUT /config (live apply + .env persist + masking + guards)")
 
 

@@ -7,6 +7,19 @@ This project follows the milestone roadmap in `../GitPulse_Revised_Sections.md`.
 
 ## [Unreleased]
 
+- **Fixed: multiuser mode could not change its LLM model.** `PUT /config`
+  refused the whole endpoint with "manage keys per-user via /api/v1/me", but
+  that route cannot stand in for it — `PUT /api/v1/me/llm` requires a provider
+  in `openai|claude|gemini` *and* a non-empty `api_key`, so a `local`
+  (LM Studio) deployment had nowhere at all to set its model, provider or base
+  URL. The dashboard's Settings drawer calls `PUT /config` unconditionally, so
+  saving anything in the AI section just produced the 403. The block now
+  applies to the four fields it was always about — `anthropic_api_key`,
+  `openai_api_key`, `gemini_api_key`, `github_token` — and names whichever one
+  was sent; `llm_provider`, `llm_model` and `local_llm_base_url` are
+  non-secret server config and go through. A mixed payload is refused whole,
+  so a rejected request never half-applies.
+
 - **Finished PR reviews are emailed.** Tool 3 already ran automatically on a
   webhook and persisted its report; the only ways to see one were opening the
   dashboard or enabling the PR comment. Email is now a second delivery channel
