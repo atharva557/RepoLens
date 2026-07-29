@@ -13,6 +13,19 @@ function formatNumber(num) {
   return num.toString();
 }
 
+/** "octocat", "@octocat", "github.com/octocat", a full profile URL, or an
+ *  "owner/repo" pair (take the owner) -> "octocat". */
+function parseUserInput(input) {
+  let cleaned = (input || "").trim().replace(/^@/, "");
+  if (cleaned.includes("github.com/")) {
+    cleaned = cleaned.split("github.com/")[1] || "";
+  }
+  // drop a trailing repo/path and any query string
+  cleaned = cleaned.split("?")[0].split("/").filter(Boolean)[0] || "";
+  // GitHub usernames: alphanumeric and hyphens only
+  return /^[A-Za-z0-9-]+$/.test(cleaned) ? cleaned : "";
+}
+
 export default function DeveloperProfile() {
   const { settings } = useContext(ThemeContext);
   const navigate = useNavigate();
@@ -45,6 +58,22 @@ export default function DeveloperProfile() {
   const [tokenError, setTokenError] = useState(false);
   const [gaugeAnimated, setGaugeAnimated] = useState(false);
   const [selectedYear, setSelectedYear] = useState(() => new Date().getFullYear());
+  // username search — the page is reachable directly from the navbar, so it
+  // needs its own way in rather than only via ?user= from somewhere else
+  const [inputVal, setInputVal] = useState("");
+  const [inputError, setInputError] = useState(null);
+  const [knownProfiles, setKnownProfiles] = useState([]);
+
+  const openProfile = (raw) => {
+    const username = parseUserInput(raw);
+    if (!username) {
+      setInputError("Enter a GitHub username, e.g. octocat");
+      return;
+    }
+    setInputError(null);
+    setInputVal("");
+    navigate(`/profile?user=${encodeURIComponent(username)}`);
+  };
 
   const resolvedTheme = settings.theme === "system" 
     ? (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light")
@@ -96,6 +125,11 @@ export default function DeveloperProfile() {
       loadProfile();
     } else {
       setLoading(false);
+      // already-built profiles, so the empty state offers something to click
+      // instead of demanding you remember a username
+      getJSON("/profiles")
+        .then((res) => setKnownProfiles(res.profiles || []))
+        .catch(() => setKnownProfiles([]));
     }
   }, [loadProfile, user]);
 
@@ -260,6 +294,84 @@ export default function DeveloperProfile() {
     );
   }
 
+  // No ?user= — the search screen. This guard comes FIRST: `loading` starts
+  // true, so checking it earlier would flash a spinner, and the main render
+  // below dereferences `data.user` on a null `data` and would throw outright.
+  if (!user) {
+    return (
+      <div className="min-h-[calc(100vh-52px)] flex items-center justify-center bg-background text-on-surface p-6 relative overflow-hidden">
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-primary/5 rounded-full blur-[100px] pointer-events-none"></div>
+        <div className="relative w-full max-w-[560px] p-10 rounded-3xl bg-surface-container-lowest/60 backdrop-blur-xl border border-outline-variant/40 shadow-2xl shadow-primary/10 flex flex-col items-center gap-6">
+          <div className="w-20 h-20 rounded-full bg-primary/10 flex items-center justify-center border border-primary/20 shadow-inner">
+            <span className="material-symbols-outlined text-primary text-[40px]">person_search</span>
+          </div>
+          <div className="space-y-3 text-center">
+            <h2 className="font-display-lg text-3xl text-on-surface font-bold tracking-tight">
+              Developer Profile
+            </h2>
+            <p className="text-sm text-on-surface-variant leading-relaxed font-body">
+              Commit patterns, languages, review participation and message
+              quality for any GitHub user.
+            </p>
+          </div>
+
+          <form
+            onSubmit={(e) => { e.preventDefault(); openProfile(inputVal); }}
+            className="w-full relative mt-4"
+          >
+            <div className="flex items-center w-full rounded-md overflow-hidden border border-primary/50 bg-primary/5 focus-within:ring-2 focus-within:ring-primary/20">
+              <div className="pl-4 pr-2 flex items-center text-primary/60">
+                <span className="material-symbols-outlined text-[20px]">search</span>
+              </div>
+              <input
+                type="text"
+                autoFocus
+                value={inputVal}
+                onChange={(e) => { setInputVal(e.target.value); setInputError(null); }}
+                className="flex-grow bg-transparent border-none py-4 px-2 focus:outline-none font-code text-[14px] text-on-surface placeholder:text-on-surface-variant/40"
+                placeholder="octocat or github.com/octocat"
+                aria-label="GitHub username"
+              />
+              <button
+                type="submit"
+                disabled={!inputVal.trim()}
+                className="px-6 py-4 bg-primary text-on-primary font-bold text-[14px] transition-all disabled:opacity-50 hover:bg-primary-container shrink-0"
+              >
+                Profile
+              </button>
+            </div>
+            {inputError && (
+              <div className="absolute top-full mt-2 w-full text-center text-error text-[12px] font-code">
+                {inputError}
+              </div>
+            )}
+          </form>
+
+          {knownProfiles.length > 0 && (
+            <div className="w-full pt-4 border-t border-outline-variant/40 space-y-2">
+              <p className="text-label text-on-surface-variant uppercase tracking-widest">
+                Already profiled
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {knownProfiles.slice(0, 12).map((p) => (
+                  <button
+                    key={p.username}
+                    type="button"
+                    onClick={() => navigate(`/profile?user=${encodeURIComponent(p.username)}`)}
+                    title={p.primary_type || "profiled"}
+                    className="px-3 py-1.5 rounded-full border border-outline-variant hover:border-primary hover:text-primary text-label font-code transition-colors"
+                  >
+                    @{p.username}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -375,8 +487,32 @@ export default function DeveloperProfile() {
               <h1 className="font-display-lg text-display-lg leading-none">
                 @{user} <span className="text-on-surface-variant/50 mx-2">•</span> <span className="text-primary glow-text">{data.primary_type || "Contributor"}</span>
               </h1>
-              <SyncBadge ageHours={data.age_hours} stale={data.stale} onRefresh={handleBuildProfile} />
+              <div className="flex items-center gap-sm">
+                {/* switch developer without leaving the page — the navbar link
+                    carries ?user= forward, so there is otherwise no way back
+                    to the search screen */}
+                <form
+                  onSubmit={(e) => { e.preventDefault(); openProfile(inputVal); }}
+                  className="flex items-center rounded-md overflow-hidden border border-outline-variant focus-within:border-primary bg-surface-container-lowest"
+                >
+                  <span className="material-symbols-outlined text-[16px] text-on-surface-variant pl-2">
+                    search
+                  </span>
+                  <input
+                    type="text"
+                    value={inputVal}
+                    onChange={(e) => { setInputVal(e.target.value); setInputError(null); }}
+                    placeholder="another user"
+                    aria-label="Search another GitHub username"
+                    className="w-[9rem] bg-transparent border-none py-1.5 px-2 focus:outline-none font-code text-[12px] placeholder:text-on-surface-variant/40"
+                  />
+                </form>
+                <SyncBadge ageHours={data.age_hours} stale={data.stale} onRefresh={handleBuildProfile} />
+              </div>
             </div>
+            {inputError && (
+              <p className="text-error text-[12px] font-code mb-xs">{inputError}</p>
+            )}
             <p className="font-body-lg text-on-surface-variant mb-md max-w-2xl">
               {data.label || social.bio || ""}
             </p>

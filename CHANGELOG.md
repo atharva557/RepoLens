@@ -7,6 +7,19 @@ This project follows the milestone roadmap in `../GitPulse_Revised_Sections.md`.
 
 ## [Unreleased]
 
+- **The Developer Profile page can now be searched from itself**, and no
+  longer crashes when opened without one. Reached from the navbar it arrives
+  with no `?user=`, and the render dereferenced `data.user` while `data` was
+  still `null` — a blank page and a `TypeError`, with no way to enter a
+  username short of hand-editing the URL. It now opens on a search screen
+  (guarded before the `loading` check, so no spinner flashes first) that takes
+  `octocat`, `@octocat`, a profile URL, or an `owner/repo` pair and keeps only
+  the owner. Already-built profiles appear as chips from `GET /profiles`, so
+  the empty state offers something to click rather than demanding you remember
+  a username. A loaded profile grows a compact "another user" box beside the
+  sync badge, because the navbar link carries `?user=` forward and there was
+  otherwise no route back to the search.
+
 - **Fixed: multiuser mode could not change its LLM model.** `PUT /config`
   refused the whole endpoint with "manage keys per-user via /api/v1/me", but
   that route cannot stand in for it — `PUT /api/v1/me/llm` requires a provider

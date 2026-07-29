@@ -24,7 +24,7 @@ components, and CORS is a non-issue in dev (the server also enables CORS via
 | `/loading` | `Loading` | `GET /jobs/{id}` polling while a triggered analysis runs; renders the job's `progress` phases |
 | `/dashboard` | `Dashboard` | `GET /repos/{key}/activity`, `/meta`, `/insights`, `/commit-quality`, `/pr-reviews` — repo overview: contributors, heatmap, health score, AI insights, language inventory, reviewed-PR card |
 | `/hotspots` | `BugHotspots` | `GET /repos/{key}/hotspots` — ranked hotspot table with reasons |
-| `/profile` | `DeveloperProfile` | `GET /profiles/{username}` — type distribution, languages, commit health, heatmap, AI summary |
+| `/profile` | `DeveloperProfile` | `GET /profiles/{username}` — type distribution, languages, commit health, heatmap, AI summary. Without `?user=` it renders a username search (accepting `octocat`, `@octocat`, a profile URL or `owner/repo`) plus chips for already-built profiles from `GET /profiles` |
 | `/pr-review` | `PRReview` | `GET/POST /repos/{o}/{r}/pr-reviews/{n}` + `GET /repos/{key}/pr-reviews` — accepts `owner/repo#N` or a PR URL, triggers a review, shows the risk report; lists the repo's reviewed PRs |
 | `/status` | `Status` | `GET /test`, `GET /config` — live self-test (store, LLM, similarity backend, token/webhook) and the resolved, secret-masked config |
 
