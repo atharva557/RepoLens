@@ -100,9 +100,8 @@ function CommitQualityModal({ quality, activity, onClose, onRerun, triggeringQua
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`pb-2 text-[12px] font-code font-bold uppercase tracking-wider transition-colors border-b-2 ${
-                activeTab === tab.id ? "border-primary text-primary" : "border-transparent text-on-surface-variant hover:text-on-surface"
-              }`}
+              className={`pb-2 text-[12px] font-code font-bold uppercase tracking-wider transition-colors border-b-2 ${activeTab === tab.id ? "border-primary text-primary" : "border-transparent text-on-surface-variant hover:text-on-surface"
+                }`}
             >
               {tab.label}
             </button>
@@ -117,9 +116,8 @@ function CommitQualityModal({ quality, activity, onClose, onRerun, triggeringQua
                 <div
                   className="relative w-48 h-48 rounded-full flex items-center justify-center shadow-xl"
                   style={{
-                    background: `radial-gradient(closest-side, var(--color-surface-container) 79%, transparent 80% 100%), conic-gradient(var(--color-primary) ${
-                      ((quality?.avg_score || 0) / 10) * 100
-                    }%, #222222 0)`
+                    background: `radial-gradient(closest-side, var(--color-surface-container) 79%, transparent 80% 100%), conic-gradient(var(--color-primary) ${((quality?.avg_score || 0) / 10) * 100
+                      }%, #222222 0)`
                   }}
                 >
                   <div className="flex flex-col items-center">
@@ -522,17 +520,19 @@ export default function Dashboard() {
         }
       }
 
-      setData({ activity: activityData, meta: metaData, quality: finalQuality,
-                insights: finalInsights,
-                prReviews: (prData && prData.pr_reviews) || [],
-                pulls: pullsData });
+      setData({
+        activity: activityData, meta: metaData, quality: finalQuality,
+        insights: finalInsights,
+        prReviews: (prData && prData.pr_reviews) || [],
+        pulls: pullsData
+      });
       setLoading(false);
     } catch (e) {
       setError(e.message);
       setLoading(false);
     }
   }, [repo, navigate, getParsedSettings, pollBackgroundInsights, pollBackgroundQuality,
-      settings.timeRange]);
+    settings.timeRange]);
 
   useEffect(() => {
     if (repo) loadData();
@@ -665,14 +665,14 @@ export default function Dashboard() {
   const { activity, meta, quality, insights, prReviews = [], pulls } = data;
   const prLevel = (lvl) =>
     lvl === "HIGH" ? "bg-red-500/20 text-red-400 border-red-500/30"
-    : lvl === "MEDIUM" ? "bg-orange-400/20 text-orange-400 border-orange-400/30"
-    : "bg-green-500/20 text-green-500 border-green-500/30";
+      : lvl === "MEDIUM" ? "bg-orange-400/20 text-orange-400 border-orange-400/30"
+        : "bg-green-500/20 text-green-500 border-green-500/30";
   // PR state chips use GitHub's fixed semantic colors (independent of accent)
   const prState = (p) =>
     p.draft ? "bg-surface-container-highest text-on-surface-variant border border-outline-variant/50"
-    : p.state === "open" ? "bg-green-500/20 text-green-500"
-    : p.state === "merged" ? "bg-purple-500/20 text-purple-400"
-    : "bg-red-500/20 text-red-400";
+      : p.state === "open" ? "bg-green-500/20 text-green-500"
+        : p.state === "merged" ? "bg-purple-500/20 text-purple-400"
+          : "bg-red-500/20 text-red-400";
   const hasPulls = pulls && !pulls.unavailable && Array.isArray(pulls.pulls) && pulls.pulls.length > 0;
   const recentPulls = hasPulls ? pulls.pulls.slice(0, 5) : [];
   const reviewLevelByNumber = new Map(prReviews.map((r) => [r.number, r.level]));

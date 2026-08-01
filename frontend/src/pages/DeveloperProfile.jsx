@@ -75,7 +75,7 @@ export default function DeveloperProfile() {
     navigate(`/profile?user=${encodeURIComponent(username)}`);
   };
 
-  const resolvedTheme = settings.theme === "system" 
+  const resolvedTheme = settings.theme === "system"
     ? (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light")
     : settings.theme;
   const isLight = resolvedTheme === "light";
@@ -578,29 +578,16 @@ export default function DeveloperProfile() {
               <span className="font-code-sm text-on-surface-variant">contribution_matrix.sh</span>
             </div>
             <div className="p-md">
-              <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-3 mb-md">
-                <h3 className="text-[11px] font-code font-bold text-on-surface-variant uppercase tracking-widest">Annual Velocity</h3>
-                <div className="flex items-center gap-4 justify-between sm:justify-end">
-                  {/* Legend */}
-                  <div className="flex items-center gap-2 text-on-surface-variant font-label-caps text-[10px]">
-                    <span>Less</span>
-                    <div className="flex gap-1">
-                      {[0, 2, 5, 8, 12].map((val) => (
-                        <div
-                          key={val}
-                          className={`contribution-cell border ${borderClass}`}
-                          style={getHeatmapStyle(val)}
-                        />
-                      ))}
-                    </div>
-                    <span>More</span>
-                  </div>
-
+              <div className="flex justify-between items-center mb-6 min-w-full">
+                <div className="flex items-center gap-4">
+                  <h3 className="text-[11px] text-on-surface-variant font-code font-bold uppercase tracking-widest">
+                    Annual Contribution Velocity
+                  </h3>
                   {availableYears.length > 0 && (
                     <select
                       value={selectedYear}
                       onChange={(e) => setSelectedYear(parseInt(e.target.value, 10))}
-                      className="bg-surface-container border border-outline-variant/30 text-on-surface text-xs font-code rounded px-2 py-0.5 outline-none cursor-pointer focus:ring-1 focus:ring-primary"
+                      className="bg-surface-container border border-outline-variant text-on-surface text-[10px] font-code rounded px-2 py-0.5 outline-none cursor-pointer hover:border-outline focus:ring-1 focus:ring-primary"
                     >
                       {availableYears.map((yr) => (
                         <option key={yr} value={yr}>
@@ -610,63 +597,59 @@ export default function DeveloperProfile() {
                     </select>
                   )}
                 </div>
+                <div className="flex items-center gap-3 font-code text-[11px] text-on-surface-variant">
+                  <span>Less</span>
+                  <div className="flex gap-1">
+                    {[0, 2, 5, 8, 12].map((val) => (
+                      <div
+                        key={val}
+                        className={`w-[13px] h-[13px] rounded-[3px] ${val === 0 ? "border border-outline-variant/30" : ""}`}
+                        style={getHeatmapStyle(val)}
+                      />
+                    ))}
+                  </div>
+                  <span>More</span>
+                </div>
               </div>
 
               {heatmapCells ? (
                 <>
                   {/* Scrollable Area */}
                   <div className="w-full overflow-x-auto pb-4 scrollbar-thin scrollbar-thumb-outline-variant/30 scrollbar-track-transparent">
-                    <div className="flex flex-col w-full min-w-[700px]">
-                      {/* Month labels */}
-                      <div
-                        className="grid gap-[2px] sm:gap-[3px] md:gap-1 mb-1.5 text-[10px] text-on-surface-variant/70 font-code select-none w-full"
-                        style={{ gridTemplateColumns: `32px repeat(${totalColumns}, minmax(0, 1fr))` }}
-                      >
-                        {/* Empty cell for the day labels column */}
-                        <div className="w-full"></div>
-                        {Array.from({ length: totalColumns }).map((_, colIdx) => {
-                          const label = monthLabels.find(l => l.colIndex === colIdx);
-                          return (
-                            <div key={colIdx} className="w-full min-w-0 relative h-3">
-                              {label && <span className="absolute left-0 top-0 overflow-visible whitespace-nowrap leading-none">{label.text}</span>}
-                            </div>
-                          );
-                        })}
-                      </div>
-
-                      {/* Grid */}
-                      <div
-                        className="grid grid-rows-7 grid-flow-col gap-[2px] sm:gap-[3px] md:gap-1 w-full"
-                        style={{ gridTemplateColumns: `32px repeat(${totalColumns}, minmax(0, 1fr))` }}
-                      >
-                        {/* Day labels column */}
-                        <div className="flex items-center justify-end text-[10px] text-on-surface-variant/70 font-code pr-2 leading-none w-full">Sun</div>
-                        <div className="flex items-center justify-end text-[10px] text-on-surface-variant/70 font-code pr-2 leading-none w-full">Mon</div>
-                        <div className="flex items-center justify-end text-[10px] text-on-surface-variant/70 font-code pr-2 leading-none w-full">Tue</div>
-                        <div className="flex items-center justify-end text-[10px] text-on-surface-variant/70 font-code pr-2 leading-none w-full">Wed</div>
-                        <div className="flex items-center justify-end text-[10px] text-on-surface-variant/70 font-code pr-2 leading-none w-full">Thu</div>
-                        <div className="flex items-center justify-end text-[10px] text-on-surface-variant/70 font-code pr-2 leading-none w-full">Fri</div>
-                        <div className="flex items-center justify-end text-[10px] text-on-surface-variant/70 font-code pr-2 leading-none w-full">Sat</div>
-
-                        {/* Heatmap cells */}
-                        {heatmapCells.map((cell, idx) => {
-                          if (cell.isPadding) {
+                    <div className="min-w-[800px] flex flex-col">
+                      <div className="flex gap-3 mb-1.5">
+                        <div className="w-[24px] shrink-0" />
+                        <div className="flex-grow grid grid-flow-col gap-1 text-[9px] text-on-surface-variant/70 font-code select-none">
+                          {Array.from({ length: totalColumns }).map((_, colIdx) => {
+                            const label = monthLabels.find((l) => l.colIndex === colIdx);
                             return (
+                              <span key={colIdx} className="w-[13px] overflow-visible whitespace-nowrap text-left leading-none">
+                                {label ? label.text : ""}
+                              </span>
+                            );
+                          })}
+                        </div>
+                      </div>
+                      <div className="flex gap-3">
+                        <div className="w-[24px] grid grid-rows-7 gap-1 text-[9px] text-on-surface-variant/70 font-code select-none h-[115px] items-center text-right pr-1 shrink-0">
+                          {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => (
+                            <span key={d} className="leading-none">{d}</span>
+                          ))}
+                        </div>
+                        <div className="flex-grow grid grid-flow-col grid-rows-7 gap-1 h-[115px]">
+                          {heatmapCells.map((cell, idx) =>
+                            cell.isPadding ? (
+                              <div key={idx} className="w-[13px] h-[13px] opacity-0 pointer-events-none" />
+                            ) : (
                               <div
                                 key={idx}
-                                className="w-full aspect-square opacity-0 pointer-events-none"
-                              ></div>
-                            );
-                          }
-                          return (
-                            <div
-                              key={idx}
-                              title={cell.title}
-                              className={`contribution-cell !w-full !h-auto aspect-square rounded-[2px] sm:rounded-sm transition-all duration-200 hover:ring-2 hover:ring-primary/60 cursor-crosshair border ${borderClass}`}
-                              style={getHeatmapStyle(cell.count)}
-                            />
-                          );
-                        })}
+                                title={cell.title}
+                                className={`w-[13px] h-[13px] rounded-[3px] transition-all duration-200 hover:ring-2 hover:ring-primary/60 cursor-crosshair ${cell.count === 0 ? "border border-outline-variant/30" : ""}`}
+                                style={getHeatmapStyle(cell.count)}
+                              />
+                            )
+                          )}
+                        </div>
                       </div>
                     </div>
                   </div>

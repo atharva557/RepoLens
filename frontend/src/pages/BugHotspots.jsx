@@ -551,7 +551,7 @@ export default function BugHotspots() {
                     <div className="space-y-3">
                       <div className="flex items-center gap-1.5">
                         <span className="material-symbols-outlined text-sm text-primary">auto_awesome</span>
-                        <span className="font-code text-[10px] text-primary uppercase font-bold tracking-wider">AI Diagnostic Factors</span>
+                        <span className="font-code text-[10px] text-primary uppercase font-bold tracking-wider">Diagnostic Factors</span>
                       </div>
                       <div className="space-y-2">
                         {selectedRow.reasons.map((reason, idx) => (

@@ -83,24 +83,22 @@ export default function Navbar() {
         </Link>
 
         {/* Navigation Items (Desktop) */}
-        {isLoggedIn && (
-          <nav className="hidden md:flex items-center gap-4 md:gap-6">
-            {navItems.map((item) => {
-              const isActive = path === item.path;
-  
-              let linkClass = "font-label text-label transition-colors duration-200 py-1 px-2 rounded-sm ";
-              linkClass += isActive
-                ? "text-primary font-bold border-b-2 border-primary pb-0.5 rounded-none"
-                : "text-on-surface-variant hover:text-primary hover:bg-surface-container-high";
-  
-              return (
-                <Link key={item.label} to={item.to} className={linkClass}>
-                  {item.label}
-                </Link>
-              );
-            })}
-          </nav>
-        )}
+        <nav className="hidden md:flex items-center gap-4 md:gap-6">
+          {navItems.map((item) => {
+            const isActive = path === item.path;
+
+            let linkClass = "font-label text-label transition-colors duration-200 py-1 px-2 rounded-sm ";
+            linkClass += isActive
+              ? "text-primary font-bold border-b-2 border-primary pb-0.5 rounded-none"
+              : "text-on-surface-variant hover:text-primary hover:bg-surface-container-high";
+
+            return (
+              <Link key={item.label} to={item.to} className={linkClass}>
+                {item.label}
+              </Link>
+            );
+          })}
+        </nav>
 
         {/* Settings Button (prototype: labeled, bordered, active while open) */}
         <div className="flex items-center gap-4">
