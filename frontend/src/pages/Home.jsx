@@ -5,10 +5,19 @@ import { loadRepoSettings, saveRepoSettings } from "../lib/settings";
 import { ThemeContext } from "../lib/theme";
 import SyncBadge from "../components/SyncBadge";
 
-// full GitHub URL or bare owner/repo shorthand (the backend accepts both)
+// Full GitHub clone URL or bare owner/repo shorthand (the backend accepts both).
 function looksLikeRepo(text) {
   const t = (text || "").trim();
-  return /github\.com\/[\w.-]+\/[\w.-]+/.test(t) || /^[\w.-]+\/[\w.-]+$/.test(t);
+  const part = "[A-Za-z0-9][A-Za-z0-9_.-]*";
+  const path = `${part}/${part}(?:\\.git)?/?`;
+  return new RegExp(
+    `^(?:https?://github\\.com/${path}|ssh://git@github\\.com/${path}|git://github\\.com/${path}|git@github\\.com:${path}|${part}/${part})$`,
+    "i",
+  ).test(t);
+}
+
+function looksLikeRemoteUrl(text) {
+  return /^(?:https?:\/\/|ssh:\/\/|git:\/\/|git@)/i.test((text || "").trim());
 }
 
 function getRepoKey(repoUrl) {
@@ -95,6 +104,10 @@ export default function Home() {
 
   const handleAnalyze = async (targetRepo) => {
     if (!targetRepo) return;
+    if (looksLikeRemoteUrl(targetRepo) && !looksLikeRepo(targetRepo)) {
+      setError("Enter a GitHub repository URL, such as https://github.com/owner/repository.");
+      return;
+    }
     setSubmitting(true);
     setError(null);
     try {

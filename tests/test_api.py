@@ -118,6 +118,16 @@ def _client(settings=None, store=None, env_path=None, mailer=None):
                                  mailer=mailer))
 
 
+def test_analysis_rejects_non_github_remote_urls_before_starting_a_job():
+    """The API boundary must reject arbitrary clone URLs, not defer to git."""
+    with _client() as c:
+        response = c.post("/analyze", json={
+            "repo": "https://huggingface.co/bigscience/bloom"})
+    assert response.status_code == 422
+    assert "only GitHub repository URLs" in response.text
+    print("  ok: analysis rejects non-GitHub remote URLs")
+
+
 def test_email_pr_review_endpoint():
     """The dashboard's Email button. Its route sits under the same
     `{repo_key:path}` prefix as the trigger, and `:path` is greedy — so this

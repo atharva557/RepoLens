@@ -183,6 +183,25 @@ def test_github_shorthand_expands():
     print("  ok: github owner/repo shorthand expands")
 
 
+def test_remote_clone_urls_are_limited_to_github_repositories():
+    """User-supplied remote URLs must not be handed to GitPython blindly."""
+    from core.github_client import is_github_repo_url, validate_remote_repo_url
+
+    assert is_github_repo_url("https://github.com/pallets/flask")
+    assert is_github_repo_url("git@github.com:pallets/flask.git")
+    assert is_github_repo_url("ssh://git@github.com/pallets/flask")
+    assert not is_github_repo_url("https://huggingface.co/bigscience/bloom")
+    assert not is_github_repo_url("https://github.com/pallets/flask/issues")
+    assert not is_github_repo_url("https://github.com:8443/pallets/flask")
+    try:
+        validate_remote_repo_url("https://huggingface.co/bigscience/bloom")
+    except ValueError as exc:
+        assert "only GitHub repository URLs" in str(exc)
+    else:
+        raise AssertionError("non-GitHub remote URL was accepted")
+    print("  ok: remote clone URLs are limited to GitHub repositories")
+
+
 def test_clone_failure_message_names_the_real_cause():
     """A repo that cannot be cloned must say *why*. Swallowing the exception
     turned "GitPython isn't installed" into a baffling "no cached commits",

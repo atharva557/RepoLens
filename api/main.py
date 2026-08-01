@@ -26,7 +26,7 @@ from datetime import datetime, timezone
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from api.auth import add_auth_routes, current_user, require_user
 from api.jobs import JobRegistry
@@ -37,7 +37,10 @@ from core.analysis import run_hotspot_analysis
 from core.db import open_store, report_age_hours
 from core.identity import open_identity, user_settings
 from core.github_client import get_recent_pulls, get_repo_meta
-from core.github_client import repo_key as canonical_repo_key
+from core.github_client import (
+    repo_key as canonical_repo_key,
+    validate_remote_repo_url,
+)
 from core.insights import run_repo_insights
 from core.mailer import open_mailer
 from tools.commit_quality.runner import run_commit_quality_report
@@ -67,11 +70,21 @@ class AnalyzeRequest(BaseModel):
     max_commits: int | None = None
     top: int = 15
 
+    @field_validator("repo")
+    @classmethod
+    def allow_only_github_remotes(cls, value: str) -> str:
+        return validate_remote_repo_url(value.strip())
+
 
 class CommitQualityRequest(BaseModel):
     repo: str = Field(min_length=1, description="local path or GitHub URL")
     max_commits: int | None = None
     top: int = 15
+
+    @field_validator("repo")
+    @classmethod
+    def allow_only_github_remotes(cls, value: str) -> str:
+        return validate_remote_repo_url(value.strip())
 
 
 class ConfigUpdate(BaseModel):

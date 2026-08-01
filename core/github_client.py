@@ -12,6 +12,7 @@ from __future__ import annotations
 import os
 import re
 from datetime import datetime, timezone
+from urllib.parse import urlparse
 
 
 def expand_github_shorthand(target: str) -> str:
@@ -40,6 +41,58 @@ def repo_key(target: str) -> str:
 
 def _looks_like_url(target: str) -> bool:
     return bool(re.match(r"^(https?://|git@|ssh://|git://)", target))
+
+
+_GITHUB_PART = r"[A-Za-z0-9][A-Za-z0-9_.-]*"
+_GITHUB_PATH_RE = re.compile(
+    rf"^/({_GITHUB_PART})/({_GITHUB_PART})(?:\.git)?/?$")
+_GITHUB_SCP_RE = re.compile(
+    rf"^git@github\.com:({_GITHUB_PART})/({_GITHUB_PART})(?:\.git)?/?$",
+    re.IGNORECASE,
+)
+
+
+def is_github_repo_url(target: str) -> bool:
+    """Return whether *target* is a clone URL for one GitHub repository.
+
+    GitPython accepts arbitrary Git transports, so a protocol check alone is
+    not an appropriate boundary for user-supplied input.  Keep the supported
+    forms deliberately narrow: GitHub HTTPS, SSH, git, and SCP-style SSH URLs
+    with exactly an owner and repository path.
+    """
+    t = (target or "").strip()
+    if _GITHUB_SCP_RE.fullmatch(t):
+        return True
+
+    parsed = urlparse(t)
+    if parsed.scheme not in {"http", "https", "ssh", "git"}:
+        return False
+    if (parsed.hostname or "").lower() != "github.com":
+        return False
+    try:
+        if parsed.port is not None:
+            return False
+    except ValueError:  # malformed port, e.g. github.com:not-a-port
+        return False
+    if parsed.username not in (None, "git") or parsed.password is not None:
+        return False
+    if parsed.query or parsed.fragment or parsed.params:
+        return False
+    return bool(_GITHUB_PATH_RE.fullmatch(parsed.path))
+
+
+def validate_remote_repo_url(target: str) -> str:
+    """Reject remote URLs except supported GitHub repository clone URLs.
+
+    Non-URL inputs remain available for local repository paths and GitHub
+    shorthand; callers that need a clone still validate those separately.
+    """
+    if _looks_like_url(target) and not is_github_repo_url(target):
+        raise ValueError(
+            "only GitHub repository URLs are allowed "
+            "(for example, https://github.com/owner/repository)"
+        )
+    return target
 
 
 class _GitProgress:
@@ -113,6 +166,7 @@ def ensure_local_clone(target: str, cache_dir: str, *, update: bool = False,
         raise ValueError(
             f"'{target}' is neither an existing git repo nor a recognizable URL"
         )
+    validate_remote_repo_url(target)
 
     from git import Repo  # lazy import
 
