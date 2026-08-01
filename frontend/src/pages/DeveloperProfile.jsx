@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useMemo, useContext } from "react";
-import { useNavigate, Link } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { getJSON, isNotFound, postJSON } from "../lib/api";
 import SyncBadge from "../components/SyncBadge";
 import { ThemeContext } from "../lib/theme";
@@ -13,40 +13,26 @@ function formatNumber(num) {
   return num.toString();
 }
 
-/** "octocat", "@octocat", "github.com/octocat", a full profile URL, or an
- *  "owner/repo" pair (take the owner) -> "octocat". */
-function parseUserInput(input) {
-  let cleaned = (input || "").trim().replace(/^@/, "");
-  if (cleaned.includes("github.com/")) {
-    cleaned = cleaned.split("github.com/")[1] || "";
+/** A developer profile must be a direct GitHub user URL, not a repository
+ *  link or loose username. This keeps the profile workflow unambiguous. */
+function parseGitHubProfileUrl(input) {
+  try {
+    const url = new URL((input || "").trim());
+    const isGitHub = url.protocol === "https:"
+      && (url.hostname === "github.com" || url.hostname === "www.github.com");
+    const segments = url.pathname.split("/").filter(Boolean);
+    const username = segments.length === 1 ? segments[0] : "";
+    return isGitHub && /^[A-Za-z0-9-]+$/.test(username) ? username : "";
+  } catch {
+    return "";
   }
-  // drop a trailing repo/path and any query string
-  cleaned = cleaned.split("?")[0].split("/").filter(Boolean)[0] || "";
-  // GitHub usernames: alphanumeric and hyphens only
-  return /^[A-Za-z0-9-]+$/.test(cleaned) ? cleaned : "";
 }
 
 export default function DeveloperProfile() {
   const { settings } = useContext(ThemeContext);
   const navigate = useNavigate();
   const searchParams = new URLSearchParams(window.location.search);
-  const repoParam = searchParams.get("repo");
-  let userParam = searchParams.get("user");
-
-  if (!userParam && repoParam) {
-    let cleaned = repoParam.trim();
-    if (cleaned.includes("github.com/")) {
-      const parts = cleaned.split("github.com/");
-      if (parts.length > 1) {
-        const pathParts = parts[1].split("/");
-        if (pathParts.length >= 1) userParam = pathParts[0];
-      }
-    } else {
-      const parts = cleaned.split("/");
-      if (parts.length > 0) userParam = parts[0];
-    }
-  }
-  const user = userParam;
+  const user = searchParams.get("user");
 
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
@@ -65,9 +51,9 @@ export default function DeveloperProfile() {
   const [knownProfiles, setKnownProfiles] = useState([]);
 
   const openProfile = (raw) => {
-    const username = parseUserInput(raw);
+    const username = parseGitHubProfileUrl(raw);
     if (!username) {
-      setInputError("Enter a GitHub username, e.g. octocat");
+      setInputError("Enter a GitHub profile URL, e.g. https://github.com/atharva557");
       return;
     }
     setInputError(null);
@@ -264,36 +250,6 @@ export default function DeveloperProfile() {
 
   const monthLabels = useMemo(() => getMonthLabels(heatmapCells || []), [heatmapCells]);
 
-  if (!user) {
-    return (
-      <div className="min-h-[calc(100vh-52px)] flex items-center justify-center bg-background text-on-surface p-6 relative overflow-hidden">
-        {/* Ambient background glow */}
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-primary/5 rounded-full blur-[100px] pointer-events-none"></div>
-
-        <div className="relative w-full max-w-[460px] h-auto p-10 rounded-3xl bg-surface-container-lowest/60 backdrop-blur-xl border border-outline-variant/40 shadow-2xl shadow-primary/10 transition-all duration-300 hover:scale-[1.02] hover:shadow-[0_0_60px_color-mix(in_srgb,var(--color-primary)_20%,transparent)] text-center flex flex-col items-center gap-6">
-          <div className="w-20 h-20 rounded-full bg-primary/10 flex items-center justify-center border border-primary/20 shadow-inner">
-            <span className="material-symbols-outlined text-primary text-[40px]">link_off</span>
-          </div>
-
-          <div className="space-y-3">
-            <h2 className="text-[var(--font-size-heading)] text-on-surface font-bold tracking-tight">Missing Link</h2>
-            <p className="text-[var(--font-size-body)] text-on-surface-variant leading-relaxed px-2 font-body">
-              We need a valid GitHub username to analyze the profile. Please return to the home page to enter one.
-            </p>
-          </div>
-
-          <Link
-            to="/"
-            className="w-full bg-primary hover:bg-primary-container text-on-primary font-code font-bold py-3.5 rounded-xl transition-all duration-300 active:scale-95 text-center flex items-center justify-center gap-2 mt-2 shadow-lg shadow-primary/20 hover:shadow-primary/40"
-          >
-            <span className="material-symbols-outlined text-[20px]">arrow_back</span>
-            <span>Return Home</span>
-          </Link>
-        </div>
-      </div>
-    );
-  }
-
   // No ?user= — the search screen. This guard comes FIRST: `loading` starts
   // true, so checking it earlier would flash a spinner, and the main render
   // below dereferences `data.user` on a null `data` and would throw outright.
@@ -310,8 +266,8 @@ export default function DeveloperProfile() {
               Developer Profile
             </h2>
             <p className="text-sm text-on-surface-variant leading-relaxed font-body">
-              Commit patterns, languages, review participation and message
-              quality for any GitHub user.
+              Paste a GitHub user profile URL to analyze contribution patterns,
+              languages, review participation and message quality.
             </p>
           </div>
 
@@ -319,27 +275,31 @@ export default function DeveloperProfile() {
             onSubmit={(e) => { e.preventDefault(); openProfile(inputVal); }}
             className="w-full relative mt-4"
           >
-            <div className="flex items-center w-full rounded-md overflow-hidden border border-primary/50 bg-primary/5 focus-within:ring-2 focus-within:ring-primary/20">
-              <div className="pl-4 pr-2 flex items-center text-primary/60">
+            <div className="flex items-stretch w-full rounded-md overflow-hidden border border-primary/50 bg-primary/5 focus-within:ring-2 focus-within:ring-primary/20">
+              <div className="pl-4 pr-2 pt-4 flex items-start text-primary/60">
                 <span className="material-symbols-outlined text-[20px]">search</span>
               </div>
-              <input
-                type="text"
+              <textarea
                 autoFocus
+                rows={2}
                 value={inputVal}
                 onChange={(e) => { setInputVal(e.target.value); setInputError(null); }}
-                className="flex-grow bg-transparent border-none py-4 px-2 focus:outline-none font-code text-[14px] text-on-surface placeholder:text-on-surface-variant/40"
-                placeholder="octocat or github.com/octocat"
-                aria-label="GitHub username"
+                className="flex-grow min-w-0 resize-none bg-transparent border-none py-3 px-2 focus:outline-none font-code text-[14px] text-on-surface placeholder:text-on-surface-variant/40"
+                placeholder="https://github.com/atharva557"
+                aria-label="GitHub profile URL"
+                aria-describedby="github-profile-url-help"
               />
               <button
                 type="submit"
                 disabled={!inputVal.trim()}
-                className="px-6 py-4 bg-primary text-on-primary font-bold text-[14px] transition-all disabled:opacity-50 hover:bg-primary-container shrink-0"
+                className="px-6 bg-primary text-on-primary font-bold text-[14px] transition-all disabled:opacity-50 hover:bg-primary-container shrink-0"
               >
                 Profile
               </button>
             </div>
+            <p id="github-profile-url-help" className="mt-2 text-center text-[11px] font-code text-on-surface-variant">
+              Accepts direct profile URLs only — not usernames or repository links.
+            </p>
             {inputError && (
               <div className="absolute top-full mt-2 w-full text-center text-error text-[12px] font-code">
                 {inputError}
@@ -372,7 +332,13 @@ export default function DeveloperProfile() {
     );
   }
 
-  if (loading) {
+  // Navigation from the URL form reuses this component instance. On the
+  // render immediately after `?user=` changes, the effect that starts the
+  // request has not run yet, so `loading` can still be false and `data` null.
+  // Keep rendering a loading state until the requested profile is available.
+  const waitingForProfile = loading || !data || data.username !== user;
+
+  if (waitingForProfile && !notFound && !error) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center space-y-4">
@@ -499,12 +465,12 @@ export default function DeveloperProfile() {
                     search
                   </span>
                   <input
-                    type="text"
+                    type="url"
                     value={inputVal}
                     onChange={(e) => { setInputVal(e.target.value); setInputError(null); }}
-                    placeholder="another user"
-                    aria-label="Search another GitHub username"
-                    className="w-[9rem] bg-transparent border-none py-1.5 px-2 focus:outline-none font-code text-[12px] placeholder:text-on-surface-variant/40"
+                    placeholder="github.com/user"
+                    aria-label="Another GitHub profile URL"
+                    className="w-[11rem] bg-transparent border-none py-1.5 px-2 focus:outline-none font-code text-[12px] placeholder:text-on-surface-variant/40"
                   />
                 </form>
                 <SyncBadge ageHours={data.age_hours} stale={data.stale} onRefresh={handleBuildProfile} />
