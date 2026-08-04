@@ -8,6 +8,8 @@ import DeveloperProfile from "./pages/DeveloperProfile";
 import PRReview from "./pages/PRReview";
 import Status from "./pages/Status";
 import Login from "./pages/Login";
+import Settings from "./pages/Settings";
+import Preferences from "./pages/Preferences";
 import Navbar from "./components/Navbar";
 import { loadGlobalSettings, saveGlobalSettings } from "./lib/settings";
 import { ThemeContext, accentThemeCss } from "./lib/theme";
@@ -29,6 +31,8 @@ function Gate() {
       <Route path="/profile" element={<DeveloperProfile />} />
       <Route path="/pr-review" element={<PRReview />} />
       <Route path="/status" element={<Status />} />
+      <Route path="/settings" element={<Settings />} />
+      <Route path="/preferences" element={<Preferences />} />
     </Routes>
   );
 }
@@ -37,26 +41,16 @@ function Gate() {
 export default function App() {
   const [settings, setSettings] = useState(() => loadGlobalSettings());
 
-  // theme: dark | light | system. "system" resolves against the OS preference
-  // and re-resolves live when it changes.
+  // theme: dark | light | system.
+  // "system" is treated as dark — this app is designed as a dark-first tool.
   useEffect(() => {
-    const apply = () => {
-      const { theme } = settings;
-      const resolved =
-        theme === "system"
-          ? (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light")
-          : theme;
-      if (resolved === "dark") {
-        delete document.documentElement.dataset.theme;
-      } else {
-        document.documentElement.dataset.theme = resolved;
-      }
-    };
-    apply();
-    if (settings.theme === "system") {
-      const mq = window.matchMedia("(prefers-color-scheme: dark)");
-      mq.addEventListener("change", apply);
-      return () => mq.removeEventListener("change", apply);
+    const { theme } = settings;
+    // system resolves to dark (same visual result)
+    const resolved = theme === "light" ? "light" : "dark";
+    if (resolved === "dark") {
+      delete document.documentElement.dataset.theme;
+    } else {
+      document.documentElement.dataset.theme = resolved;
     }
   }, [settings.theme]);
 
