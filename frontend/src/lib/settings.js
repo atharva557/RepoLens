@@ -42,7 +42,7 @@ export const ACCENTS = [
 ];
 
 export const DEFAULT_GLOBAL_SETTINGS = {
-  theme: "dark", // dark | light | system
+  theme: "system", // system | dark | light
   accent: "amber",
   accentColor: "#f5a524",
   timeRange: "365", // dashboard activity window, in days
@@ -93,14 +93,14 @@ export function getHeatmapColorStyle(count, accentColor, theme) {
   const isLight = theme === "light";
   if (!count) return isLight ? "#ebedf0" : "#1e1e1c";
   const accent = accentColor || DEFAULT_GLOBAL_SETTINGS.accentColor;
-  
+
   if (isLight) {
     if (count <= 2) return hexToRgba(accent, 0.45);
     if (count <= 5) return hexToRgba(accent, 0.7);
     if (count <= 9) return hexToRgba(accent, 0.85);
     return accent;
   }
-  
+
   if (count <= 2) return hexToRgba(accent, 0.3);
   if (count <= 5) return hexToRgba(accent, 0.55);
   if (count <= 9) return hexToRgba(accent, 0.8);

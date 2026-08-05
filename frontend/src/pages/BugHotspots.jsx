@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from "react";
-import { useNavigate, Link } from "react-router-dom";
+import { useNavigate, Link, useLocation } from "react-router-dom";
 import { getJSON, isNotFound, postJSON } from "../lib/api";
 import { loadRepoSettings } from "../lib/settings";
 
@@ -22,7 +22,8 @@ const PAGE_SIZE = 10;
 
 export default function BugHotspots() {
   const navigate = useNavigate();
-  const repo = new URLSearchParams(window.location.search).get("repo");
+  const location = useLocation();
+  const repo = new URLSearchParams(location.search).get("repo");
 
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);

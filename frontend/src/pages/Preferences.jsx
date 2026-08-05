@@ -6,8 +6,8 @@ import { ACCENTS } from "../lib/settings";
 // ─── Design tokens ────────────────────────────────────────────────────────────
 const BLUE = "#00C8FF";
 const BLUE_GLOW = "rgba(0,200,255,0.40)";
-const PANEL_BG = "#111318";
-const BORDER = "rgba(255,255,255,0.08)";
+const PANEL_BG = "var(--color-surface-container)";
+const BORDER = "var(--color-outline-variant)";
 
 const SWATCHES = {
   amber: ["#6b4000", "#a86200", "#d48200", "#f0a800", "#f5c842"],
@@ -43,7 +43,7 @@ function ThemeSegment({ value, onChange, savedColor }) {
   return (
     <div style={{
       display: "flex",
-      background: "#0a0d14",
+      background: "var(--color-surface-container-lowest)",
       border: `1px solid ${BORDER}`,
       borderRadius: "10px",
       padding: "4px",
@@ -67,7 +67,7 @@ function ThemeSegment({ value, onChange, savedColor }) {
               border: "none",
               outline: "none",
               background: on ? savedColor : "transparent",
-              color: on ? "#000" : "rgba(255,255,255,0.40)",
+              color: on ? "var(--color-on-primary)" : "var(--color-on-surface-variant)",
               transition: "background 180ms ease, color 180ms ease",
               letterSpacing: on ? "0.01em" : "normal",
             }}
@@ -97,7 +97,7 @@ function ColorRow({ accent, selected, onSelect, savedColor }) {
         cursor: "pointer",
         border: "none",
         outline: "none",
-        background: selected ? "rgba(255,255,255,0.06)" : "transparent",
+        background: selected ? "var(--color-surface-container-high)" : "transparent",
         borderLeft: selected ? `3px solid ${savedColor}` : "3px solid transparent",
         transition: "background 150ms ease",
         textAlign: "left",
@@ -106,7 +106,7 @@ function ColorRow({ accent, selected, onSelect, savedColor }) {
     >
       <span style={{
         fontSize: "13px",
-        color: selected ? "#fff" : "rgba(255,255,255,0.65)",
+        color: selected ? "var(--color-on-surface)" : "var(--color-on-surface-variant)",
         fontWeight: selected ? 600 : 400,
       }}>
         {accent.name}
@@ -169,8 +169,8 @@ export default function Preferences() {
         onClick={() => navigate(-1)}
         style={{
           position: "fixed", inset: 0,
-          background: "rgba(0,0,0,0.60)",
-          backdropFilter: "blur(2px)",
+          background: "rgba(0,0,0,0.2)",
+          backdropFilter: "blur(12px)",
           zIndex: 40,
         }}
       />
@@ -199,7 +199,7 @@ export default function Preferences() {
               <h2 style={{ fontSize: "19px", fontWeight: 700, color: savedColor, margin: 0, lineHeight: 1.2, transition: "color 250ms ease" }}>
                 Preferences
               </h2>
-              <p style={{ fontSize: "12px", color: "rgba(255,255,255,0.35)", margin: "4px 0 0" }}>
+              <p style={{ fontSize: "12px", color: "var(--color-on-surface-variant)", margin: "4px 0 0" }}>
                 Personalize your dashboard
               </p>
             </div>
@@ -209,13 +209,13 @@ export default function Preferences() {
               aria-label="Close"
               style={{
                 background: "none", border: "none",
-                color: "rgba(255,255,255,0.45)",
+                color: "var(--color-on-surface-variant)",
                 fontSize: "24px", cursor: "pointer",
                 padding: "0", lineHeight: 1,
                 transition: "color 150ms ease",
               }}
-              onMouseEnter={(e) => (e.currentTarget.style.color = "#fff")}
-              onMouseLeave={(e) => (e.currentTarget.style.color = "rgba(255,255,255,0.45)")}
+              onMouseEnter={(e) => (e.currentTarget.style.color = "var(--color-on-surface)")}
+              onMouseLeave={(e) => (e.currentTarget.style.color = "var(--color-on-surface-variant)")}
             >
               ×
             </button>
@@ -231,7 +231,7 @@ export default function Preferences() {
           <p style={{
             fontSize: "10px", fontWeight: 700,
             letterSpacing: "0.12em", textTransform: "uppercase",
-            color: "rgba(255,255,255,0.30)",
+            color: "var(--color-on-surface-variant)",
             marginBottom: "14px",
           }}>
             Appearance
@@ -247,7 +247,7 @@ export default function Preferences() {
           {/* Contribution Color Picker */}
           <p style={{
             fontSize: "12px", fontWeight: 400,
-            color: "rgba(255,255,255,0.40)",
+            color: "var(--color-on-surface-variant)",
             margin: "24px 0 10px",
           }}>
             Contribution Color Picker
@@ -282,7 +282,7 @@ export default function Preferences() {
               borderRadius: "10px",
               border: "none",
               background: saved ? (ACCENT_VIVID[savedAccent] || "#00e6b3") : savedColor,
-              color: "#000",
+              color: "var(--color-on-primary)",
               fontSize: "12px",
               fontWeight: 700,
               letterSpacing: "0.12em",

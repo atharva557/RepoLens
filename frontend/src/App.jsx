@@ -1,4 +1,4 @@
-import { BrowserRouter, Route, Routes } from "react-router-dom";
+import { BrowserRouter, Route, Routes, useLocation } from "react-router-dom";
 import { useState, useEffect, useContext } from "react";
 import Home from "./pages/Home";
 import Loading from "./pages/Loading";
@@ -20,10 +20,14 @@ import { AuthContext, AuthProvider } from "./lib/auth";
 // signed in); single-user mode renders routes directly, exactly as before.
 function Gate() {
   const { mode, user } = useContext(AuthContext);
+  const location = useLocation();
+  const state = location.state;
+
   if (mode === "loading") return null; // one fast local probe; avoid a flash
   if (mode === "multiuser" && !user) return <Login />;
   return (
-    <Routes>
+    <>
+      <Routes location={state?.background || location}>
       <Route path="/" element={<Home />} />
       <Route path="/loading" element={<Loading />} />
       <Route path="/dashboard" element={<Dashboard />} />
@@ -33,7 +37,15 @@ function Gate() {
       <Route path="/status" element={<Status />} />
       <Route path="/settings" element={<Settings />} />
       <Route path="/preferences" element={<Preferences />} />
-    </Routes>
+      </Routes>
+      
+      {state?.background && (
+        <Routes>
+          <Route path="/settings" element={<Settings />} />
+          <Route path="/preferences" element={<Preferences />} />
+        </Routes>
+      )}
+    </>
   );
 }
 

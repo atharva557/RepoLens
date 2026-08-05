@@ -94,7 +94,7 @@ export default function SettingsDrawer({ open, onClose }) {
     if (keysForm.llm_provider !== serverCfg.llm_provider) payload.llm_provider = keysForm.llm_provider;
     if (keysForm.llm_model !== (serverCfg.llm_model || "")) payload.llm_model = keysForm.llm_model;
     if (keysForm.llm_provider === "local" &&
-        keysForm.local_llm_base_url !== (serverCfg.local_llm_base_url || "")) {
+      keysForm.local_llm_base_url !== (serverCfg.local_llm_base_url || "")) {
       payload.local_llm_base_url = keysForm.local_llm_base_url;
     }
     const keyField = KEY_FIELD[keysForm.llm_provider];
@@ -115,7 +115,7 @@ export default function SettingsDrawer({ open, onClose }) {
       try {
         const t = await getJSON("/test");
         verdict = ` — LLM ${t.llm && t.llm.available ? "available" : "not available"}` +
-                  `, GitHub token ${t.github_token ? "configured" : "missing"}`;
+          `, GitHub token ${t.github_token ? "configured" : "missing"}`;
       } catch { /* the self-test is best-effort */ }
       setKeysMessage({ ok: true, text: `Saved${res.persisted ? " to .env" : " (in-memory only)"}${verdict}.` });
     } catch (e) {
@@ -137,7 +137,7 @@ export default function SettingsDrawer({ open, onClose }) {
           drawer transform below */}
       <div
         style={{ opacity: open ? 1 : 0, transition: "opacity 300ms" }}
-        className={`fixed inset-0 z-40 bg-black/45 backdrop-blur-[2px] ${open ? "" : "pointer-events-none"
+        className={`fixed inset-0 z-40 bg-black/20 backdrop-blur-md ${open ? "" : "pointer-events-none"
           }`}
         onClick={onClose}
         aria-hidden="true"

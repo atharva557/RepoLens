@@ -136,7 +136,7 @@ export default function Settings() {
             navigate("/");
           }
         }}
-        className="fixed inset-0 bg-surface/80 backdrop-blur-sm z-40 transition-colors"
+        className="fixed inset-0 bg-black/20 backdrop-blur-md z-40 transition-colors"
       />
 
       {/* Right-side panel */}

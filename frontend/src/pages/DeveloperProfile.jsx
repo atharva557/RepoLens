@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useMemo, useContext } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import { getJSON, isNotFound, postJSON } from "../lib/api";
 import SyncBadge from "../components/SyncBadge";
 import { ThemeContext } from "../lib/theme";
@@ -31,7 +31,8 @@ function parseGitHubProfileUrl(input) {
 export default function DeveloperProfile() {
   const { settings } = useContext(ThemeContext);
   const navigate = useNavigate();
-  const searchParams = new URLSearchParams(window.location.search);
+  const location = useLocation();
+  const searchParams = new URLSearchParams(location.search);
   const user = searchParams.get("user");
 
   const [data, setData] = useState(null);

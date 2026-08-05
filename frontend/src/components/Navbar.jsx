@@ -21,7 +21,7 @@ function navLinkClass(active) {
 // Removed ActiveUnderline as requested
 
 /** Single row inside the avatar dropdown. */
-function DropdownItem({ icon, label, onClick, danger = false, as: Tag = "button", to }) {
+function DropdownItem({ icon, label, onClick, danger = false, as: Tag = "button", to, state }) {
   const base =
     "w-full flex items-center gap-3 px-4 py-2.5 text-sm transition-colors duration-150 cursor-pointer text-left";
   const color = danger
@@ -30,7 +30,7 @@ function DropdownItem({ icon, label, onClick, danger = false, as: Tag = "button"
 
   if (Tag === Link) {
     return (
-      <Link to={to} onClick={onClick} className={`${base} ${color}`}>
+      <Link to={to} state={state} onClick={onClick} className={`${base} ${color}`}>
         <span className="material-symbols-outlined text-[18px] shrink-0 opacity-70">
           {icon}
         </span>
@@ -236,8 +236,8 @@ export default function Navbar() {
 
                 {/* Settings + Preferences */}
                 <div className="py-1 border-b border-outline-variant">
-                  <DropdownItem as={Link} to="/preferences" icon="tune"     label="Preferences" onClick={closeAll} />
-                  <DropdownItem as={Link} to="/settings"    icon="settings" label="Settings"    onClick={closeAll} />
+                  <DropdownItem as={Link} to="/preferences" state={{ background: location }} icon="tune"     label="Preferences" onClick={closeAll} />
+                  <DropdownItem as={Link} to="/settings"    state={{ background: location }} icon="settings" label="Settings"    onClick={closeAll} />
                 </div>
 
                 {/* Logout */}
@@ -307,6 +307,7 @@ export default function Navbar() {
           <div className="border-t border-outline-variant mt-2 pt-2 flex flex-col gap-1">
             <Link
               to="/preferences"
+              state={{ background: location }}
               onClick={closeAll}
               className="flex items-center gap-2 px-2 py-2 text-sm text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high rounded transition-colors"
             >
@@ -315,6 +316,7 @@ export default function Navbar() {
             </Link>
             <Link
               to="/settings"
+              state={{ background: location }}
               onClick={closeAll}
               className="flex items-center gap-2 px-2 py-2 text-sm text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high rounded transition-colors"
             >
