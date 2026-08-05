@@ -48,6 +48,40 @@ export default function Home() {
   const [maxCommits, setMaxCommits] = useState("");
   const [showAdvanced, setShowAdvanced] = useState(false);
   const inputRef = useRef(null);
+  const scrollRef = useRef(null);
+  const [startIndex, setStartIndex] = useState(0);
+
+  const canGoLeft = startIndex > 0;
+  const canGoRight = profiles.length > 4 && startIndex < profiles.length - 4;
+
+  const handleScrollLeft = () => {
+    if (canGoLeft) {
+      const newIndex = startIndex - 1;
+      setStartIndex(newIndex);
+      if (scrollRef.current) {
+        scrollRef.current.scrollTo({ left: newIndex * 156, behavior: "smooth" });
+      }
+    }
+  };
+
+  const handleScrollRight = () => {
+    if (canGoRight) {
+      const newIndex = startIndex + 1;
+      setStartIndex(newIndex);
+      if (scrollRef.current) {
+        scrollRef.current.scrollTo({ left: newIndex * 156, behavior: "smooth" });
+      }
+    }
+  };
+
+  const handleScroll = () => {
+    if (scrollRef.current) {
+      const newIndex = Math.round(scrollRef.current.scrollLeft / 156);
+      if (newIndex !== startIndex) {
+        setStartIndex(newIndex);
+      }
+    }
+  };
 
   const resolvedTheme = globalSettings.theme === "system"
     ? (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light")
@@ -312,7 +346,7 @@ export default function Home() {
         </div>
 
         {/* ── Profiles Rail ── */}
-        <div className="mt-[64px] w-full max-w-[640px] flex flex-col items-center">
+        <div className="mt-[64px] w-full max-w-[860px] flex flex-col items-center">
           <div className="flex items-center w-full mb-[24px]">
             <div
               className="flex-grow h-[1px]"
@@ -346,49 +380,94 @@ export default function Home() {
             />
           </div>
 
-          <div
-            className="w-full relative overflow-x-auto overflow-y-hidden"
-            style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
-          >
-            <style>{`
-              .hide-scroll::-webkit-scrollbar { display: none; }
-            `}</style>
-
-            {profiles.length === 0 ? (
-              <div
-                className="w-full p-[32px] text-center border border-outline-variant/30 rounded-[8px]"
-                style={{ color: "rgba(255,255,255,0.35)", fontSize: "14px" }}
+          <div className="w-full relative group flex items-center justify-center gap-6 md:gap-8">
+            {/* Left Carousel Button */}
+            {profiles.length > 0 && (
+              <button
+                onClick={handleScrollLeft}
+                disabled={!canGoLeft}
+                className={`w-[48px] h-[48px] flex-shrink-0 flex items-center justify-center rounded-full border shadow-lg transition-all ${
+                  isLight ? "bg-white border-gray-200" : "bg-[#2a2a2a] border-[#444]"
+                } ${
+                  !canGoLeft
+                    ? "opacity-30 cursor-not-allowed"
+                    : `opacity-90 hover:opacity-100 hover:scale-105 ${isLight ? "hover:bg-gray-50" : "hover:bg-[#333]"}`
+                }`}
+                aria-label="Scroll left"
               >
-                No profiles built yet — analyze a developer above.
-              </div>
-            ) : (
-              <div className="flex gap-4 hide-scroll px-1 pb-4">
-                {profiles.map(p => (
-                  <div
-                    key={p.username}
-                    onClick={() => navigate(`/profile?user=${p.username}`)}
-                    className="flex flex-col items-center gap-3 p-4 border border-outline-variant/30 rounded-[8px] bg-[rgba(255,255,255,0.02)] hover:bg-[rgba(255,255,255,0.05)] cursor-pointer transition-colors min-w-[140px] shrink-0"
-                  >
-                    <div className="w-14 h-14 rounded-full bg-primary/20 flex items-center justify-center border border-primary/30 overflow-hidden">
-                      {p.avatar_url ? (
-                        <img src={p.avatar_url} alt={p.username} className="w-full h-full object-cover" />
-                      ) : (
-                        <span className="font-display-lg text-lg text-primary font-bold">
-                          {p.username.slice(0, 2).toUpperCase()}
+                <span className={`material-symbols-outlined text-[24px] ${isLight ? "text-gray-700" : "text-[#eaeaea]"}`}>
+                  chevron_left
+                </span>
+              </button>
+            )}
+
+            <div
+              ref={scrollRef}
+              onScroll={handleScroll}
+              className="w-[608px] max-w-full flex-shrink-0 overflow-x-auto md:overflow-hidden scroll-smooth"
+              style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
+            >
+              <style>{`
+                .hide-scroll::-webkit-scrollbar { display: none; }
+              `}</style>
+
+              {profiles.length === 0 ? (
+                <div
+                  className="w-full p-[32px] text-center border border-outline-variant/30 rounded-[8px]"
+                  style={{ color: "rgba(255,255,255,0.35)", fontSize: "14px" }}
+                >
+                  No profiles built yet — analyze a developer above.
+                </div>
+              ) : (
+                <div className="flex gap-4 hide-scroll px-0 pb-4">
+                  {profiles.map((p) => (
+                    <div
+                      key={p.username}
+                      onClick={() => navigate(`/profile?user=${p.username}`)}
+                      className="flex flex-col items-center gap-3 p-4 border border-outline-variant/30 rounded-[8px] bg-[rgba(255,255,255,0.02)] hover:bg-[rgba(255,255,255,0.05)] cursor-pointer transition-colors w-[140px] shrink-0"
+                    >
+                      <div className="w-14 h-14 rounded-full bg-primary/20 flex items-center justify-center border border-primary/30 overflow-hidden">
+                        {p.avatar_url ? (
+                          <img src={p.avatar_url} alt={p.username} className="w-full h-full object-cover" />
+                        ) : (
+                          <span className="font-display-lg text-lg text-primary font-bold">
+                            {p.username.slice(0, 2).toUpperCase()}
+                          </span>
+                        )}
+                      </div>
+                      
+                      <div className="flex flex-col items-center">
+                        <span className="font-code font-bold text-[13px] text-on-surface truncate max-w-[120px]">
+                          @{p.username}
                         </span>
-                      )}
+                        <span className="font-code text-[9px] text-primary uppercase mt-1 px-1.5 py-0.5 border border-primary/30 bg-primary/10 rounded-sm">
+                          {p.primary_type || "Contributor"}
+                        </span>
+                      </div>
                     </div>
-                    <div className="flex flex-col items-center">
-                      <span className="font-code font-bold text-[13px] text-on-surface truncate max-w-[120px]">
-                        @{p.username}
-                      </span>
-                      <span className="font-code text-[9px] text-primary uppercase mt-1 px-1.5 py-0.5 border border-primary/30 bg-primary/10 rounded-sm">
-                        {p.primary_type || "Contributor"}
-                      </span>
-                    </div>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Right Carousel Button */}
+            {profiles.length > 0 && (
+              <button
+                onClick={handleScrollRight}
+                disabled={!canGoRight}
+                className={`w-[48px] h-[48px] flex-shrink-0 flex items-center justify-center rounded-full border shadow-lg transition-all ${
+                  isLight ? "bg-white border-gray-200" : "bg-[#2a2a2a] border-[#444]"
+                } ${
+                  !canGoRight
+                    ? "opacity-30 cursor-not-allowed"
+                    : `opacity-90 hover:opacity-100 hover:scale-105 ${isLight ? "hover:bg-gray-50" : "hover:bg-[#333]"}`
+                }`}
+                aria-label="Scroll right"
+              >
+                <span className={`material-symbols-outlined text-[24px] ${isLight ? "text-gray-700" : "text-[#eaeaea]"}`}>
+                  chevron_right
+                </span>
+              </button>
             )}
           </div>
         </div>
@@ -479,8 +558,8 @@ export default function Home() {
                           navigate(`/dashboard?repo=${r.repo}`);
                         }}
                         className={`flex items-center justify-between cursor-pointer transition-colors flex-shrink-0 ${isLight
-                            ? "bg-surface-container border border-outline-variant/40 shadow-sm rounded-lg p-[16px] hover:border-outline-variant"
-                            : "p-[16px] hover:bg-white/5"
+                          ? "bg-surface-container border border-outline-variant/40 shadow-sm rounded-lg p-[16px] hover:border-outline-variant"
+                          : "p-[16px] hover:bg-white/5"
                           }`}
                         style={
                           isLight
