@@ -1,6 +1,7 @@
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { useContext, useEffect, useRef, useState } from "react";
+import { useCallback, useContext, useEffect, useRef, useState } from "react";
 import { AuthContext } from "../lib/auth";
+import { getJSON } from "../lib/api";
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -14,6 +15,40 @@ function navLinkClass(active) {
     "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 rounded-lg",
     active ? "text-primary bg-primary/10" : "text-on-surface-variant hover:text-on-surface hover:bg-surface-container-highest",
   ].join(" ");
+}
+
+function RepoSuggestions({ id, suggestions, activeIndex, onSelect }) {
+  return (
+    <ul
+      id={id}
+      role="listbox"
+      className="absolute left-0 right-0 top-[calc(100%+6px)] z-50 overflow-hidden rounded-lg border border-outline-variant bg-surface-container shadow-xl"
+    >
+      {suggestions.map((item, index) => (
+        <li key={item.repo} role="presentation">
+          <button
+            id={`${id}-option-${index}`}
+            type="button"
+            role="option"
+            aria-selected={index === activeIndex}
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => onSelect(item.repo)}
+            className={`flex w-full items-center gap-2 px-3 py-2.5 text-left font-code text-xs transition-colors ${
+              index === activeIndex
+                ? "bg-primary/15 text-primary"
+                : "text-on-surface hover:bg-surface-container-high hover:text-primary"
+            }`}
+          >
+            <span className="material-symbols-outlined text-[16px] opacity-70">folder</span>
+            <span className="truncate">{item.repo}</span>
+            <span className="ml-auto shrink-0 text-[10px] text-on-surface-variant">
+              {item.commits ?? 0} commits
+            </span>
+          </button>
+        </li>
+      ))}
+    </ul>
+  );
 }
 
 // ─── sub-components ─────────────────────────────────────────────────────────
@@ -69,10 +104,29 @@ export default function Navbar() {
   const [mobileOpen,    setMobileOpen]    = useState(false);
   const [avatarOpen,    setAvatarOpen]    = useState(false);
   const [searchValue,   setSearchValue]   = useState("");
+  const [repos,         setRepos]         = useState([]);
+  const [searchFocused, setSearchFocused] = useState(false);
+  const [activeIndex,   setActiveIndex]   = useState(-1);
 
   const avatarRef   = useRef(null);
   const dropdownRef = useRef(null);
-  const searchRef   = useRef(null);
+  const desktopSearchRef = useRef(null);
+  const mobileSearchRef  = useRef(null);
+
+  const loadRepositories = useCallback(() => {
+    if (!isLoggedIn) {
+      setRepos([]);
+      return;
+    }
+
+    getJSON("/repos", { ttl: 30_000 })
+      .then((data) => setRepos(data.repos || []))
+      .catch(() => setRepos([]));
+  }, [isLoggedIn]);
+
+  useEffect(() => {
+    loadRepositories();
+  }, [loadRepositories]);
 
   // Close avatar dropdown on outside click / Escape
   useEffect(() => {
@@ -101,7 +155,7 @@ export default function Navbar() {
     };
   }, [avatarOpen]);
 
-  // "/" shortcut focuses the search input
+  // "/" shortcut focuses the visible search input.
   useEffect(() => {
     function onKey(e) {
       if (
@@ -110,7 +164,12 @@ export default function Navbar() {
         document.activeElement.tagName !== "TEXTAREA"
       ) {
         e.preventDefault();
-        searchRef.current?.focus();
+        if (window.matchMedia("(min-width: 768px)").matches) {
+          desktopSearchRef.current?.focus();
+          return;
+        }
+        setMobileOpen(true);
+        requestAnimationFrame(() => mobileSearchRef.current?.focus());
       }
     }
     document.addEventListener("keydown", onKey);
@@ -120,6 +179,49 @@ export default function Navbar() {
   const closeAll = () => {
     setMobileOpen(false);
     setAvatarOpen(false);
+    setSearchFocused(false);
+    setActiveIndex(-1);
+  };
+
+  const suggestions = searchValue.trim()
+    ? repos
+      .filter((item) => item?.repo?.toLowerCase().includes(searchValue.trim().toLowerCase()))
+      .sort((a, b) => {
+        const query = searchValue.trim().toLowerCase();
+        const aStartsWithQuery = a.repo.toLowerCase().startsWith(query);
+        const bStartsWithQuery = b.repo.toLowerCase().startsWith(query);
+        if (aStartsWithQuery !== bStartsWithQuery) return aStartsWithQuery ? -1 : 1;
+        return a.repo.localeCompare(b.repo);
+      })
+      .slice(0, 5)
+    : [];
+
+  const selectRepository = (selectedRepo) => {
+    setSearchValue("");
+    closeAll();
+    navigate(repoUrl("/dashboard", selectedRepo));
+  };
+
+  const handleSearchChange = (event) => {
+    setSearchValue(event.target.value);
+    setSearchFocused(true);
+    setActiveIndex(-1);
+  };
+
+  const handleSearchKeyDown = (event) => {
+    if (event.key === "ArrowDown" && suggestions.length) {
+      event.preventDefault();
+      setActiveIndex((index) => (index + 1) % suggestions.length);
+    } else if (event.key === "ArrowUp" && suggestions.length) {
+      event.preventDefault();
+      setActiveIndex((index) => (index <= 0 ? suggestions.length - 1 : index - 1));
+    } else if (event.key === "Enter" && activeIndex >= 0) {
+      event.preventDefault();
+      selectRepository(suggestions[activeIndex].repo);
+    } else if (event.key === "Escape") {
+      setSearchFocused(false);
+      setActiveIndex(-1);
+    }
   };
 
   // Display name / avatar initial
@@ -171,12 +273,23 @@ export default function Navbar() {
           {isLoggedIn && (
             <div className="relative hidden md:block group">
               <input
-                ref={searchRef}
+                ref={desktopSearchRef}
                 type="text"
                 value={searchValue}
-                onChange={(e) => setSearchValue(e.target.value)}
+                onChange={handleSearchChange}
+                onFocus={() => {
+                  loadRepositories();
+                  setSearchFocused(true);
+                }}
+                onBlur={() => setSearchFocused(false)}
+                onKeyDown={handleSearchKeyDown}
                 placeholder="Search repositories..."
                 aria-label="Search repositories"
+                role="combobox"
+                aria-autocomplete="list"
+                aria-expanded={searchFocused && suggestions.length > 0}
+                aria-controls="desktop-repo-suggestions"
+                aria-activedescendant={activeIndex >= 0 ? `desktop-repo-suggestions-option-${activeIndex}` : undefined}
                 className="peer w-[340px] rounded-md py-1.5 pl-3 pr-10 text-sm outline-none border transition-all bg-surface-container-lowest border-outline-variant text-on-surface placeholder:text-on-surface-variant/60 focus:border-primary focus:ring-1 focus:ring-primary/40 focus:bg-surface-container-highest hover:bg-surface-container"
               />
               <kbd
@@ -184,6 +297,14 @@ export default function Navbar() {
               >
                 /
               </kbd>
+              {searchFocused && suggestions.length > 0 && (
+                <RepoSuggestions
+                  id="desktop-repo-suggestions"
+                  suggestions={suggestions}
+                  activeIndex={activeIndex}
+                  onSelect={selectRepository}
+                />
+              )}
             </div>
           )}
 
@@ -276,15 +397,36 @@ export default function Navbar() {
           {/* Search */}
           <div className="relative mb-2">
             <input
+              ref={mobileSearchRef}
               type="text"
               value={searchValue}
-              onChange={(e) => setSearchValue(e.target.value)}
+              onChange={handleSearchChange}
+              onFocus={() => {
+                loadRepositories();
+                setSearchFocused(true);
+              }}
+              onBlur={() => setSearchFocused(false)}
+              onKeyDown={handleSearchKeyDown}
               placeholder="Search repositories..."
-              className="w-full bg-white text-zinc-800 border border-zinc-200 rounded-md py-1.5 pl-3 pr-8 text-sm placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-primary/60"
+              aria-label="Search repositories"
+              role="combobox"
+              aria-autocomplete="list"
+              aria-expanded={searchFocused && suggestions.length > 0}
+              aria-controls="mobile-repo-suggestions"
+              aria-activedescendant={activeIndex >= 0 ? `mobile-repo-suggestions-option-${activeIndex}` : undefined}
+              className="w-full bg-surface-container-lowest text-on-surface border border-outline-variant rounded-md py-1.5 pl-3 pr-8 text-sm placeholder:text-on-surface-variant/60 focus:outline-none focus:ring-2 focus:ring-primary/60"
             />
-            <kbd className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 rounded border border-zinc-300 bg-zinc-100 px-1 py-0.5 font-mono text-[10px] text-zinc-500">
+            <kbd className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 rounded border border-outline-variant bg-surface-container-highest px-1 py-0.5 font-mono text-[10px] text-on-surface-variant">
               /
             </kbd>
+            {searchFocused && suggestions.length > 0 && (
+              <RepoSuggestions
+                id="mobile-repo-suggestions"
+                suggestions={suggestions}
+                activeIndex={activeIndex}
+                onSelect={selectRepository}
+              />
+            )}
           </div>
 
           {/* Nav links */}
