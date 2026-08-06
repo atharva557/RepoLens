@@ -945,7 +945,7 @@ export default function Dashboard() {
           <div className="flex justify-between items-center mb-6 min-w-[800px]">
             <div className="flex items-center gap-4">
               <p className="text-[11px] text-on-surface-variant font-code font-bold uppercase tracking-widest">
-                Annual Contribution Velocity
+                Annual Contribution
               </p>
               {/* FIX #4: year selector only shows years present in actual data */}
               {availableYears.length > 1 && (

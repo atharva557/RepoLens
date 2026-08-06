@@ -454,28 +454,7 @@ export default function DeveloperProfile() {
               <h1 className="font-display-lg text-display-lg leading-none">
                 @{user} <span className="text-on-surface-variant/50 mx-2">•</span> <span className="text-primary glow-text">{data.primary_type || "Contributor"}</span>
               </h1>
-              <div className="flex items-center gap-sm">
-                {/* switch developer without leaving the page — the navbar link
-                    carries ?user= forward, so there is otherwise no way back
-                    to the search screen */}
-                <form
-                  onSubmit={(e) => { e.preventDefault(); openProfile(inputVal); }}
-                  className="flex items-center rounded-md overflow-hidden border border-outline-variant focus-within:border-primary bg-surface-container-lowest"
-                >
-                  <span className="material-symbols-outlined text-[16px] text-on-surface-variant pl-2">
-                    search
-                  </span>
-                  <input
-                    type="url"
-                    value={inputVal}
-                    onChange={(e) => { setInputVal(e.target.value); setInputError(null); }}
-                    placeholder="github.com/user"
-                    aria-label="Another GitHub profile URL"
-                    className="w-[11rem] bg-transparent border-none py-1.5 px-2 focus:outline-none font-code text-[12px] placeholder:text-on-surface-variant/40"
-                  />
-                </form>
-                <SyncBadge ageHours={data.age_hours} stale={data.stale} onRefresh={handleBuildProfile} />
-              </div>
+
             </div>
             {inputError && (
               <p className="text-error text-[12px] font-code mb-xs">{inputError}</p>
@@ -542,13 +521,13 @@ export default function DeveloperProfile() {
               <div className="flex gap-2">
                 <div className="dot"></div><div className="dot"></div><div className="dot"></div>
               </div>
-              <span className="font-code-sm text-on-surface-variant">contribution_matrix.sh</span>
+              <span className="font-code-sm text-on-surface-variant">contribution matrix</span>
             </div>
             <div className="p-md">
               <div className="flex justify-between items-center mb-6 min-w-full">
                 <div className="flex items-center gap-4">
                   <h3 className="text-[11px] text-on-surface-variant font-code font-bold uppercase tracking-widest">
-                    Annual Contribution Velocity
+                    Annual Contribution
                   </h3>
                   {availableYears.length > 0 && (
                     <select

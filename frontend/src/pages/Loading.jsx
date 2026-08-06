@@ -95,9 +95,9 @@ export default function Loading() {
   return (
     <div className="min-h-[calc(100vh-52px)] bg-background text-on-surface flex flex-col justify-between overflow-hidden relative terminal-grid select-none">
       <div className="fixed bottom-10 right-10 z-0 pointer-events-none select-none opacity-[0.02]">
-        <span className="font-stat text-[12rem] text-on-surface leading-none uppercase">
+        {/* <span className="font-stat text-[12rem] text-on-surface leading-none uppercase">
           ANALYZING
-        </span>
+        </span> */}
       </div>
 
       <main className="flex-grow flex items-center justify-center pt-8 pb-12 px-gutter z-10">
@@ -183,11 +183,7 @@ export default function Loading() {
             )}
           </div>
 
-          <div className="flex justify-between px-2 font-code text-[9px] text-on-surface-variant/40 uppercase tracking-widest">
-            <span>Node: REPOLENS-JOB-ENGINE</span>
-            <span>Uptime Check: OK</span>
-            <span>Task ID: {jobId ? jobId.slice(0, 8) : "N/A"}</span>
-          </div>
+
         </div>
       </main>
     </div>

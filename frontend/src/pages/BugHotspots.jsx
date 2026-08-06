@@ -407,7 +407,7 @@ export default function BugHotspots() {
                     ? "No results"
                     : `Showing ${pageStart + 1}–${Math.min(pageEnd, filteredRows.length)} of ${filteredRows.length} hotspot${filteredRows.length !== 1 ? "s" : ""}`}
                 </span>
-                <span className="uppercase">Heuristics active</span>
+                {/* <span className="uppercase">Heuristics active</span> */}
               </div>
 
               {/* Pagination controls */}
