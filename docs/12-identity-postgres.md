@@ -23,7 +23,7 @@ secrets, audit trail). Analysis output is document-shaped. Each store does
 what it's best at; the join key between the planes is the repo key
 (`owner/repo`).
 
-## The six tables (`core/identity.py::SCHEMA_SQL`, spec §6.4)
+## The seven tables (`core/identity.py::SCHEMA_SQL`, spec §6.4)
 
 | Table | Holds |
 |---|---|

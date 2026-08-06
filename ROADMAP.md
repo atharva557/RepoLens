@@ -19,8 +19,8 @@ These choices carry across every version below:
 - **LLM is a pluggable provider** — local **LM Studio** by default, or bring your own
   **Claude / OpenAI / Gemini** key. Always optional; rule-based features work without it.
 - **Developer Skill Profiler is per-GitHub-user across repos** (the guide's full framing).
-- **The GitHub Action is dropped** — a single webhook path is the plan for PR review.
-- **Interface is an interactive CLI** (menu-driven) until the dashboard lands in v0.4.
+- **The GitHub Action is dropped** — a single webhook path handles PR review automation.
+- **Interface is an interactive CLI** plus a React dashboard (shipped in v0.4/v1.0).
 
 ---
 
@@ -62,11 +62,11 @@ These choices carry across every version below:
   (queries Tool 1's hotspot scores), missing-tests heuristic, change focus/size,
   **diff-similarity to past bug diffs**, and an **LLM diff summary** (v0.2 provider).
 - **Delivery**: on-demand CLI `review-pr owner/repo#N` + opt-in GitHub PR-comment
-  posting (*no* GitHub Action). The webhook receiver moves to v0.4 (with FastAPI).
+  posting. The webhook receiver moves to v0.4 (with FastAPI).
 - *Cleanup done:* bug history is now credited only to source files, so docs/config
   (`.md`, `.toml`) stop producing false-positive hotspots.
 
-## 🔜 v0.4 — API + Dashboard (API shipped; dashboard next)
+## ✅ v0.4 — API + Dashboard
 
 **Adds: a web backend and the unified visual dashboard.**
 
@@ -74,29 +74,43 @@ These choices carry across every version below:
   analysis stays in the engine), with `BackgroundTasks` for long pulls (`api/`).
 - ✅ The **PR-review webhook** deferred from v0.3 (auto-trigger Tool 3 on PR
   open/update; HMAC-verified; opt-in comment posting).
-- 🔜 **React dashboard** (Tailwind + shadcn/ui + Recharts): Repo Overview (health score,
-  hotspot map, trends), File Deep-Dive, Developer Profiles, PR History, Commit Health,
-  Configuration.
+- ✅ **React dashboard** (Vite + React 19 + Tailwind 4 + Recharts): Home, Dashboard,
+  Bug Hotspots, Developer Profile, PR Review, Status, Settings, Preferences.
 
-## ⏳ v0.5 — Polish & Evaluation
+## ✅ v1.0 — Production-Ready Release
 
-**Adds: rigor — proving the tools work — plus comparison/scale features.**
+**Adds: multi-user support, email verification, evaluation, and hardening.**
 
-- **Evaluation pass (graders reward this):**
-  - Hold-out / temporal validation of hotspot scores — do high-scored files actually
-    receive bug fixes in a later window the model never saw? (precision@k, AUC).
-    This also lets the weighted-score weights be *tuned* against data instead of guessed.
-  - Small human-rated sample (20–30) for LLM diff summaries and commit suggestions,
-    scored against a simple rubric.
-- Developer-profile **comparison view** (two users side by side).
-- **Multi-repo** support in the dashboard.
-- Commit-quality contributor breakdown over time.
+- ✅ **Multi-user identity plane** (PostgreSQL, `MULTIUSER=true`): accounts, sessions,
+  GitHub OAuth + email/password login, Fernet-encrypted tokens, per-user credential
+  overlay, audit log — off by default, one env var to enable.
+- ✅ **Email verification (OTP)**: signup requires a 6-digit code, single-use,
+  10-minute TTL, 5-attempt lockout; stdlib SMTP with a console fallback for local dev.
+- ✅ **PR review email delivery**: webhook reviews email all repo trackers automatically;
+  dashboard reviews email on user request (`?email=true` / Email button).
+- ✅ **Temporal hold-out evaluation** (CLI option 10): precision@k of the hotspot score
+  against a future bug window it never saw — on nodejs/node: P@5 = 0.850 (~115× lift).
+- ✅ **Performance trilogy**: one-shot `git log --numstat` parse (~40× faster history
+  reads), 8-worker threaded profiler fetches, per-repo similarity corpus with
+  fingerprint-based reuse (fixes cross-repo concurrency bug).
+- ✅ **Settings + Preferences pages**, BYO-key drawer, session-scoped API cache,
+  activity base pre-aggregation (367ms → 3ms per dashboard load).
+- ✅ **13 suites, 124 tests** — all network- and DB-free by default.
 
 ---
 
-## Future ideas (post-submission)
+## 🔜 Post-v1.0
+
+- Per-repo read ACLs and private-repo ownership (deferred from v2 slice)
+- Quotas and rate limiting per user
+- OAuth scope escalation for comment posting
+- Developer-profile comparison view (two users side by side)
+- Weight tuning for the hotspot formula via held-out evaluation data
+
+---
+
+## Future ideas
 
 Slack integration · IDE plugin (file risk in VS Code) · org-level analytics ·
-trend alerts (notify on risk-score jumps) · API export · GitHub OAuth for
-multi-user deployments · LLM response caching · background worker queue
-(Celery + Redis) if BackgroundTasks is outgrown.
+trend alerts (notify on risk-score jumps) · API export · LLM response caching ·
+background worker queue (Celery + Redis) if BackgroundTasks is outgrown.

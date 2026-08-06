@@ -12,9 +12,9 @@ an interactive CLI and a FastAPI web backend, with results persisted in MongoDB.
 | | |
 |---|---|
 | **Codebase** | ~9,800 lines of Python (~6,800 excl. tests) across 67 modules, plus a ~5,500-line React dashboard |
-| **Tests** | 103 tests in 11 suites — network-free, all passing |
-| **Status** | v0.4 shipped (four tools + API + React dashboard); unreleased: multi-user identity plane, hold-out evaluation |
-| **Stack** | Python 3.13 · GitPython · MongoDB · FastAPI · XGBoost (optional) · pluggable LLM (optional) |
+| **Tests** | 124 tests in 13 suites — network-free, all passing |
+| **Status** | v1.0 — production-ready with multi-user support, email verification, temporal evaluation, and full dashboard |
+| **Stack** | Python 3.11+ · GitPython · MongoDB · PostgreSQL · FastAPI · XGBoost (optional) · pluggable LLM (optional) |
 
 ---
 

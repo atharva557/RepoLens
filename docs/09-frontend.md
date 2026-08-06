@@ -27,6 +27,8 @@ components, and CORS is a non-issue in dev (the server also enables CORS via
 | `/profile` | `DeveloperProfile` | `GET /profiles/{username}` — type distribution, languages, commit health, heatmap, AI summary. Without `?user=` it renders a username search (accepting `octocat`, `@octocat`, a profile URL or `owner/repo`) plus chips for already-built profiles from `GET /profiles` |
 | `/pr-review` | `PRReview` | `GET/POST /repos/{o}/{r}/pr-reviews/{n}` + `GET /repos/{key}/pr-reviews` — accepts `owner/repo#N` or a PR URL, triggers a review, shows the risk report; lists the repo's reviewed PRs |
 | `/status` | `Status` | `GET /test`, `GET /config` — live self-test (store, LLM, similarity backend, token/webhook) and the resolved, secret-masked config |
+| `/settings` | `Settings` | `PUT /config`, `GET /test` — LLM provider/key, GitHub token, and per-user settings (multiuser: `PUT/DELETE /api/v1/me/llm`, `DELETE /api/v1/me/github-token`) |
+| `/preferences` | `Preferences` | Local-only — theme (`dark`/`light`/`system`) and accent-color selection, persisted to `localStorage` via `ThemeContext` |
 
 `Login` has no route of its own: in multiuser mode `App.jsx` renders it
 *instead of* the router for an anonymous visitor, on every URL, so the

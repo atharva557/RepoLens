@@ -1,8 +1,8 @@
-# RepoLens — v0.4 (API Layer)
+# RepoLens — v1.0
 
-GitHub analytics & intelligence platform, exposed through an interactive CLI.
-See [CHANGELOG.md](CHANGELOG.md) for the per-version breakdown, and
-[docs/](docs/README.md) for the technical documentation (architecture, data
+GitHub analytics & intelligence platform with an interactive CLI, FastAPI backend,
+and React dashboard. See [CHANGELOG.md](CHANGELOG.md) for the per-version breakdown,
+and [docs/](docs/README.md) for the technical documentation (architecture, data
 model, per-tool internals, API, configuration, testing).
 
 Two capstone documents:
@@ -56,8 +56,18 @@ It follows the *revised* architecture (see `../GitPulse_Revised_Sections.md`):
 |---|---|
 | FastAPI backend (read layer + BackgroundTasks triggers) | `api/main.py`, `api/jobs.py` |
 | PR-review webhook (deferred from v0.3) | `api/webhook.py` |
+| React dashboard | `frontend/` — Vite + React 19, Tailwind, Recharts |
 
-The React dashboard completes v0.4.
+**v1.0 — Production-Ready Release**
+
+| Roadmap item | Where |
+|---|---|
+| Multi-user identity plane (Postgres) | `core/identity.py`, `api/auth.py` |
+| Email verification (OTP codes) | `core/mailer.py` |
+| Settings & Preferences UI | `frontend/src/pages/Settings.jsx`, `Preferences.jsx` |
+| Job progress reporting | `core/progress.py` |
+| Performance optimizations | `core/activity.py`, Git log parsing, profiler threading, similarity corpus per-repo |
+| Temporal hold-out validation (v0.5) | `tools/bug_hotspot/evaluate.py` |
 
 ## Web API (v0.4)
 
@@ -322,10 +332,12 @@ python tests/test_api.py             # FastAPI layer (skips if fastapi not insta
 python tests/test_github_cache.py    # GitHub metadata freshness / refetch policy
 python tests/test_hotspot_eval.py    # temporal hold-out validation of the score
 python tests/test_identity.py        # multi-user auth, sessions, encrypted keys
+python tests/test_mailer.py          # SMTP/console mail backends
+python tests/test_notify.py          # PR review email notifications
 # or:  pytest tests/
 ```
 
-11 suites, 103 tests. Four tests in `test_identity.py` need a real Postgres
+13 suites, 124 tests. Five tests in `test_identity.py` need a real Postgres
 and skip unless `TEST_DATABASE_URL` points at a throwaway database — see
 [docs/11-testing.md](docs/11-testing.md).
 

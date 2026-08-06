@@ -7,6 +7,10 @@ This project follows the milestone roadmap in `../GitPulse_Revised_Sections.md`.
 
 ## [Unreleased]
 
+---
+
+## [v1.0] — Production-Ready Release — 2026-08-06
+
 - **The Developer Profile page can now be searched from itself**, and no
   longer crashes when opened without one. Reached from the navbar it arrives
   with no `?user=`, and the render dereferenced `data.user` while `data` was
@@ -411,6 +415,23 @@ This project follows the milestone roadmap in `../GitPulse_Revised_Sections.md`.
   conventions in `src/lib/api.js`). The prototype color/font theme is wired
   into `src/index.css` `@theme`; `npm run dev` proxies `/api/*` to
   `127.0.0.1:8000`. Build verified.
+
+---
+
+## [v1.0] — Production-Ready Release — 2026-08-06
+
+Promotes all unreleased work to a named release. The full feature list is in
+the `[Unreleased]` section above; highlights:
+
+- Multi-user identity plane (PostgreSQL): GitHub OAuth + email/password login,
+  Fernet-encrypted tokens, per-user credential overlay, audit log
+- Email verification (OTP) with stdlib SMTP and console fallback
+- PR review email delivery (webhook always sends; dashboard on request)
+- Temporal hold-out hotspot evaluation — P@5 = 0.850 on nodejs/node
+- Performance trilogy: one-shot git log parse, threaded profiler, per-repo
+  similarity corpus (367ms → 3ms dashboard activity load)
+- Settings + Preferences pages, BYO-key drawer, session-scoped API cache
+- 13 suites, 124 tests — all network- and DB-free by default
 
 ---
 

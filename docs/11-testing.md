@@ -1,6 +1,6 @@
 # 11 — Testing
 
-11 suites, 103 tests. Every suite runs standalone
+13 suites, 124 tests. Every suite runs standalone
 (`python tests/test_x.py`) **or** under pytest (`pytest tests/`), and by
 default every suite is **network-free and dependency-free** — the core
 analysis modules are pure stdlib, and everything heavy is faked. The one
