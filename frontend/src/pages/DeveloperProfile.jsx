@@ -753,19 +753,6 @@ export default function DeveloperProfile() {
         </div>
       </main>
 
-      {/* Footer */}
-      <footer className="w-full px-margin-desktop flex flex-col md:flex-row justify-between items-center gap-md py-xl border-t border-outline-variant/10 bg-surface">
-        <div className="flex flex-col items-center md:items-start gap-xs">
-          <span className="font-display-lg text-display-lg font-bold text-primary">RepoLens</span>
-          <span className="font-body-sm text-body-sm text-on-surface-variant">© 2024 RepoLens. All systems operational.</span>
-        </div>
-        <div className="flex gap-lg">
-          <a className="font-body-sm text-body-sm text-on-surface-variant hover:text-primary transition-colors" href="#">GitHub</a>
-          <a className="font-body-sm text-body-sm text-on-surface-variant hover:text-primary transition-colors" href="#">Twitter</a>
-          <a className="font-body-sm text-body-sm text-on-surface-variant hover:text-primary transition-colors" href="#">Documentation</a>
-          <a className="font-body-sm text-body-sm text-on-surface-variant hover:text-primary transition-colors" href="#">Status</a>
-        </div>
-      </footer>
     </div>
   );
 }

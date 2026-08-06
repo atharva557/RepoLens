@@ -700,40 +700,6 @@ export default function Home() {
         </div>
       </main>
 
-      {/* ── Footer (unchanged) ── */}
-      <footer
-        className="h-[40px] border-t border-outline-variant flex items-center px-4 overflow-hidden"
-        style={{
-          backgroundColor: "#141414",
-          borderColor: "rgba(255,255,255,0.07)",
-        }}
-      >
-        <div
-          className="max-w-[640px] mx-auto w-full flex flex-col sm:flex-row justify-between font-code text-[10px] uppercase tracking-tighter gap-2 sm:gap-0"
-          style={{ color: "rgba(255,255,255,0.35)" }}
-        >
-          <div className="flex items-center gap-4 justify-center sm:justify-start">
-            <span className="flex items-center gap-1.5">
-              <span
-                className={`w-2 h-2 rounded-full ${health?.status === "ok"
-                  ? "bg-green-500 animate-pulse"
-                  : "bg-red-500"
-                  }`}
-              />
-              {health?.status === "ok" ? "SYSTEM_READY" : "SYSTEM_OFFLINE"}
-            </span>
-            <span className="hidden sm:inline">
-              STORE: {health?.store || "LOCAL_JSON"}
-            </span>
-          </div>
-          <div className="flex items-center gap-4 justify-center sm:justify-end">
-            <span className="hidden md:inline">
-              API VERSION: {health?.version || "0.4"}
-            </span>
-            <span>Uptime: 99.99%</span>
-          </div>
-        </div>
-      </footer>
     </div>
   );
 }
