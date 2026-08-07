@@ -48,7 +48,7 @@ def build_report(pr: dict, risk: dict, similarity: dict, summary: str | None,
                  *, coverage: dict | None = None,
                  high: float = 0.5, medium: float = 0.2) -> dict:
     level, score, breakdown = _risk_level(risk, similarity, high=high, medium=medium)
-    lines: list[str] = ["## 🤖 RepoLens Pre-Review Report", "",
+    lines: list[str] = ["## RepoLens Pre-Review Report", "",
                         f"**Risk Level: {level}** (score {score:.2f})"]
     if breakdown:
         lines.append("Score = " + " + ".join(

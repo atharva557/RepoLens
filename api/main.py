@@ -495,6 +495,7 @@ def create_app(settings: Settings | None = None, store=None, identity=None,
         """Email an already-generated report — what the dashboard's Email
         button calls. Synchronous on purpose: the user clicked it and wants
         to be told whether it actually went out."""
+        repo_key = canonical_repo_key(repo_key)
         st = request.app.state
         _require_scope(request, repo=repo_key)
         doc = st.store.load_report("pr_review", f"{repo_key}#{number}")
@@ -515,6 +516,7 @@ def create_app(settings: Settings | None = None, store=None, identity=None,
                   tasks: BackgroundTasks, email: bool = False):
         """`?email=true` mails the report when the run finishes — the
         dashboard sends the user's "email reviews automatically" preference."""
+        repo_key = canonical_repo_key(repo_key)
         st = request.app.state
         spec = f"{repo_key}#{number}"
         params = _trigger_params(request, {"pr": spec})
@@ -569,6 +571,7 @@ def create_app(settings: Settings | None = None, store=None, identity=None,
 
     @app.get("/repos/{repo_key:path}/pr-reviews")
     def list_pr_reviews(repo_key: str, request: Request):
+        repo_key = canonical_repo_key(repo_key)
         _require_scope(request, repo=repo_key)
         rows = request.app.state.store.list_reports("pr_review", fields=("level",))
         out = []
@@ -588,6 +591,7 @@ def create_app(settings: Settings | None = None, store=None, identity=None,
         served from the cached `activity_base` aggregate (computed when the
         history is saved). Re-reading the full commit list per request made
         big repos crawl on every dashboard view."""
+        repo_key = canonical_repo_key(repo_key)
         st = request.app.state
         _require_scope(request, repo=repo_key)
         base = st.store.load_report("activity_base", repo_key)
@@ -608,6 +612,7 @@ def create_app(settings: Settings | None = None, store=None, identity=None,
     def repo_meta(repo_key: str, request: Request, refresh: bool = False):
         """GitHub-side header metadata (description, stars, forks, languages,
         open issues) — store-cached; needs GITHUB_TOKEN for the first fetch."""
+        repo_key = canonical_repo_key(repo_key)
         st = request.app.state
         _require_scope(request, repo=repo_key)
         try:
@@ -627,6 +632,7 @@ def create_app(settings: Settings | None = None, store=None, identity=None,
         """The repo's last-N GitHub pull requests, whether Tool 3 has reviewed
         them or not — store-cached with a short TTL (PULLS_CACHE_HOURS). The
         dashboard joins these against /pr-reviews for the review chips."""
+        repo_key = canonical_repo_key(repo_key)
         st = request.app.state
         _require_scope(request, repo=repo_key)
         try:
@@ -644,6 +650,7 @@ def create_app(settings: Settings | None = None, store=None, identity=None,
 
     @app.get("/repos/{repo_key:path}/insights")
     def insights(repo_key: str, request: Request):
+        repo_key = canonical_repo_key(repo_key)
         _require_scope(request, repo=repo_key)
         doc = request.app.state.store.load_report("repo_insights", repo_key)
         if doc is None:
@@ -653,6 +660,7 @@ def create_app(settings: Settings | None = None, store=None, identity=None,
 
     @app.post("/repos/{repo_key:path}/insights", status_code=202)
     def generate_insights(repo_key: str, request: Request, tasks: BackgroundTasks):
+        repo_key = canonical_repo_key(repo_key)
         st = request.app.state
         params = _trigger_params(request, {"repo": repo_key})
         _track_for_user(request, repo=repo_key)
@@ -664,6 +672,7 @@ def create_app(settings: Settings | None = None, store=None, identity=None,
     # `:path` keys accept both "owner/repo" and bare local-clone names.
     @app.get("/repos/{repo_key:path}/hotspots")
     def hotspots(repo_key: str, request: Request, top: int = Query(50, ge=0)):
+        repo_key = canonical_repo_key(repo_key)
         _require_scope(request, repo=repo_key)
         doc = request.app.state.store.load_hotspots(repo_key)
         if doc is None:
@@ -673,6 +682,7 @@ def create_app(settings: Settings | None = None, store=None, identity=None,
 
     @app.get("/repos/{repo_key:path}/commit-quality")
     def commit_quality_report(repo_key: str, request: Request):
+        repo_key = canonical_repo_key(repo_key)
         _require_scope(request, repo=repo_key)
         doc = request.app.state.store.load_report("commit_quality", repo_key)
         if doc is None:
@@ -682,6 +692,7 @@ def create_app(settings: Settings | None = None, store=None, identity=None,
 
     @app.get("/repos/{repo_key:path}/pr-reviews/{number}")
     def pr_review_report(repo_key: str, number: int, request: Request):
+        repo_key = canonical_repo_key(repo_key)
         _require_scope(request, repo=repo_key)
         doc = request.app.state.store.load_report("pr_review", f"{repo_key}#{number}")
         if doc is None:
